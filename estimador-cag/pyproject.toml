@@ -1,0 +1,24 @@
+[project]
+name = "estimador-cag"
+version = "0.1.0"
+description = "API FastAPI de estimación de software con arquitectura CAG"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.5.0",
+    "fastapi>=0.141.1",
+    "openai>=3.13.0",
+    "pydantic-settings>=2.15.0",
+    "python-dotenv>=1.2.3",
+    "uvicorn[standard]>=0.52.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
