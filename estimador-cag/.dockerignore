@@ -1,6 +1,5 @@
 # VCS
 .git
-.gitignore
 
 # Entorno y secretos
 .env
@@ -25,8 +24,7 @@ Dockerfile
 docker-compose*.yml
 .dockerignore
 
-# Docs / OS / editores
-README.md
+# OS / editores
 .DS_Store
 .idea/
 .vscode/

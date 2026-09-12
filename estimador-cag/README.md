@@ -15,7 +15,9 @@ estimador-cag/
 │   │   └── llm_service.py   # System prompt + ejemplos + llamada al proveedor
 │   └── context/
 │       └── examples.py      # Estimaciones previas (few-shot, CAG)
-├── tests/                   # Tests con pytest (proveedores mockeados)
+├── tests/                   # Tests con pytest (proveedores mockeados + estructura)
+├── examples/
+│   └── transcripcion.md     # Transcripción de reunión de ejemplo (input del ejercicio)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
 ├── docker-compose.yml       # Servicios api y test
 ├── .dockerignore
@@ -23,6 +25,8 @@ estimador-cag/
 ├── pyproject.toml
 └── README.md
 ```
+
+> El pipeline de CI vive en la raíz del repo: `.github/workflows/ci.yml` (lint, type-check, tests y smoke test de Docker).
 
 ## Requisitos
 
@@ -75,13 +79,33 @@ Estado del servicio:
 curl http://localhost:8000/health
 ```
 
+## Transcripción de ejemplo
+
+En `examples/transcripcion.md` hay una transcripción de reunión realista (landing page + integración HubSpot + blog con editor WYSIWYG) lista para usar como parámetro del ejercicio. Copia el contenido de la sección **Transcripción** en el campo `transcription` del body.
+
 ## Tests
 
 ```bash
 uv run pytest
 ```
 
-Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren el endpoint, la validación de schemas y la inyección del contexto CAG en el system prompt.
+Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren el endpoint, la validación de schemas, la inyección del contexto CAG en el system prompt y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`).
+
+## Calidad y CI
+
+El proyecto usa `ruff` (lint + formato) y `mypy` (type-check estricto sobre `app/`):
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy app
+```
+
+El pipeline de GitHub Actions (`.github/workflows/ci.yml`) se dispara en `push` a `main`/`feature/**` y en pull requests, y ejecuta tres jobs:
+
+1. **quality** — `ruff` + `mypy`.
+2. **test** — `pytest` (incluye la validación de estructura).
+3. **docker** — build, tests dentro de la imagen y smoke test de `/health` levantando el servicio con Compose.
 
 ## Docker
 

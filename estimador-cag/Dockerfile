@@ -20,7 +20,8 @@ FROM builder AS test
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen
 
-COPY tests ./tests
+# Copia el proyecto completo para poder validar también la estructura
+COPY . .
 
 CMD ["uv", "run", "--no-sync", "pytest", "-v"]
 

@@ -55,9 +55,7 @@ def test_openai_provider_maps_response(monkeypatch) -> None:
             captured.update(kwargs)
             message = SimpleNamespace(content="## Estimación OpenAI")
             usage = SimpleNamespace(prompt_tokens=11, completion_tokens=22)
-            return SimpleNamespace(
-                choices=[SimpleNamespace(message=message)], usage=usage
-            )
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
 
     class FakeChat:
         def __init__(self) -> None:
@@ -96,9 +94,7 @@ def test_anthropic_provider_maps_response(monkeypatch) -> None:
 
     class FakeMessages:
         def create(self, *, model, max_tokens, system, messages):
-            captured.update(
-                model=model, max_tokens=max_tokens, system=system, messages=messages
-            )
+            captured.update(model=model, max_tokens=max_tokens, system=system, messages=messages)
             block = SimpleNamespace(type="text", text="## Estimación Anthropic")
             usage = SimpleNamespace(input_tokens=7, output_tokens=9)
             return SimpleNamespace(content=[block], usage=usage)

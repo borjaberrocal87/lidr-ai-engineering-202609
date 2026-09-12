@@ -73,9 +73,7 @@ def generate_estimation(transcription: str) -> EstimationResult:
 
 def _estimate_with_openai(transcription: str) -> EstimationResult:
     if not settings.open_ai_key:
-        raise LLMConfigurationError(
-            "OPEN_AI_KEY no está configurada. Añádela al archivo .env."
-        )
+        raise LLMConfigurationError("OPEN_AI_KEY no está configurada. Añádela al archivo .env.")
 
     from openai import OpenAI
 
@@ -116,11 +114,7 @@ def _estimate_with_anthropic(transcription: str) -> EstimationResult:
         messages=[{"role": "user", "content": transcription}],
     )
 
-    text = "".join(
-        block.text
-        for block in response.content
-        if getattr(block, "type", None) == "text"
-    )
+    text = "".join(block.text for block in response.content if block.type == "text")
     usage = response.usage
     return EstimationResult(
         estimation=text,
