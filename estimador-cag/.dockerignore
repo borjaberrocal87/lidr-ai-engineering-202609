@@ -1,0 +1,32 @@
+# VCS
+.git
+.gitignore
+
+# Entorno y secretos
+.env
+.venv
+venv
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+wheels/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Docs / OS / editores
+README.md
+.DS_Store
+.idea/
+.vscode/

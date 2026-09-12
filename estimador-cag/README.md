@@ -16,6 +16,9 @@ estimador-cag/
 │   └── context/
 │       └── examples.py      # Estimaciones previas (few-shot, CAG)
 ├── tests/                   # Tests con pytest (proveedores mockeados)
+├── Dockerfile               # Build multi-stage (builder / test / runtime)
+├── docker-compose.yml       # Servicios api y test
+├── .dockerignore
 ├── .env.example
 ├── pyproject.toml
 └── README.md
@@ -78,6 +81,38 @@ uv run pytest
 ```
 
 Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren el endpoint, la validación de schemas y la inyección del contexto CAG en el system prompt.
+
+## Docker
+
+Requisitos: Docker con Compose. Las claves se inyectan en runtime desde `.env` (nunca quedan en la imagen).
+
+```bash
+# 1. Configurar variables de entorno
+cp .env.example .env
+# Edita .env y añade tus claves (OPEN_AI_KEY / ANTHROPIC_API_KEY)
+
+# 2. Construir y arrancar
+docker compose up --build -d
+
+# 3. Comprobar
+curl http://localhost:8000/health
+
+# Ver logs
+docker compose logs -f api
+
+# Parar
+docker compose down
+```
+
+- Swagger: http://localhost:8000/docs
+- Puerto personalizado: `API_PORT=8123 docker compose up --build -d`
+- Tests dentro de Docker:
+
+```bash
+docker compose --profile test run --rm test
+```
+
+La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (dev deps + pytest) y `builder` (resolución de dependencias con uv).
 
 ## Variables de entorno
 

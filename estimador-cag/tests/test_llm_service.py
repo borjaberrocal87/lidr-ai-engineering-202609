@@ -92,8 +92,10 @@ def test_anthropic_provider_maps_response(monkeypatch) -> None:
     captured: dict = {}
 
     class FakeMessages:
-        def create(self, **kwargs):
-            captured.update(kwargs)
+        def create(self, *, model, max_tokens, system, messages):
+            captured.update(
+                model=model, max_tokens=max_tokens, system=system, messages=messages
+            )
             block = SimpleNamespace(type="text", text="## Estimación Anthropic")
             usage = SimpleNamespace(input_tokens=7, output_tokens=9)
             return SimpleNamespace(content=[block], usage=usage)

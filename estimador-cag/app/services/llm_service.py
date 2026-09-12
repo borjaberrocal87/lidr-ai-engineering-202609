@@ -110,7 +110,6 @@ def _estimate_with_anthropic(transcription: str) -> EstimationResult:
     response = client.messages.create(
         model=settings.llm_model,
         max_tokens=2048,
-        temperature=0.2,
         system=build_system_prompt(),
         messages=[{"role": "user", "content": transcription}],
     )
