@@ -25,6 +25,7 @@ class Settings(BaseSettings):
 
     llm_provider: Literal["openai", "anthropic"] = "openai"
     llm_model: str = DEFAULT_MODELS["openai"]
+    temperature: float = 0.2
 
     open_ai_key: str = ""
     anthropic_api_key: str = ""

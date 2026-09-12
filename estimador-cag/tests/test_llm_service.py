@@ -71,6 +71,7 @@ def test_openai_provider_maps_response(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_provider", "openai")
     monkeypatch.setattr(settings, "open_ai_key", "test-key")
     monkeypatch.setattr(settings, "llm_model", "gpt-4o-mini")
+    monkeypatch.setattr(settings, "temperature", 0.3)
     monkeypatch.setattr("openai.OpenAI", FakeOpenAI)
 
     result = generate_estimation(TRANSCRIPTION)
@@ -79,11 +80,13 @@ def test_openai_provider_maps_response(monkeypatch) -> None:
         estimation="## Estimación OpenAI",
         model="gpt-4o-mini",
         provider="openai",
+        temperature=0.3,
         input_tokens=11,
         output_tokens=22,
     )
     assert captured["api_key"] == "test-key"
     assert captured["model"] == "gpt-4o-mini"
+    assert captured["temperature"] == 0.3
     assert [m["role"] for m in captured["messages"]] == ["system", "user"]
     assert ESTIMATION_EXAMPLES[0]["estimation"] in captured["messages"][0]["content"]
 

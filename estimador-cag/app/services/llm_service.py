@@ -20,6 +20,7 @@ class EstimationResult:
     estimation: str
     model: str
     provider: str
+    temperature: float | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
 
@@ -85,7 +86,7 @@ def _estimate_with_openai(transcription: str) -> EstimationResult:
             {"role": "system", "content": build_system_prompt()},
             {"role": "user", "content": transcription},
         ],
-        temperature=0.2,
+        temperature=settings.temperature,
     )
 
     usage = response.usage
@@ -93,6 +94,7 @@ def _estimate_with_openai(transcription: str) -> EstimationResult:
         estimation=response.choices[0].message.content or "",
         model=settings.llm_model,
         provider="openai",
+        temperature=settings.temperature,
         input_tokens=getattr(usage, "prompt_tokens", None),
         output_tokens=getattr(usage, "completion_tokens", None),
     )

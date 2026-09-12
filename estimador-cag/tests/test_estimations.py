@@ -11,6 +11,7 @@ def test_estimate_success(client: TestClient, transcription: str, monkeypatch) -
             estimation="## Estimación: Landing Page\n\n**Total: 150 horas**",
             model="gpt-4o-mini",
             provider="openai",
+            temperature=0.2,
             input_tokens=123,
             output_tokens=45,
         )
@@ -23,6 +24,7 @@ def test_estimate_success(client: TestClient, transcription: str, monkeypatch) -
     body = response.json()
     assert body["provider"] == "openai"
     assert body["model"] == "gpt-4o-mini"
+    assert body["temperature"] == 0.2
     assert body["input_tokens"] == 123
     assert body["output_tokens"] == 45
     assert "Estimación" in body["estimation"]

@@ -22,6 +22,13 @@ class EstimateResponse(BaseModel):
     estimation: str = Field(..., description="Estimación generada en Markdown.")
     model: str = Field(..., description="Modelo LLM utilizado.")
     provider: str = Field(..., description="Proveedor LLM utilizado.")
+    temperature: float | None = Field(
+        None,
+        description=(
+            "Temperatura usada en la generación. Null si el proveedor "
+            "(p. ej. Anthropic en este SDK) no la soporta."
+        ),
+    )
     input_tokens: int | None = Field(None, description="Tokens de entrada consumidos.")
     output_tokens: int | None = Field(None, description="Tokens de salida generados.")
 
@@ -44,6 +51,7 @@ def estimate(payload: EstimateRequest) -> EstimateResponse:
         estimation=result.estimation,
         model=result.model,
         provider=result.provider,
+        temperature=result.temperature,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
     )
