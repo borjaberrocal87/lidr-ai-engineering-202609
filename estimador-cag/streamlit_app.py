@@ -8,9 +8,11 @@ import time
 
 import streamlit as st
 
+from app.context.examples import ESTIMATION_EXAMPLES
 from app.services.llm_service import (
     LLMConfigurationError,
     StreamMetrics,
+    build_system_prompt,
     stream_estimation,
 )
 
@@ -58,3 +60,30 @@ if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
                 "elapsed_seconds": elapsed_seconds,
             }
             st.caption(f"Modelo: {metrics.model} · Proveedor: {metrics.provider}")
+
+with st.sidebar:
+    st.header("Contexto CAG")
+
+    st.subheader("System prompt activo")
+    st.code(build_system_prompt(), language="markdown")
+
+    st.subheader("Contexto inyectado")
+    st.caption(f"{len(ESTIMATION_EXAMPLES)} estimaciones de referencia en el prompt")
+    for index, example in enumerate(ESTIMATION_EXAMPLES, start=1):
+        with st.expander(f"Ejemplo {index}"):
+            st.markdown(f"**Resumen de la reunión:**\n\n{example['meeting_summary']}")
+            st.markdown(example["estimation"])
+
+    st.subheader("Última llamada")
+    last_metrics = st.session_state.last_metrics
+    if last_metrics is None:
+        st.caption("Todavía no se ha generado ninguna estimación.")
+    else:
+        elapsed = last_metrics["elapsed_seconds"]
+        st.markdown(
+            f"- **Modelo:** {last_metrics['model']}\n"
+            f"- **Proveedor:** {last_metrics['provider']}\n"
+            f"- **Tokens de entrada:** {last_metrics['input_tokens']}\n"
+            f"- **Tokens de salida:** {last_metrics['output_tokens']}\n"
+            f"- **Tiempo de respuesta:** {elapsed:.2f} s"
+        )

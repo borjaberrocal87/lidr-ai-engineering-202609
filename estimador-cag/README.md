@@ -93,6 +93,8 @@ uv run streamlit run streamlit_app.py
 
 Se abre en http://localhost:8501. La conversación persiste durante la sesión (`st.session_state`) y la app reutiliza la misma lógica de llamada y el mismo system prompt CAG que el endpoint `/api/v1/estimate`. La API key se sigue leyendo desde `.env`.
 
+El panel lateral (nivel 3) muestra el system prompt activo en solo lectura, los ejemplos de contexto CAG inyectados y las métricas de la última llamada: modelo, proveedor, tokens de entrada/salida y tiempo de respuesta.
+
 ## Transcripción de ejemplo
 
 En `examples/transcripcion.md` hay una transcripción de reunión realista (landing page + integración HubSpot + blog con editor WYSIWYG) lista para usar como parámetro del ejercicio. Copia el contenido de la sección **Transcripción** en el campo `transcription` del body.
