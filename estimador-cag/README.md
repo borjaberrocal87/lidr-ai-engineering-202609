@@ -18,6 +18,8 @@ estimador-cag/
 ├── tests/                   # Tests con pytest (proveedores mockeados + estructura)
 ├── examples/
 │   └── transcripcion.md     # Transcripción de reunión de ejemplo (input del ejercicio)
+├── specs/
+│   └── sesion-2-scaffolding-fastapi.md  # Spec original del ejercicio (sesión 2)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
 ├── docker-compose.yml       # Servicios api y test
 ├── .dockerignore
