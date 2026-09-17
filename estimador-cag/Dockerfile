@@ -13,6 +13,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
 COPY app ./app
+COPY streamlit_app.py ./
 
 # ---------- Test: dev deps + pytest ----------
 FROM builder AS test
@@ -38,9 +39,10 @@ RUN groupadd --system app && useradd --system --gid app --create-home app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/app /app/app
+COPY --from=builder --chown=app:app /app/streamlit_app.py /app/streamlit_app.py
 
 USER app
 
-EXPOSE 8000
+EXPOSE 8000 8501
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

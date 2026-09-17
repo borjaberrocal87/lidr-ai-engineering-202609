@@ -146,7 +146,9 @@ docker compose down
 ```
 
 - Swagger: http://localhost:8000/docs
-- Puerto personalizado: `API_PORT=8123 docker compose up --build -d`
+- Interfaz Streamlit: http://localhost:8501 (servicio `ui`, misma imagen que la API)
+- Puerto personalizado: `API_PORT=8123 docker compose up --build -d` (y `UI_PORT=8502` para Streamlit)
+- Arrancar solo la interfaz: `docker compose up --build ui`
 - Tests dentro de Docker:
 
 ```bash
