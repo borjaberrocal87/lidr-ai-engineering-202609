@@ -1,11 +1,10 @@
-import logging
-
 from fastapi import FastAPI
 
 from app.config import APP_NAME, settings
+from app.logging_config import configure_logging
 from app.routers import estimations
 
-logging.basicConfig(level=settings.log_level.upper())
+configure_logging()
 
 app = FastAPI(
     title=APP_NAME,

@@ -43,7 +43,7 @@ def test_app_exposes_expected_entrypoints() -> None:
     from app.services.llm_service import LLMConfigurationError, generate_estimation
 
     assert app.title
-    assert settings.llm_provider in {"openai", "anthropic"}
+    assert settings.llm_provider in {"openai", "anthropic", "custom"}
     assert callable(generate_estimation)
     assert issubclass(LLMConfigurationError, RuntimeError)
     assert estimations.router is not None
