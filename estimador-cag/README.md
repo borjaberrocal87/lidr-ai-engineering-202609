@@ -85,7 +85,7 @@ curl http://localhost:8000/health
 
 ## Interfaz conversacional (Streamlit)
 
-Además de la API, el proyecto incluye una interfaz de chat web para pegar transcripciones y ver la estimación sin usar `curl`, Postman ni Swagger:
+Además de la API, el proyecto incluye una interfaz de chat web para pegar transcripciones y ver la estimación en streaming, sin usar `curl`, Postman ni Swagger:
 
 ```bash
 uv run streamlit run streamlit_app.py
