@@ -50,21 +50,16 @@ def test_anthropic_missing_key_raises(monkeypatch) -> None:
 def test_openai_provider_maps_response(monkeypatch) -> None:
     captured: dict = {}
 
-    class FakeCompletions:
+    class FakeResponses:
         def create(self, **kwargs):
             captured.update(kwargs)
-            message = SimpleNamespace(content="## Estimación OpenAI")
-            usage = SimpleNamespace(prompt_tokens=11, completion_tokens=22)
-            return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
-
-    class FakeChat:
-        def __init__(self) -> None:
-            self.completions = FakeCompletions()
+            usage = SimpleNamespace(input_tokens=11, output_tokens=22)
+            return SimpleNamespace(output_text="## Estimación OpenAI", usage=usage)
 
     class FakeOpenAI:
         def __init__(self, api_key=None) -> None:
             captured["api_key"] = api_key
-            self.chat = FakeChat()
+            self.responses = FakeResponses()
 
     monkeypatch.setattr(settings, "llm_provider", "openai")
     monkeypatch.setattr(settings, "open_ai_key", "test-key")
@@ -85,8 +80,8 @@ def test_openai_provider_maps_response(monkeypatch) -> None:
     assert captured["api_key"] == "test-key"
     assert captured["model"] == "gpt-4o-mini"
     assert captured["temperature"] == 0.3
-    assert [m["role"] for m in captured["messages"]] == ["system", "user"]
-    assert ESTIMATION_EXAMPLES[0]["estimation"] in captured["messages"][0]["content"]
+    assert captured["input"] == TRANSCRIPTION
+    assert ESTIMATION_EXAMPLES[0]["estimation"] in captured["instructions"]
 
 
 def test_anthropic_provider_maps_response(monkeypatch) -> None:

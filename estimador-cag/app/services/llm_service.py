@@ -1,8 +1,8 @@
 """Servicio de llamada al LLM con arquitectura CAG.
 
 El contexto estático (ejemplos de estimaciones previas) se inyecta en el
-system prompt en cada llamada. La transcripción de la nueva reunión viaja
-como mensaje de usuario.
+system prompt (parámetro `instructions` en la Responses API) en cada llamada.
+La transcripción de la nueva reunión viaja como `input`.
 """
 
 from dataclasses import dataclass
@@ -78,23 +78,21 @@ def _estimate_with_openai(transcription: str) -> EstimationResult:
     from openai import OpenAI
 
     client = OpenAI(api_key=settings.open_ai_key)
-    response = client.chat.completions.create(
+    response = client.responses.create(
         model=settings.llm_model,
-        messages=[
-            {"role": "system", "content": build_system_prompt()},
-            {"role": "user", "content": transcription},
-        ],
+        instructions=build_system_prompt(),
+        input=transcription,
         temperature=settings.temperature,
     )
 
     usage = response.usage
     return EstimationResult(
-        estimation=response.choices[0].message.content or "",
+        estimation=response.output_text or "",
         model=settings.llm_model,
         provider="openai",
         temperature=settings.temperature,
-        input_tokens=getattr(usage, "prompt_tokens", None),
-        output_tokens=getattr(usage, "completion_tokens", None),
+        input_tokens=getattr(usage, "input_tokens", None),
+        output_tokens=getattr(usage, "output_tokens", None),
     )
 
 

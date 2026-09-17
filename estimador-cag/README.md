@@ -147,6 +147,6 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `LOG_LEVEL`         | Nivel de logging (`DEBUG`, `INFO`, ...)       | `DEBUG`             |
 | `LLM_PROVIDER`      | Proveedor activo: `openai` o `anthropic`      | `openai`            |
 | `LLM_MODEL`         | Modelo del proveedor activo                   | `gpt-4o-mini`       |
-| `TEMPERATURE`       | Temperatura de generación (OpenAI)            | `0.2`               |
+| `TEMPERATURE`       | Temperatura de generación (Responses API)     | `0.2`               |
 | `OPEN_AI_KEY`       | API key de OpenAI                             | —                   |
 | `ANTHROPIC_API_KEY` | API key de Anthropic                          | —                   |
