@@ -100,7 +100,7 @@ ESTIMATION_EXAMPLES = [
         **Total estimado: 175 horas**
         **Equipo recomendado: 2 desarrolladores full-stack + 1 diseñador UX (part-time)**
         **Duración estimada: 6-8 semanas**
-        """
+        """,
     },
     # ... segundo ejemplo
 ]
