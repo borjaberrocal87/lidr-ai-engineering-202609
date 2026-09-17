@@ -5,11 +5,16 @@ system prompt (parámetro `instructions` en la Responses API) en cada llamada.
 La transcripción de la nueva reunión viaja como `input`.
 """
 
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+import structlog
+
 from app.config import settings
 from app.context.examples import ESTIMATION_EXAMPLES
+
+logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 class LLMConfigurationError(RuntimeError):
@@ -76,13 +81,35 @@ def build_system_prompt() -> str:
 
 def generate_estimation(transcription: str) -> EstimationResult:
     """Genera una estimación a partir de una transcripción usando el proveedor configurado."""
+    log = _call_logger(transcription)
+    log.info("llm.call.start", temperature=settings.temperature)
+    started_at = time.perf_counter()
+
+    try:
+        result = _dispatch_generate(transcription)
+    except Exception:
+        log.exception("llm.call.error", latency_ms=_elapsed_ms(started_at))
+        raise
+
+    log.info(
+        "llm.call.end",
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        latency_ms=_elapsed_ms(started_at),
+    )
+    return result
+
+
+def _dispatch_generate(transcription: str) -> EstimationResult:
     if settings.llm_provider == "openai":
         return _estimate_with_openai(transcription)
     if settings.llm_provider == "anthropic":
         return _estimate_with_anthropic(transcription)
+    if settings.llm_provider == "custom":
+        return _estimate_with_openai_compatible(transcription)
     raise LLMConfigurationError(
         f"Proveedor LLM no soportado: {settings.llm_provider!r}. "
-        "Usa 'openai' o 'anthropic' en LLM_PROVIDER."
+        "Usa 'openai', 'anthropic' o 'custom' en LLM_PROVIDER."
     )
 
 
@@ -97,16 +124,75 @@ def stream_estimation(
     empezar a consumir el generador. Si se pasa `metrics`, se rellena con el
     modelo y los tokens utilizados una vez agotado el generador.
     """
+    log = _call_logger(transcription)
+    log.info("llm.stream.start", temperature=settings.temperature)
+    started_at = time.perf_counter()
+
+    active_metrics = metrics if metrics is not None else StreamMetrics(model="", provider="")
+    try:
+        inner = _dispatch_stream(transcription, active_metrics)
+    except Exception:
+        log.exception("llm.stream.error", latency_ms=_elapsed_ms(started_at))
+        raise
+
+    return _logged_stream(inner, log, active_metrics, started_at)
+
+
+def _dispatch_stream(
+    transcription: str,
+    metrics: StreamMetrics | None,
+) -> Iterator[str]:
     if settings.llm_provider == "openai":
         _require_openai_key()
         return _stream_with_openai(transcription, metrics)
     if settings.llm_provider == "anthropic":
         _require_anthropic_key()
         return _stream_with_anthropic(transcription, metrics)
+    if settings.llm_provider == "custom":
+        _require_custom_base_url()
+        _require_custom_key()
+        return _stream_with_openai_compatible(transcription, metrics)
     raise LLMConfigurationError(
         f"Proveedor LLM no soportado: {settings.llm_provider!r}. "
-        "Usa 'openai' o 'anthropic' en LLM_PROVIDER."
+        "Usa 'openai', 'anthropic' o 'custom' en LLM_PROVIDER."
     )
+
+
+def _logged_stream(
+    inner: Iterator[str],
+    log: structlog.stdlib.BoundLogger,
+    metrics: StreamMetrics | None,
+    started_at: float,
+) -> Iterator[str]:
+    """Envuelve el generador del proveedor para registrar el fin del streaming."""
+    try:
+        yield from inner
+    except Exception:
+        log.exception("llm.stream.error", latency_ms=_elapsed_ms(started_at))
+        raise
+    except BaseException:
+        log.warning("llm.stream.aborted", latency_ms=_elapsed_ms(started_at))
+        raise
+
+    log.info(
+        "llm.stream.end",
+        input_tokens=getattr(metrics, "input_tokens", None),
+        output_tokens=getattr(metrics, "output_tokens", None),
+        latency_ms=_elapsed_ms(started_at),
+    )
+
+
+def _call_logger(transcription: str) -> structlog.stdlib.BoundLogger:
+    """Logger con el contexto común de cada llamada al LLM (sin datos sensibles)."""
+    return logger.bind(
+        provider=settings.llm_provider,
+        model=settings.llm_model,
+        transcription_chars=len(transcription),
+    )
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return round((time.perf_counter() - started_at) * 1000, 2)
 
 
 def _record_metrics(
@@ -122,6 +208,11 @@ def _record_metrics(
     metrics.provider = provider
     metrics.input_tokens = getattr(usage, "input_tokens", None)
     metrics.output_tokens = getattr(usage, "output_tokens", None)
+    # La Chat Completions API (proveedor custom) usa otros nombres.
+    if metrics.input_tokens is None:
+        metrics.input_tokens = getattr(usage, "prompt_tokens", None)
+    if metrics.output_tokens is None:
+        metrics.output_tokens = getattr(usage, "completion_tokens", None)
 
 
 def _stream_with_openai(
@@ -171,6 +262,42 @@ def _stream_with_anthropic(
         model=settings.llm_model,
         provider="anthropic",
         usage=getattr(final, "usage", None),
+    )
+
+
+def _stream_with_openai_compatible(
+    transcription: str,
+    metrics: StreamMetrics | None,
+) -> Iterator[str]:
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key=_require_custom_key(),
+        base_url=_require_custom_base_url(),
+    )
+    stream = client.chat.completions.create(
+        model=settings.llm_model,
+        messages=[
+            {"role": "system", "content": build_system_prompt()},
+            {"role": "user", "content": transcription},
+        ],
+        temperature=settings.temperature,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+    usage = None
+    for chunk in stream:
+        if getattr(chunk, "usage", None) is not None:
+            usage = chunk.usage
+        if chunk.choices and chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
+    _record_metrics(
+        metrics,
+        model=settings.llm_model,
+        provider="custom",
+        usage=usage,
     )
 
 
@@ -230,3 +357,47 @@ def _estimate_with_anthropic(transcription: str) -> EstimationResult:
         input_tokens=getattr(usage, "input_tokens", None),
         output_tokens=getattr(usage, "output_tokens", None),
     )
+
+
+def _estimate_with_openai_compatible(transcription: str) -> EstimationResult:
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key=_require_custom_key(),
+        base_url=_require_custom_base_url(),
+    )
+    response = client.chat.completions.create(
+        model=settings.llm_model,
+        messages=[
+            {"role": "system", "content": build_system_prompt()},
+            {"role": "user", "content": transcription},
+        ],
+        temperature=settings.temperature,
+    )
+
+    message = response.choices[0].message
+    usage = response.usage
+    return EstimationResult(
+        estimation=message.content or "",
+        model=settings.llm_model,
+        provider="custom",
+        temperature=settings.temperature,
+        input_tokens=getattr(usage, "prompt_tokens", None),
+        output_tokens=getattr(usage, "completion_tokens", None),
+    )
+
+
+def _require_custom_base_url() -> str:
+    if not settings.custom_llm_base_url:
+        raise LLMConfigurationError(
+            "CUSTOM_LLM_BASE_URL no está configurada. Añádela al archivo .env."
+        )
+    return settings.custom_llm_base_url
+
+
+def _require_custom_key() -> str:
+    if not settings.custom_llm_api_key:
+        raise LLMConfigurationError(
+            "CUSTOM_LLM_API_KEY no está configurada. Añádela al archivo .env."
+        )
+    return settings.custom_llm_api_key

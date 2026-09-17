@@ -9,12 +9,15 @@ import time
 import streamlit as st
 
 from app.context.examples import ESTIMATION_EXAMPLES
+from app.logging_config import configure_logging
 from app.services.llm_service import (
     LLMConfigurationError,
     StreamMetrics,
     build_system_prompt,
     stream_estimation,
 )
+
+configure_logging()
 
 st.set_page_config(
     page_title="Estimador de software CAG",
@@ -80,10 +83,12 @@ with st.sidebar:
         st.caption("Todavía no se ha generado ninguna estimación.")
     else:
         elapsed = last_metrics["elapsed_seconds"]
+        input_tokens = last_metrics["input_tokens"]
+        output_tokens = last_metrics["output_tokens"]
         st.markdown(
             f"- **Modelo:** {last_metrics['model']}\n"
             f"- **Proveedor:** {last_metrics['provider']}\n"
-            f"- **Tokens de entrada:** {last_metrics['input_tokens']}\n"
-            f"- **Tokens de salida:** {last_metrics['output_tokens']}\n"
+            f"- **Tokens de entrada:** {input_tokens if input_tokens is not None else '—'}\n"
+            f"- **Tokens de salida:** {output_tokens if output_tokens is not None else '—'}\n"
             f"- **Tiempo de respuesta:** {elapsed:.2f} s"
         )

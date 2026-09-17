@@ -22,13 +22,17 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     log_level: str = "DEBUG"
+    log_format: Literal["console", "json"] = "console"
 
-    llm_provider: Literal["openai", "anthropic"] = "openai"
+    llm_provider: Literal["openai", "anthropic", "custom"] = "openai"
     llm_model: str = DEFAULT_MODELS["openai"]
     temperature: float = 0.2
 
     open_ai_key: str = ""
     anthropic_api_key: str = ""
+
+    custom_llm_base_url: str = ""
+    custom_llm_api_key: str = ""
 
 
 @lru_cache
