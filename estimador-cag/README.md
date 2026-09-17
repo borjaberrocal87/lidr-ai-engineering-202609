@@ -15,11 +15,13 @@ estimador-cag/
 │   │   └── llm_service.py   # System prompt + ejemplos + llamada al proveedor
 │   └── context/
 │       └── examples.py      # Estimaciones previas (few-shot, CAG)
+├── streamlit_app.py         # Interfaz conversacional web (Streamlit)
 ├── tests/                   # Tests con pytest (proveedores mockeados + estructura)
 ├── examples/
 │   └── transcripcion.md     # Transcripción de reunión de ejemplo (input del ejercicio)
 ├── specs/
-│   └── sesion-2-scaffolding-fastapi.md  # Spec original del ejercicio (sesión 2)
+│   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
+│   └── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
 ├── docker-compose.yml       # Servicios api y test
 ├── .dockerignore
@@ -81,6 +83,18 @@ Estado del servicio:
 curl http://localhost:8000/health
 ```
 
+## Interfaz conversacional (Streamlit)
+
+Además de la API, el proyecto incluye una interfaz de chat web para pegar transcripciones y ver la estimación en streaming, sin usar `curl`, Postman ni Swagger:
+
+```bash
+uv run streamlit run streamlit_app.py
+```
+
+Se abre en http://localhost:8501. La conversación persiste durante la sesión (`st.session_state`) y la app reutiliza la misma lógica de llamada y el mismo system prompt CAG que el endpoint `/api/v1/estimate`. La API key se sigue leyendo desde `.env`.
+
+El panel lateral (nivel 3) muestra el system prompt activo en solo lectura, los ejemplos de contexto CAG inyectados y las métricas de la última llamada: modelo, proveedor, tokens de entrada/salida y tiempo de respuesta.
+
 ## Transcripción de ejemplo
 
 En `examples/transcripcion.md` hay una transcripción de reunión realista (landing page + integración HubSpot + blog con editor WYSIWYG) lista para usar como parámetro del ejercicio. Copia el contenido de la sección **Transcripción** en el campo `transcription` del body.
@@ -132,7 +146,9 @@ docker compose down
 ```
 
 - Swagger: http://localhost:8000/docs
-- Puerto personalizado: `API_PORT=8123 docker compose up --build -d`
+- Interfaz Streamlit: http://localhost:8501 (servicio `ui`, misma imagen que la API)
+- Puerto personalizado: `API_PORT=8123 docker compose up --build -d` (y `UI_PORT=8502` para Streamlit)
+- Arrancar solo la interfaz: `docker compose up --build ui`
 - Tests dentro de Docker:
 
 ```bash

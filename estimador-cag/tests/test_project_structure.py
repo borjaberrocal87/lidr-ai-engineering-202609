@@ -22,6 +22,7 @@ REQUIRED_PATHS = (
     "app/context/__init__.py",
     "app/context/examples.py",
     "tests/__init__.py",
+    "streamlit_app.py",
     "pyproject.toml",
     "README.md",
     ".env.example",

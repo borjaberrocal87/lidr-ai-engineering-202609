@@ -23,6 +23,39 @@ services:
       retries: 3
       start_period: 10s
 
+  ui:
+    build:
+      context: .
+      target: runtime
+    image: estimador-cag:latest
+    container_name: estimador-cag-ui
+    env_file:
+      - .env
+    command:
+      [
+        "streamlit",
+        "run",
+        "streamlit_app.py",
+        "--server.address=0.0.0.0",
+        "--server.port=8501",
+        "--server.headless=true",
+      ]
+    ports:
+      - "${UI_PORT:-8501}:8501"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8501/_stcore/health').status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   test:
     profiles: ["test"]
     build:
