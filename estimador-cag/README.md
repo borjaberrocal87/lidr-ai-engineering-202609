@@ -2,6 +2,12 @@
 
 API FastAPI que recibe la transcripción de una reunión y devuelve una estimación de software generada por un LLM, usando **arquitectura CAG** (Context-Augmented Generation): el contexto estático (ejemplos de estimaciones previas) se inyecta directamente en el prompt en cada llamada. Sin base de datos, sin retrieval, sin persistencia.
 
+## Alcance
+
+El contexto CAG es un catálogo en memoria (`app/context/examples.py`), sin base de datos ni retrieval. Es una decisión, no deuda pendiente.
+
+El umbral para revisarla: cuando el catálogo crezca más allá de unos 15-20 ejemplos, toca migrar a una fuente vectorial (RAG). El punto de cambio está aislado en `build_system_prompt(examples=...)`, de modo que el router y el servicio no se enteran.
+
 ## Estructura
 
 ```
@@ -36,7 +42,7 @@ estimador-cag/
 
 ## Requisitos
 
-- Python 3.11+
+- Python 3.12+
 - [uv](https://docs.astral.sh/uv/) como gestor de paquetes
 - API key de [OpenAI](https://platform.openai.com/) y/o [Anthropic](https://console.anthropic.com/)
 
@@ -75,15 +81,36 @@ Respuesta:
   "provider": "openai",
   "temperature": 0.2,
   "input_tokens": 1234,
-  "output_tokens": 567
+  "output_tokens": 567,
+  "truncated": false
 }
 ```
+
+`truncated: true` significa que el modelo agotó `LLM_MAX_TOKENS` antes de terminar y la estimación puede estar incompleta. En ese caso la API responde igualmente `200` (para no perder la respuesta parcial), pero lo indica de forma explícita y deja un warning en los logs.
+
+Errores:
+
+- `503` — falta la configuración del proveedor activo (p. ej. la API key). El mensaje nombra la variable de entorno.
+- `502` — el proveedor LLM falló (red, timeout, rate limit o estado). El detalle interno se registra en el servidor y **no** viaja al cliente.
+- `500` — error inesperado en el código.
 
 Estado del servicio:
 
 ```bash
 curl http://localhost:8000/health
 ```
+
+`/health` responde siempre `200` (no depende del LLM) e incluye `llm_configured` para saber si el proveedor activo tiene credenciales.
+
+## Límites de la llamada al LLM
+
+La llamada al proveedor está acotada por configuración:
+
+- `LLM_TIMEOUT_SECONDS` (por defecto `30`) y `LLM_MAX_RETRIES` (por defecto `2`) se aplican al cliente del SDK, para no heredar el timeout por defecto de diez minutos.
+- `LLM_MAX_TOKENS` (por defecto `2048`) acota el coste de salida y se traduce en `truncated` cuando la respuesta se corta.
+- `TRANSCRIPTION_MIN_LENGTH` / `TRANSCRIPTION_MAX_LENGTH` (por defecto `10` / `50000` caracteres) se validan en el borde (422) antes de gastar un token. El servicio repite la comprobación por si lo invoca otro adaptador (worker, CLI); en ese caso responde `422`.
+
+La transcripción se envuelve en una etiqueta con un sufijo aleatorio por petición (`<transcripcion-XXXX>...</transcripcion-XXXX>`) y el system prompt explica al modelo que ese bloque son datos, no instrucciones. Como el nombre de la etiqueta no es previsible, el texto de entrada no puede cerrarla.
 
 ## Interfaz conversacional (Streamlit)
 
@@ -102,8 +129,9 @@ El panel lateral (nivel 3) muestra el system prompt activo en solo lectura, los 
 Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (integrado con `logging`), tanto desde la API como desde Streamlit. Cada llamada emite:
 
 - `llm.call.start` / `llm.stream.start` — proveedor, modelo, temperatura y longitud de la transcripción.
-- `llm.call.end` / `llm.stream.end` — tokens de entrada/salida y latencia en milisegundos.
+- `llm.call.end` / `llm.stream.end` — tokens de entrada/salida, si la respuesta se truncó y latencia en milisegundos.
 - `llm.call.error` / `llm.stream.error` — error con traceback y latencia. La versión en streaming añade `llm.stream.aborted` si el cliente corta antes de terminar.
+- `llm.response.truncated` (en el router) — warning cuando el modelo agotó `LLM_MAX_TOKENS`.
 
 ```text
 2026-09-17T15:04:54.945815Z [info] llm.call.start provider=custom model=qwen3.8-flash temperature=0.2 transcription_chars=842
@@ -122,7 +150,12 @@ En `examples/transcripcion.md` hay una transcripción de reunión realista (land
 uv run pytest
 ```
 
-Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren el endpoint, la validación de schemas, la inyección del contexto CAG en el system prompt y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`).
+Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
+
+- el endpoint `/api/v1/estimate` y los schemas de entrada/salida (incluida la validación de longitud mínima/máxima y que una entrada inválida **no** llega a invocar al LLM);
+- la inyección del contexto CAG en el system prompt y el delimitado de la transcripción con nonce;
+- la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
+- la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`).
 
 ## Calidad y CI
 
@@ -176,18 +209,27 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 
 ## Variables de entorno
 
-| Variable               | Descripción                                       | Default       |
-| ---------------------- | ------------------------------------------------- | ------------- |
-| `APP_ENV`              | Entorno de ejecución                              | `development` |
-| `LOG_LEVEL`            | Nivel de logging (`DEBUG`, `INFO`, ...)           | `DEBUG`       |
-| `LOG_FORMAT`           | Formato de logs: `console` o `json`               | `console`     |
-| `LLM_PROVIDER`         | Proveedor activo: `openai`, `anthropic` o `custom` | `openai`      |
-| `LLM_MODEL`            | Modelo del proveedor activo                       | `gpt-4o-mini` |
-| `TEMPERATURE`          | Temperatura de generación                         | `0.2`         |
-| `OPEN_AI_KEY`          | API key de OpenAI                                 | —             |
-| `ANTHROPIC_API_KEY`    | API key de Anthropic                              | —             |
-| `CUSTOM_LLM_BASE_URL`  | URL base del endpoint OpenAI-compatible           | —             |
-| `CUSTOM_LLM_API_KEY`   | API key del endpoint OpenAI-compatible            | —             |
+| Variable                  | Descripción                                       | Default       |
+| ------------------------- | ------------------------------------------------- | ------------- |
+| `APP_ENV`                 | Entorno de ejecución                              | `development` |
+| `LOG_LEVEL`               | Nivel de logging (`DEBUG`, `INFO`, ...)           | `DEBUG`       |
+| `LOG_FORMAT`              | Formato de logs: `console` o `json`               | `console`     |
+| `LLM_PROVIDER`            | Proveedor activo: `openai`, `anthropic` o `custom` | `openai`      |
+| `LLM_MODEL`               | Modelo del proveedor activo                       | default del proveedor (`gpt-4o-mini` para `openai`) |
+| `TEMPERATURE`             | Temperatura de generación (no aplica a `anthropic`) | `0.2`       |
+| `LLM_TIMEOUT_SECONDS`     | Timeout de la llamada al proveedor (segundos)     | `30`          |
+| `LLM_MAX_RETRIES`         | Reintentos del cliente del SDK                    | `2`           |
+| `LLM_MAX_TOKENS`          | Máximo de tokens de salida                        | `2048`        |
+| `TRANSCRIPTION_MIN_LENGTH` | Longitud mínima de la transcripción (caracteres) | `10`          |
+| `TRANSCRIPTION_MAX_LENGTH` | Longitud máxima de la transcripción (caracteres) | `50000`       |
+| `OPEN_AI_KEY`             | API key de OpenAI                                 | —             |
+| `ANTHROPIC_API_KEY`       | API key de Anthropic                              | —             |
+| `CUSTOM_LLM_BASE_URL`     | URL base del endpoint OpenAI-compatible           | —             |
+| `CUSTOM_LLM_API_KEY`      | API key del endpoint OpenAI-compatible            | —             |
+
+> Si `LLM_MODEL` se deja vacío, se deriva del proveedor activo. El proveedor `custom` no tiene default: exige `LLM_MODEL` explícito.
+>
+> `TEMPERATURE` no aplica al proveedor `anthropic` (su SDK no acepta el parámetro). Si se configura un valor distinto del default, el servicio emite un warning `llm.temperature.ignored` la primera vez.
 
 ## Proveedor custom (OpenAI-compatible)
 

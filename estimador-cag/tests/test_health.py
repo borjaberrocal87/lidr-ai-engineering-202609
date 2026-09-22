@@ -11,3 +11,4 @@ def test_health_returns_ok(client: TestClient) -> None:
     assert body["env"]
     assert body["provider"]
     assert body["model"]
+    assert isinstance(body["llm_configured"], bool)
