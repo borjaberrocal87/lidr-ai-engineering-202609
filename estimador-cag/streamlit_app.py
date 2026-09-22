@@ -8,10 +8,13 @@ import time
 
 import streamlit as st
 
+from app.config import settings
 from app.context.examples import ESTIMATION_EXAMPLES
 from app.logging_config import configure_logging
 from app.services.llm_service import (
     LLMConfigurationError,
+    LLMInputError,
+    LLMProviderError,
     StreamMetrics,
     build_system_prompt,
     stream_estimation,
@@ -41,28 +44,46 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    min_length = settings.transcription_min_length
+    max_length = settings.transcription_max_length
+    if not min_length <= len(prompt) <= max_length:
+        st.error(
+            f"La transcripción debe tener entre {min_length} y "
+            f"{max_length} caracteres (tiene {len(prompt)})."
+        )
+    else:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    with st.chat_message("assistant"):
-        metrics = StreamMetrics(model="", provider="")
-        started_at = time.perf_counter()
-        try:
-            full_response = st.write_stream(stream_estimation(prompt, metrics))
-        except LLMConfigurationError as exc:
-            st.error(str(exc))
-        else:
-            elapsed_seconds = time.perf_counter() - started_at
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
-            st.session_state.last_metrics = {
-                "model": metrics.model,
-                "provider": metrics.provider,
-                "input_tokens": metrics.input_tokens,
-                "output_tokens": metrics.output_tokens,
-                "elapsed_seconds": elapsed_seconds,
-            }
-            st.caption(f"Modelo: {metrics.model} · Proveedor: {metrics.provider}")
+        with st.chat_message("assistant"):
+            metrics = StreamMetrics(model="", provider="")
+            started_at = time.perf_counter()
+            try:
+                full_response = st.write_stream(stream_estimation(prompt, metrics))
+            except LLMConfigurationError as exc:
+                st.error(str(exc))
+            except LLMInputError as exc:
+                st.error(str(exc))
+            except LLMProviderError:
+                st.error("No se pudo generar la estimación. Inténtalo de nuevo más tarde.")
+            else:
+                elapsed_seconds = time.perf_counter() - started_at
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                st.session_state.last_metrics = {
+                    "model": metrics.model,
+                    "provider": metrics.provider,
+                    "input_tokens": metrics.input_tokens,
+                    "output_tokens": metrics.output_tokens,
+                    "elapsed_seconds": elapsed_seconds,
+                    "truncated": metrics.truncated,
+                }
+                if metrics.truncated:
+                    st.warning(
+                        "La estimación se cortó al alcanzar el límite de tokens "
+                        "(`LLM_MAX_TOKENS`): puede estar incompleta."
+                    )
+                st.caption(f"Modelo: {metrics.model} · Proveedor: {metrics.provider}")
 
 with st.sidebar:
     st.header("Contexto CAG")
@@ -90,5 +111,6 @@ with st.sidebar:
             f"- **Proveedor:** {last_metrics['provider']}\n"
             f"- **Tokens de entrada:** {input_tokens if input_tokens is not None else '—'}\n"
             f"- **Tokens de salida:** {output_tokens if output_tokens is not None else '—'}\n"
-            f"- **Tiempo de respuesta:** {elapsed:.2f} s"
+            f"- **Tiempo de respuesta:** {elapsed:.2f} s\n"
+            f"- **Truncada:** {'sí' if last_metrics.get('truncated') else 'no'}"
         )

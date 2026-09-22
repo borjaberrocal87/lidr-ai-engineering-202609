@@ -22,7 +22,7 @@ def _patch_openai_success(monkeypatch) -> None:
             return SimpleNamespace(output_text="## Estimación", usage=usage)
 
     class FakeOpenAI:
-        def __init__(self, api_key=None) -> None:
+        def __init__(self, api_key=None, *, timeout=None, max_retries=None) -> None:
             self.responses = FakeResponses()
 
     monkeypatch.setattr(settings, "llm_provider", "openai")
@@ -55,7 +55,7 @@ def _patch_openai_stream(monkeypatch, *, error: str | None = None) -> None:
             return FakeOpenAIStream()
 
     class FakeOpenAI:
-        def __init__(self, api_key=None) -> None:
+        def __init__(self, api_key=None, *, timeout=None, max_retries=None) -> None:
             self.responses = FakeResponses()
 
     monkeypatch.setattr(settings, "llm_provider", "openai")
@@ -168,7 +168,7 @@ def test_custom_provider_logs_are_tagged(monkeypatch) -> None:
             self.completions = FakeCompletions()
 
     class FakeOpenAI:
-        def __init__(self, api_key=None, base_url=None) -> None:
+        def __init__(self, api_key=None, base_url=None, *, timeout=None, max_retries=None) -> None:
             self.chat = FakeChat()
 
     monkeypatch.setattr(settings, "llm_provider", "custom")

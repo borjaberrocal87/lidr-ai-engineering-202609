@@ -6,7 +6,15 @@ para generar nuevas estimaciones. No hay retrieval ni base de datos: todo
 el contexto viaja dentro del prompt.
 """
 
-ESTIMATION_EXAMPLES: list[dict[str, str]] = [
+from typing import TypedDict
+
+
+class EstimationExample(TypedDict):
+    meeting_summary: str
+    estimation: str
+
+
+ESTIMATION_EXAMPLES: list[EstimationExample] = [
     {
         "meeting_summary": (
             "El cliente necesita una plataforma web de gestión de inventario para "
