@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.5.0",
     "fastapi>=0.141.1",
+    "httpx>=0.28.1",
     "openai>=3.13.0",
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.3",
@@ -47,7 +48,7 @@ quote-style = "double"
 
 [tool.mypy]
 python_version = "3.12"
-files = ["app"]
+files = ["app", "frontend"]
 strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true

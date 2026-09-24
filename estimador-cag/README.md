@@ -12,31 +12,40 @@ El umbral para revisarla: cuando el catálogo crezca más allá de unos 15-20 ej
 
 ```
 estimador-cag/
-├── app/
-│   ├── main.py              # App FastAPI, router /api/v1, GET /health, /docs
-│   ├── config.py            # Settings (Pydantic BaseSettings) desde .env
-│   ├── logging_config.py    # Configuración de structlog (console/json)
+├── app/                         # Backend (FastAPI): aquí vive el LLM y las claves
+│   ├── main.py                  # App FastAPI, router /api/v1, GET /health, /docs
+│   ├── config.py                # Settings (Pydantic BaseSettings) desde .env
+│   ├── logging_config.py        # Configuración de structlog (console/json)
 │   ├── routers/
-│   │   └── estimations.py   # POST /api/v1/estimate + schemas Pydantic
+│   │   └── estimations.py       # /estimate, /estimate/stream (SSE) y /context
+│   ├── schemas/
+│   │   └── estimations.py       # Contrato HTTP (Pydantic) del backend
 │   ├── services/
-│   │   └── llm_service.py   # System prompt + ejemplos + llamada al proveedor
+│   │   └── llm_service.py       # System prompt + ejemplos + llamada al proveedor
 │   └── context/
-│       └── examples.py      # Estimaciones previas (few-shot, CAG)
-├── streamlit_app.py         # Interfaz conversacional web (Streamlit)
-├── tests/                   # Tests con pytest (proveedores mockeados + estructura)
+│       └── examples.py          # Estimaciones previas (few-shot, CAG)
+├── frontend/                    # Capa de presentación (no importa `app.*`)
+│   ├── config.py                # API_BASE_URL y timeouts
+│   ├── client.py                # Cliente HTTP (httpx) contra la API
+│   ├── models.py                # Modelos locales de respuesta
+│   ├── logging_config.py        # Logging del frontend
+│   └── streamlit_app.py         # UI de chat (Streamlit)
+├── tests/                       # Tests con pytest (proveedores y API mockeados)
 ├── examples/
-│   └── transcripcion.md     # Transcripción de reunión de ejemplo (input del ejercicio)
+│   └── transcripcion.md         # Transcripción de reunión de ejemplo (input del ejercicio)
 ├── specs/
 │   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
 │   └── proveedor-openai-compatible.md  # Spec del proveedor custom (OpenAI-compatible)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
-├── docker-compose.yml       # Servicios api y test
+├── docker-compose.yml       # Servicios api, ui y test
 ├── .dockerignore
 ├── .env.example
 ├── pyproject.toml
 └── README.md
 ```
+
+> Arquitectura por capas: el `frontend/` solo habla con el backend por HTTP (`API_BASE_URL`) y nunca importa `app.*`. Cambiar Streamlit por otra UI consiste en reescribir el punto de entrada reutilizando `frontend.client`. Un test (`tests/test_frontend_decoupling.py`) lo verifica.
 
 > El pipeline de CI vive en la raíz del repo: `.github/workflows/ci.yml` (lint, type-check, tests y smoke test de Docker).
 
@@ -102,6 +111,41 @@ curl http://localhost:8000/health
 
 `/health` responde siempre `200` (no depende del LLM) e incluye `llm_configured` para saber si el proveedor activo tiene credenciales.
 
+### Estimación en streaming (SSE)
+
+La UI de chat consume `POST /api/v1/estimate/stream`, que expone la generación token a token como **Server-Sent Events**:
+
+```bash
+curl -N -X POST http://localhost:8000/api/v1/estimate/stream \
+  -H "Content-Type: application/json" \
+  -d '{"transcription": "En la reunión..."}'
+```
+
+```text
+event: token
+data: {"text": "## Estimación"}
+
+event: token
+data: {"text": "..."}
+
+event: done
+data: {"model":"gpt-4o-mini","provider":"openai","input_tokens":1234,"output_tokens":567,"truncated":false}
+```
+
+- `token` — delta de texto.
+- `done` — métricas de la llamada (modelo, proveedor, tokens, truncado).
+- `error` — fallo del proveedor a mitad del stream (el `200` ya se envió, así que no se puede cambiar el estado).
+
+Los errores de configuración/entrada se devuelven como HTTP normal (`503`/`422`) **antes** de abrir el stream.
+
+### Contexto CAG
+
+`GET /api/v1/context` devuelve el system prompt activo, los ejemplos inyectados y los límites de transcripción, para que la UI muestre la información sin importar código del backend:
+
+```bash
+curl http://localhost:8000/api/v1/context
+```
+
 ## Límites de la llamada al LLM
 
 La llamada al proveedor está acotada por configuración:
@@ -114,19 +158,25 @@ La transcripción se envuelve en una etiqueta con un sufijo aleatorio por petici
 
 ## Interfaz conversacional (Streamlit)
 
-Además de la API, el proyecto incluye una interfaz de chat web para pegar transcripciones y ver la estimación en streaming, sin usar `curl`, Postman ni Swagger:
+Además de la API, el proyecto incluye una interfaz de chat web para pegar transcripciones y ver la estimación en streaming, sin usar `curl`, Postman ni Swagger. Es una **capa de presentación independiente**: consume la API por HTTP y no importa código del backend, así que puede sustituirse por otra UI reutilizando `frontend/client.py`.
+
+Arranca primero la API y luego la UI (en otra terminal):
 
 ```bash
-uv run streamlit run streamlit_app.py
+# 1) Backend
+uv run uvicorn app.main:app --reload
+
+# 2) Frontend
+uv run streamlit run frontend/streamlit_app.py
 ```
 
-Se abre en http://localhost:8501. La conversación persiste durante la sesión (`st.session_state`) y la app reutiliza la misma lógica de llamada y el mismo system prompt CAG que el endpoint `/api/v1/estimate`. La API key se sigue leyendo desde `.env`.
+Se abre en http://localhost:8501. El frontend apunta al backend por `API_BASE_URL` (por defecto `http://localhost:8000`). La conversación persiste durante la sesión (`st.session_state`) y el panel lateral muestra el system prompt activo, los ejemplos de contexto CAG y las métricas de la última llamada (modelo, proveedor, tokens de entrada/salida y tiempo de respuesta), todo obtenido de `GET /api/v1/context` y del evento `done` del stream.
 
-El panel lateral (nivel 3) muestra el system prompt activo en solo lectura, los ejemplos de contexto CAG inyectados y las métricas de la última llamada: modelo, proveedor, tokens de entrada/salida y tiempo de respuesta.
+Las claves LLM ya no las lee la UI: viven solo en el backend. Si el proveedor no está configurado, la UI lo avisa (`llm_configured`).
 
 ## Logging
 
-Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (integrado con `logging`), tanto desde la API como desde Streamlit. Cada llamada emite:
+Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (integrado con `logging`) en la **API**, que es quien habla con el proveedor. El frontend solo registra su propia actividad con `logging` estándar. Cada llamada al LLM emite:
 
 - `llm.call.start` / `llm.stream.start` — proveedor, modelo, temperatura y longitud de la transcripción.
 - `llm.call.end` / `llm.stream.end` — tokens de entrada/salida, si la respuesta se truncó y latencia en milisegundos.
@@ -153,6 +203,8 @@ uv run pytest
 Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 
 - el endpoint `/api/v1/estimate` y los schemas de entrada/salida (incluida la validación de longitud mínima/máxima y que una entrada inválida **no** llega a invocar al LLM);
+- el endpoint SSE `/api/v1/estimate/stream` (eventos `token`/`done`/`error`) y `GET /api/v1/context`;
+- el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
 - la inyección del contexto CAG en el system prompt y el delimitado de la transcripción con nonce;
 - la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
 - la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`).
@@ -196,7 +248,7 @@ docker compose down
 ```
 
 - Swagger: http://localhost:8000/docs
-- Interfaz Streamlit: http://localhost:8501 (servicio `ui`, misma imagen que la API)
+- Interfaz Streamlit: http://localhost:8501 (servicio `ui`, misma imagen que la API; habla con el servicio `api` por la red interna vía `API_BASE_URL=http://api:8000`)
 - Puerto personalizado: `API_PORT=8123 docker compose up --build -d` (y `UI_PORT=8502` para Streamlit)
 - Arrancar solo la interfaz: `docker compose up --build ui`
 - Tests dentro de Docker:
@@ -226,6 +278,7 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `ANTHROPIC_API_KEY`       | API key de Anthropic                              | —             |
 | `CUSTOM_LLM_BASE_URL`     | URL base del endpoint OpenAI-compatible           | —             |
 | `CUSTOM_LLM_API_KEY`      | API key del endpoint OpenAI-compatible            | —             |
+| `API_BASE_URL`            | URL base de la API que consume el frontend        | `http://localhost:8000` |
 
 > Si `LLM_MODEL` se deja vacío, se deriva del proveedor activo. El proveedor `custom` no tiene default: exige `LLM_MODEL` explícito.
 >

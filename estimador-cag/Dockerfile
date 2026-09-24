@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
 COPY app ./app
-COPY streamlit_app.py ./
+COPY frontend ./frontend
 
 # ---------- Test: dev deps + pytest ----------
 FROM builder AS test
@@ -39,7 +39,7 @@ RUN groupadd --system app && useradd --system --gid app --create-home app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/app /app/app
-COPY --from=builder --chown=app:app /app/streamlit_app.py /app/streamlit_app.py
+COPY --from=builder --chown=app:app /app/frontend /app/frontend
 
 USER app
 

@@ -1,3 +1,6 @@
+import json
+from collections.abc import Iterator
+
 from starlette.testclient import TestClient
 
 from app.config import settings
@@ -7,6 +10,7 @@ from app.services.llm_service import (
     LLMConfigurationError,
     LLMInputError,
     LLMProviderError,
+    StreamMetrics,
 )
 
 
@@ -138,3 +142,124 @@ def test_estimate_requires_transcription_field(client: TestClient) -> None:
     response = client.post("/api/v1/estimate", json={})
 
     assert response.status_code == 422
+
+
+def _parse_sse(text: str) -> list[tuple[str, dict]]:
+    events: list[tuple[str, dict]] = []
+    event_name: str | None = None
+    data: dict | None = None
+    for line in text.splitlines():
+        if line.startswith("event: "):
+            event_name = line.removeprefix("event: ")
+        elif line.startswith("data: "):
+            data = json.loads(line.removeprefix("data: "))
+        elif line == "" and event_name is not None:
+            events.append((event_name, data or {}))
+            event_name, data = None, None
+    return events
+
+
+def test_estimate_stream_success(client: TestClient, transcription: str, monkeypatch) -> None:
+    def fake_stream_estimation(text: str, metrics: StreamMetrics | None = None) -> Iterator[str]:
+        assert text == transcription
+        if metrics is not None:
+            metrics.model = "gpt-4o-mini"
+            metrics.provider = "openai"
+            metrics.input_tokens = 123
+            metrics.output_tokens = 45
+        yield "## Estimación"
+        yield " completa"
+
+    monkeypatch.setattr(estimations, "stream_estimation", fake_stream_estimation)
+
+    response = client.post("/api/v1/estimate/stream", json={"transcription": transcription})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = _parse_sse(response.text)
+    assert events[0] == ("token", {"text": "## Estimación"})
+    assert events[1] == ("token", {"text": " completa"})
+    assert events[2] == (
+        "done",
+        {
+            "model": "gpt-4o-mini",
+            "provider": "openai",
+            "input_tokens": 123,
+            "output_tokens": 45,
+            "truncated": False,
+        },
+    )
+
+
+def test_estimate_stream_provider_error_emits_error_event(
+    client: TestClient, transcription: str, monkeypatch
+) -> None:
+    detalle_interno = "sk-secreto-interno-no-debe-salir"
+
+    def fake_stream_estimation(text: str, metrics: StreamMetrics | None = None) -> Iterator[str]:
+        yield "parcial"
+        raise LLMProviderError(detalle_interno)
+
+    monkeypatch.setattr(estimations, "stream_estimation", fake_stream_estimation)
+
+    response = client.post("/api/v1/estimate/stream", json={"transcription": transcription})
+
+    assert response.status_code == 200
+    assert detalle_interno not in response.text
+    events = _parse_sse(response.text)
+    assert events[0] == ("token", {"text": "parcial"})
+    assert events[1][0] == "error"
+    assert "No se pudo generar" in events[1][1]["detail"]
+    assert all(name != "done" for name, _ in events)
+
+
+def test_estimate_stream_missing_api_key_returns_503(
+    client: TestClient, transcription: str, monkeypatch
+) -> None:
+    def fake_stream_estimation(text: str, metrics: StreamMetrics | None = None) -> Iterator[str]:
+        raise LLMConfigurationError("OPEN_AI_KEY no está configurada.")
+
+    monkeypatch.setattr(estimations, "stream_estimation", fake_stream_estimation)
+
+    response = client.post("/api/v1/estimate/stream", json={"transcription": transcription})
+
+    assert response.status_code == 503
+    assert "OPEN_AI_KEY" in response.json()["detail"]
+
+
+def test_estimate_stream_input_error_returns_422(
+    client: TestClient, transcription: str, monkeypatch
+) -> None:
+    def fake_stream_estimation(text: str, metrics: StreamMetrics | None = None) -> Iterator[str]:
+        raise LLMInputError("La transcripción no cumple las restricciones.")
+
+    monkeypatch.setattr(estimations, "stream_estimation", fake_stream_estimation)
+
+    response = client.post("/api/v1/estimate/stream", json={"transcription": transcription})
+
+    assert response.status_code == 422
+
+
+def test_estimate_stream_rejects_short_transcription(client: TestClient, monkeypatch) -> None:
+    def no_deberia_llamarse(text: str, metrics: StreamMetrics | None = None) -> Iterator[str]:
+        raise AssertionError("El LLM no debe invocarse con entrada inválida")
+
+    monkeypatch.setattr(estimations, "stream_estimation", no_deberia_llamarse)
+
+    response = client.post("/api/v1/estimate/stream", json={"transcription": "corto"})
+
+    assert response.status_code == 422
+
+
+def test_context_endpoint(client: TestClient) -> None:
+    response = client.get("/api/v1/context")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "estimador de software" in body["system_prompt"].lower()
+    assert len(body["examples"]) >= 1
+    assert body["examples"][0]["meeting_summary"]
+    assert body["examples"][0]["estimation"]
+    assert body["transcription_min_length"] == settings.transcription_min_length
+    assert body["transcription_max_length"] == settings.transcription_max_length
+    assert isinstance(body["llm_configured"], bool)

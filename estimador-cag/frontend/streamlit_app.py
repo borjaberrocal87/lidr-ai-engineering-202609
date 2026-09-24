@@ -1,24 +1,35 @@
 """Interfaz conversacional (Streamlit) del estimador de software CAG.
 
-Reutiliza la lógica de llamada al LLM del backend FastAPI: pega la
-transcripción de una reunión y obtén la estimación generada en streaming.
+Capa de presentación: consume la API FastAPI por HTTP a través de
+`frontend.client`. No importa `app.*`, de modo que se puede sustituir por otra
+UI reutilizando el mismo cliente.
 """
 
-import time
+import sys
+from pathlib import Path
 
-import streamlit as st
+# `streamlit run frontend/streamlit_app.py` pone en sys.path el directorio del
+# script (`frontend/`), no la raíz del proyecto, así que `import frontend` no
+# resuelve. Añadimos la raíz explícitamente (local y Docker).
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-from app.config import settings
-from app.context.examples import ESTIMATION_EXAMPLES
-from app.logging_config import configure_logging
-from app.services.llm_service import (
-    LLMConfigurationError,
-    LLMInputError,
-    LLMProviderError,
-    StreamMetrics,
-    build_system_prompt,
+import time  # noqa: E402
+
+import streamlit as st  # noqa: E402
+
+from frontend.client import (  # noqa: E402
+    ApiConfigurationError,
+    ApiError,
+    ApiInputError,
+    ApiProviderError,
+    ApiUnavailableError,
+    get_context,
     stream_estimation,
 )
+from frontend.logging_config import configure_logging  # noqa: E402
+from frontend.models import ContextResponse, StreamMetrics  # noqa: E402
 
 configure_logging()
 
@@ -27,6 +38,12 @@ st.set_page_config(
     page_icon="🧮",
     layout="centered",
 )
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_context() -> ContextResponse:
+    return get_context()
+
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -39,13 +56,28 @@ st.caption(
     "estimación de software generada por un LLM con arquitectura CAG."
 )
 
+try:
+    context = _load_context()
+except ApiUnavailableError as exc:
+    st.error(f"{exc} Arranca la API o revisa API_BASE_URL.")
+    st.stop()
+except ApiError as exc:
+    st.error(f"No se pudo cargar el contexto de la API: {exc}")
+    st.stop()
+
+if not context.llm_configured:
+    st.warning(
+        "El proveedor LLM no está configurado en la API. Revisa las claves en "
+        "el `.env` del servidor."
+    )
+
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
 if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
-    min_length = settings.transcription_min_length
-    max_length = settings.transcription_max_length
+    min_length = context.transcription_min_length
+    max_length = context.transcription_max_length
     if not min_length <= len(prompt) <= max_length:
         st.error(
             f"La transcripción debe tener entre {min_length} y "
@@ -57,16 +89,20 @@ if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            metrics = StreamMetrics(model="", provider="")
+            metrics = StreamMetrics()
             started_at = time.perf_counter()
             try:
                 full_response = st.write_stream(stream_estimation(prompt, metrics))
-            except LLMConfigurationError as exc:
+            except ApiConfigurationError as exc:
                 st.error(str(exc))
-            except LLMInputError as exc:
+            except ApiInputError as exc:
                 st.error(str(exc))
-            except LLMProviderError:
+            except ApiProviderError:
                 st.error("No se pudo generar la estimación. Inténtalo de nuevo más tarde.")
+            except ApiUnavailableError:
+                st.error("Se perdió la conexión con la API. Inténtalo de nuevo.")
+            except ApiError as exc:
+                st.error(str(exc))
             else:
                 elapsed_seconds = time.perf_counter() - started_at
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
@@ -89,14 +125,14 @@ with st.sidebar:
     st.header("Contexto CAG")
 
     st.subheader("System prompt activo")
-    st.code(build_system_prompt(), language="markdown")
+    st.code(context.system_prompt, language="markdown")
 
     st.subheader("Contexto inyectado")
-    st.caption(f"{len(ESTIMATION_EXAMPLES)} estimaciones de referencia en el prompt")
-    for index, example in enumerate(ESTIMATION_EXAMPLES, start=1):
+    st.caption(f"{len(context.examples)} estimaciones de referencia en el prompt")
+    for index, example in enumerate(context.examples, start=1):
         with st.expander(f"Ejemplo {index}"):
-            st.markdown(f"**Resumen de la reunión:**\n\n{example['meeting_summary']}")
-            st.markdown(example["estimation"])
+            st.markdown(f"**Resumen de la reunión:**\n\n{example.meeting_summary}")
+            st.markdown(example.estimation)
 
     st.subheader("Última llamada")
     last_metrics = st.session_state.last_metrics
