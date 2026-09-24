@@ -1,10 +1,8 @@
-import json
 from collections.abc import Iterator
-from typing import Any
 
 import structlog
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.config import settings
 from app.context.examples import ESTIMATION_EXAMPLES
@@ -72,49 +70,62 @@ def estimate(payload: EstimateRequest) -> EstimateResponse:
 @router.post(
     "/estimate/stream",
     summary="Genera una estimación en streaming (Server-Sent Events)",
-    response_class=StreamingResponse,
+    response_class=EventSourceResponse,
     responses={
         200: {
             "content": {"text/event-stream": {}},
             "description": (
                 "Flujo SSE. Eventos `token` (deltas de texto), `done` (métricas) "
-                "y `error` (fallo del proveedor a mitad del stream)."
+                "y `error` (fallo de configuración o del proveedor)."
             ),
         },
         422: {"description": "Transcripción fuera de los límites permitidos."},
-        503: {"description": "El proveedor activo no está configurado."},
     },
 )
-def estimate_stream(payload: EstimateRequest) -> StreamingResponse:
-    """Expone `stream_estimation` como SSE para clientes HTTP (UI, curl, etc.).
+def estimate_stream(payload: EstimateRequest) -> Iterator[ServerSentEvent]:
+    """Expone `stream_estimation` como SSE nativo de FastAPI para clientes HTTP.
 
-    La configuración del proveedor se valida al invocar `stream_estimation`, de
-    modo que los errores de configuración/entrada se devuelven como HTTP normal
-    (503/422) antes de abrir el stream. Los fallos del proveedor que ocurren al
-    consumir el generador se emiten como un evento SSE `error`.
+    Al ser un endpoint generador, la respuesta ya se ha abierto (200) cuando se
+    ejecuta el cuerpo, así que cualquier fallo (configuración, proveedor) se
+    comunica como evento `error`. La longitud de la transcripción la valida
+    Pydantic antes de abrir el flujo (422).
     """
     metrics = StreamMetrics(model="", provider="")
     try:
         tokens = stream_estimation(payload.transcription, metrics)
-    except LLMConfigurationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
-    except LLMInputError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
-        ) from exc
+    except (LLMConfigurationError, LLMInputError) as exc:
+        yield ServerSentEvent(event="error", data={"detail": str(exc)})
+        return
 
-    return StreamingResponse(
-        _sse_stream(tokens, metrics),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+    try:
+        for chunk in tokens:
+            yield ServerSentEvent(event="token", data={"text": chunk})
+    except LLMProviderError:
+        logger.warning("estimate.stream.provider_error", provider=settings.llm_provider)
+        yield ServerSentEvent(
+            event="error",
+            data={"detail": "No se pudo generar la estimación. Inténtalo de nuevo más tarde."},
+        )
+        return
+    except Exception:
+        logger.exception("estimate.stream.unexpected_error")
+        yield ServerSentEvent(
+            event="error",
+            data={"detail": "Error inesperado generando la estimación."},
+        )
+        return
+
+    if metrics.truncated:
+        logger.warning("llm.response.truncated", model=metrics.model, provider=metrics.provider)
+
+    done = StreamDoneEvent(
+        model=metrics.model,
+        provider=metrics.provider,
+        input_tokens=metrics.input_tokens,
+        output_tokens=metrics.output_tokens,
+        truncated=metrics.truncated,
     )
+    yield ServerSentEvent(event="done", data=done.model_dump())
 
 
 @router.get(
@@ -130,42 +141,3 @@ def context() -> ContextResponse:
         transcription_max_length=settings.transcription_max_length,
         llm_configured=settings.is_configured,
     )
-
-
-def _sse(event: str, data: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-def _sse_stream(tokens: Iterator[str], metrics: StreamMetrics) -> Iterator[str]:
-    """Traduce el generador del servicio a eventos SSE.
-
-    `stream_estimation` ya ha validado config/entrada antes de llegar aquí; lo
-    que puede fallar es el proveedor durante la iteración, y eso se comunica a
-    la UI como evento `error` porque la respuesta HTTP ya está abierta (200).
-    """
-    try:
-        for chunk in tokens:
-            yield _sse("token", {"text": chunk})
-    except LLMProviderError:
-        logger.warning("estimate.stream.provider_error", provider=settings.llm_provider)
-        yield _sse(
-            "error",
-            {"detail": "No se pudo generar la estimación. Inténtalo de nuevo más tarde."},
-        )
-        return
-    except Exception:
-        logger.exception("estimate.stream.unexpected_error")
-        yield _sse("error", {"detail": "Error inesperado generando la estimación."})
-        return
-
-    if metrics.truncated:
-        logger.warning("llm.response.truncated", model=metrics.model, provider=metrics.provider)
-
-    done = StreamDoneEvent(
-        model=metrics.model,
-        provider=metrics.provider,
-        input_tokens=metrics.input_tokens,
-        output_tokens=metrics.output_tokens,
-        truncated=metrics.truncated,
-    )
-    yield _sse("done", done.model_dump())

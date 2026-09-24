@@ -213,7 +213,7 @@ def test_estimate_stream_provider_error_emits_error_event(
     assert all(name != "done" for name, _ in events)
 
 
-def test_estimate_stream_missing_api_key_returns_503(
+def test_estimate_stream_missing_config_emits_error_event(
     client: TestClient, transcription: str, monkeypatch
 ) -> None:
     def fake_stream_estimation(text: str, metrics: StreamMetrics | None = None) -> Iterator[str]:
@@ -223,11 +223,14 @@ def test_estimate_stream_missing_api_key_returns_503(
 
     response = client.post("/api/v1/estimate/stream", json={"transcription": transcription})
 
-    assert response.status_code == 503
-    assert "OPEN_AI_KEY" in response.json()["detail"]
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    assert events[0][0] == "error"
+    assert "OPEN_AI_KEY" in events[0][1]["detail"]
+    assert all(name != "done" for name, _ in events)
 
 
-def test_estimate_stream_input_error_returns_422(
+def test_estimate_stream_service_input_error_emits_error_event(
     client: TestClient, transcription: str, monkeypatch
 ) -> None:
     def fake_stream_estimation(text: str, metrics: StreamMetrics | None = None) -> Iterator[str]:
@@ -237,7 +240,10 @@ def test_estimate_stream_input_error_returns_422(
 
     response = client.post("/api/v1/estimate/stream", json={"transcription": transcription})
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    assert events[0][0] == "error"
+    assert "restricciones" in events[0][1]["detail"]
 
 
 def test_estimate_stream_rejects_short_transcription(client: TestClient, monkeypatch) -> None:

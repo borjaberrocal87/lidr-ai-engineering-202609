@@ -97,7 +97,7 @@ Respuesta:
 
 `truncated: true` significa que el modelo agotó `LLM_MAX_TOKENS` antes de terminar y la estimación puede estar incompleta. En ese caso la API responde igualmente `200` (para no perder la respuesta parcial), pero lo indica de forma explícita y deja un warning en los logs.
 
-Errores:
+Errores de `POST /api/v1/estimate`:
 
 - `503` — falta la configuración del proveedor activo (p. ej. la API key). El mensaje nombra la variable de entorno.
 - `502` — el proveedor LLM falló (red, timeout, rate limit o estado). El detalle interno se registra en el servidor y **no** viaja al cliente.
@@ -134,9 +134,9 @@ data: {"model":"gpt-4o-mini","provider":"openai","input_tokens":1234,"output_tok
 
 - `token` — delta de texto.
 - `done` — métricas de la llamada (modelo, proveedor, tokens, truncado).
-- `error` — fallo del proveedor a mitad del stream (el `200` ya se envió, así que no se puede cambiar el estado).
+- `error` — fallo de configuración del proveedor o de generación (el `200` ya se envió, así que no se puede cambiar el estado).
 
-Los errores de configuración/entrada se devuelven como HTTP normal (`503`/`422`) **antes** de abrir el stream.
+La longitud de la transcripción se valida con **422** (Pydantic) antes de abrir el flujo. Un proveedor mal configurado no devuelve `503` en este endpoint: se emite como evento `error` (la UI ya avisa antes con `llm_configured` de `GET /api/v1/context`). El endpoint usa el SSE nativo de FastAPI (`fastapi.sse`), que añade pings de keepalive automáticos.
 
 ### Contexto CAG
 
