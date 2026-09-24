@@ -38,7 +38,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Mypy (type-check)
-        run: uv run mypy app
+        run: uv run mypy app frontend
 
   test:
     name: Tests

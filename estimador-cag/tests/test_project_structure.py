@@ -21,8 +21,14 @@ REQUIRED_PATHS = (
     "app/services/llm_service.py",
     "app/context/__init__.py",
     "app/context/examples.py",
+    "app/schemas/__init__.py",
+    "app/schemas/estimations.py",
+    "frontend/__init__.py",
+    "frontend/config.py",
+    "frontend/models.py",
+    "frontend/client.py",
+    "frontend/streamlit_app.py",
     "tests/__init__.py",
-    "streamlit_app.py",
     "pyproject.toml",
     "README.md",
     ".env.example",
@@ -51,6 +57,8 @@ def test_app_exposes_expected_entrypoints() -> None:
     paths = set(app.openapi()["paths"])
     assert "/health" in paths
     assert "/api/v1/estimate" in paths
+    assert "/api/v1/estimate/stream" in paths
+    assert "/api/v1/context" in paths
 
 
 def test_env_file_is_gitignored() -> None:

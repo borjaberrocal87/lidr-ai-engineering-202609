@@ -1,56 +1,31 @@
+from collections.abc import Iterator
+
 import structlog
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.config import settings
+from app.context.examples import ESTIMATION_EXAMPLES
+from app.schemas.estimations import (
+    ContextResponse,
+    EstimateRequest,
+    EstimateResponse,
+    EstimationExampleSchema,
+    StreamDoneEvent,
+)
 from app.services.llm_service import (
     LLMConfigurationError,
     LLMInputError,
     LLMProviderError,
+    StreamMetrics,
+    build_system_prompt,
     generate_estimation,
+    stream_estimation,
 )
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 router = APIRouter()
-
-
-class EstimateRequest(BaseModel):
-    transcription: str = Field(
-        ...,
-        min_length=settings.transcription_min_length,
-        max_length=settings.transcription_max_length,
-        description=(
-            "Texto de la transcripción de la reunión a estimar. "
-            "Longitud acotada por TRANSCRIPTION_MIN_LENGTH y TRANSCRIPTION_MAX_LENGTH."
-        ),
-        examples=[
-            "En la reunión con el equipo de marketing, el cliente explicó que "
-            "necesita una landing page con formulario de contacto..."
-        ],
-    )
-
-
-class EstimateResponse(BaseModel):
-    estimation: str = Field(..., description="Estimación generada en Markdown.")
-    model: str = Field(..., description="Modelo LLM utilizado.")
-    provider: str = Field(..., description="Proveedor LLM utilizado.")
-    temperature: float | None = Field(
-        None,
-        description=(
-            "Temperatura usada en la generación. Null para proveedores cuyo "
-            "SDK no acepta el parámetro (p. ej. Anthropic)."
-        ),
-    )
-    input_tokens: int | None = Field(None, description="Tokens de entrada consumidos.")
-    output_tokens: int | None = Field(None, description="Tokens de salida generados.")
-    truncated: bool = Field(
-        False,
-        description=(
-            "True si el modelo se quedó sin presupuesto de salida (LLM_MAX_TOKENS) "
-            "y la estimación puede estar incompleta."
-        ),
-    )
 
 
 @router.post(
@@ -89,4 +64,80 @@ def estimate(payload: EstimateRequest) -> EstimateResponse:
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
         truncated=result.truncated,
+    )
+
+
+@router.post(
+    "/estimate/stream",
+    summary="Genera una estimación en streaming (Server-Sent Events)",
+    response_class=EventSourceResponse,
+    responses={
+        200: {
+            "content": {"text/event-stream": {}},
+            "description": (
+                "Flujo SSE. Eventos `token` (deltas de texto), `done` (métricas) "
+                "y `error` (fallo de configuración o del proveedor)."
+            ),
+        },
+        422: {"description": "Transcripción fuera de los límites permitidos."},
+    },
+)
+def estimate_stream(payload: EstimateRequest) -> Iterator[ServerSentEvent]:
+    """Expone `stream_estimation` como SSE nativo de FastAPI para clientes HTTP.
+
+    Al ser un endpoint generador, la respuesta ya se ha abierto (200) cuando se
+    ejecuta el cuerpo, así que cualquier fallo (configuración, proveedor) se
+    comunica como evento `error`. La longitud de la transcripción la valida
+    Pydantic antes de abrir el flujo (422).
+    """
+    metrics = StreamMetrics(model="", provider="")
+    try:
+        tokens = stream_estimation(payload.transcription, metrics)
+    except (LLMConfigurationError, LLMInputError) as exc:
+        yield ServerSentEvent(event="error", data={"detail": str(exc)})
+        return
+
+    try:
+        for chunk in tokens:
+            yield ServerSentEvent(event="token", data={"text": chunk})
+    except LLMProviderError:
+        logger.warning("estimate.stream.provider_error", provider=settings.llm_provider)
+        yield ServerSentEvent(
+            event="error",
+            data={"detail": "No se pudo generar la estimación. Inténtalo de nuevo más tarde."},
+        )
+        return
+    except Exception:
+        logger.exception("estimate.stream.unexpected_error")
+        yield ServerSentEvent(
+            event="error",
+            data={"detail": "Error inesperado generando la estimación."},
+        )
+        return
+
+    if metrics.truncated:
+        logger.warning("llm.response.truncated", model=metrics.model, provider=metrics.provider)
+
+    done = StreamDoneEvent(
+        model=metrics.model,
+        provider=metrics.provider,
+        input_tokens=metrics.input_tokens,
+        output_tokens=metrics.output_tokens,
+        truncated=metrics.truncated,
+    )
+    yield ServerSentEvent(event="done", data=done.model_dump())
+
+
+@router.get(
+    "/context",
+    response_model=ContextResponse,
+    summary="Contexto CAG y límites activos (para que la UI no importe el backend)",
+)
+def context() -> ContextResponse:
+    return ContextResponse(
+        system_prompt=build_system_prompt(),
+        examples=[EstimationExampleSchema(**example) for example in ESTIMATION_EXAMPLES],
+        transcription_min_length=settings.transcription_min_length,
+        transcription_max_length=settings.transcription_max_length,
+        llm_configured=settings.is_configured,
     )

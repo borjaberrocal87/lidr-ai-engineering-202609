@@ -31,11 +31,16 @@ services:
     container_name: estimador-cag-ui
     env_file:
       - .env
+    environment:
+      # El frontend habla con la API por la red interna de Compose.
+      API_BASE_URL: http://api:8000
+    depends_on:
+      - api
     command:
       [
         "streamlit",
         "run",
-        "streamlit_app.py",
+        "frontend/streamlit_app.py",
         "--server.address=0.0.0.0",
         "--server.port=8501",
         "--server.headless=true",

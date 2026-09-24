@@ -1,5 +1,21 @@
 # Spec — Proyecto 1: Interfaz conversacional con Streamlit
 
+> **Actualización — arquitectura por capas (refactor posterior).**
+> El proyecto evolucionó para desacoplar la UI del backend. Donde este spec
+> habla de reutilizar módulos Python del backend (`build_system_prompt()`,
+> `ESTIMATION_EXAMPLES`, `stream_estimation`) o de `streamlit_app.py` en la
+> raíz, léelo como:
+>
+> - La UI vive en `frontend/streamlit_app.py` y consume la API **por HTTP**
+>   mediante `frontend/client.py` (no importa `app.*`).
+> - El system prompt, los ejemplos CAG y los límites se obtienen de
+>   `GET /api/v1/context`.
+> - El streaming se obtiene de `POST /api/v1/estimate/stream` (SSE).
+> - Arranque: `uv run streamlit run frontend/streamlit_app.py` (con la API
+>   levantada y `API_BASE_URL` apuntando a ella).
+>
+> Así se puede sustituir Streamlit por otra UI reutilizando el mismo cliente.
+
 ## Objetivo
 
 Añadir una interfaz conversacional web al Proyecto 1 usando Streamlit.
@@ -23,7 +39,7 @@ La lógica ya existe y se reutiliza tal cual:
 - `app/context/examples.py` — ejemplos de estimaciones previas que alimentan el contexto.
 - `app/config.py` — configuración y API keys cargadas desde `.env`.
 
-Esta capa es una interfaz adicional: no sustituye a la API, la consume desde dentro del propio proyecto Python.
+Esta capa es una interfaz adicional: no sustituye a la API, la **consume por HTTP** a través de `frontend/client.py`. El frontend no importa `app.*` (arquitectura por capas).
 
 ## Requisitos para el ejercicio
 
@@ -41,27 +57,31 @@ Añade Streamlit como dependencia:
 uv add streamlit
 ```
 
-Crea el fichero `streamlit_app.py` en la **raíz** del proyecto. Se ejecutará con:
+Crea el fichero `frontend/streamlit_app.py` (capa de presentación). Se ejecutará con:
 
 ```bash
-uv run streamlit run streamlit_app.py
+uv run streamlit run frontend/streamlit_app.py
 ```
 
-Estructura orientativa:
+Estructura orientativa (ya con la separación por capas):
 
 ```
 estimador-cag/
-├── app/
-│   ├── services/llm_service.py   # (reutilizado)
-│   ├── context/examples.py       # (reutilizado)
-│   └── config.py                 # (reutilizado)
-├── streamlit_app.py              # ← nuevo
+├── app/                          # Backend (API) — dueño del LLM y las claves
+│   ├── services/llm_service.py
+│   ├── context/examples.py
+│   ├── schemas/estimations.py
+│   └── config.py
+├── frontend/                     # Capa de presentación — consume la API por HTTP
+│   ├── client.py                 # ← cliente HTTP (httpx)
+│   ├── config.py                 # API_BASE_URL
+│   └── streamlit_app.py          # ← nuevo
 ├── .env
 └── .streamlit/
     └── secrets.toml              # opcional, alternativa a .env
 ```
 
-> **Nota:** `streamlit_app.py` vive en la raíz y no dentro de `app/`, porque es un punto de entrada independiente del servidor FastAPI. Puede importar `app.*` sin problema.
+> **Nota:** `frontend/streamlit_app.py` es un punto de entrada independiente del servidor FastAPI. No importa `app.*`: habla con la API por HTTP usando `frontend/client.py`.
 
 ### Paso 2 — Chat básico (Nivel 1, obligatorio)
 
@@ -70,10 +90,10 @@ Crea una aplicación Streamlit con interfaz de chat usando `st.chat_message` y `
 Requisitos:
 
 1. El usuario debe poder **escribir o pegar** una transcripción de reunión.
-2. La aplicación envía ese texto al LLM reutilizando la lógica que ya tienes (`generate_estimation` de `app/services/llm_service.py`).
+2. La aplicación envía ese texto a la API (`POST /api/v1/estimate` o `POST /api/v1/estimate/stream`) a través de `frontend/client.py`.
 3. La estimación resultante se muestra como **mensaje del asistente**.
 4. El historial de la conversación debe mantenerse visible durante la sesión. Usa `st.session_state` para guardarlo y repintarlo en cada rerun de Streamlit.
-5. El system prompt debe ser el mismo que usa el endpoint CAG — no lo dupliques, importa `build_system_prompt()`.
+5. El system prompt debe ser el mismo que usa el endpoint CAG — no lo dupliques, obtenlo de `GET /api/v1/context`.
 6. La API key **no debe estar hardcodeada**.
 
 Patrón orientativo:
@@ -126,8 +146,8 @@ st.session_state.messages.append({"role": "assistant", "content": full_response}
 
 Añade un panel lateral con `st.sidebar` que muestre:
 
-1. **System prompt activo** (solo lectura) — `build_system_prompt()`.
-2. **Contexto estático inyectado** — los ejemplos de `ESTIMATION_EXAMPLES`.
+1. **System prompt activo** (solo lectura) — `system_prompt` de `GET /api/v1/context`.
+2. **Contexto estático inyectado** — los `examples` de `GET /api/v1/context`.
 3. **Métricas básicas de la última llamada**: modelo utilizado, tokens de entrada, tokens de salida y tiempo de respuesta.
 
 Esto da al usuario visibilidad sobre qué información está usando el modelo para generar la estimación.
@@ -137,7 +157,7 @@ Esto da al usuario visibilidad sobre qué información está usando el modelo pa
 Arranca la aplicación y pruébala en el navegador:
 
 ```bash
-uv run streamlit run streamlit_app.py
+uv run streamlit run frontend/streamlit_app.py
 ```
 
 Pega una transcripción de ejemplo (puedes usar `examples/transcripcion.md`) y comprueba que la estimación aparece en streaming y que la conversación persiste al hacer varias preguntas seguidas.
