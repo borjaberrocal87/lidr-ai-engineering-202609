@@ -1,12 +1,14 @@
 # estimador-cag
 
-API FastAPI que recibe la transcripción de una reunión y devuelve una estimación de software generada por un LLM, usando **arquitectura CAG** (Context-Augmented Generation): el contexto estático (ejemplos de estimaciones previas) se inyecta directamente en el prompt en cada llamada. Sin base de datos, sin retrieval, sin persistencia.
+API FastAPI que recibe una **descripción de proyecto tipada** (descripción libre + tipo, nivel de detalle y formato de salida) y devuelve una estimación de software generada por un LLM, usando **arquitectura CAG** (Context-Augmented Generation): el contexto estático (ejemplos de estimaciones previas) se inyecta directamente en el prompt en cada llamada. Sin base de datos, sin retrieval, sin persistencia.
+
+El prompt no vive en el código: se compone con **plantillas Jinja2 versionadas** (`app/prompts/`), de modo que cambiar texto, ejemplos o reglas es cambiar un `.j2`, no refactorizar el servicio.
 
 ## Alcance
 
-El contexto CAG es un catálogo en memoria (`app/context/examples.py`), sin base de datos ni retrieval. Es una decisión, no deuda pendiente.
+El contexto CAG son los ejemplos few-shot de `app/prompts/estimation/v1/examples.j2`, inyectados en el system prompt en cada llamada. Sin base de datos ni retrieval: es una decisión, no deuda pendiente.
 
-El umbral para revisarla: cuando el catálogo crezca más allá de unos 15-20 ejemplos, toca migrar a una fuente vectorial (RAG). El punto de cambio está aislado en `build_system_prompt(examples=...)`, de modo que el router y el servicio no se enteran.
+El umbral para revisarla: cuando el catálogo crezca más allá de unos 15-20 ejemplos, toca migrar a una fuente vectorial (RAG). El punto de cambio está aislado en el template (`examples.j2`) y en el loader, de modo que el router y el servicio no se enteran.
 
 ## Estructura
 
@@ -19,23 +21,27 @@ estimador-cag/
 │   ├── routers/
 │   │   └── estimations.py       # /estimate, /estimate/stream (SSE) y /context
 │   ├── schemas/
-│   │   └── estimations.py       # Contrato HTTP (Pydantic) del backend
+│   │   └── estimations.py       # Contrato HTTP (Pydantic) y enums del formulario
+│   ├── prompts/                 # Prompts versionados (Jinja2)
+│   │   ├── loader.py            # render_estimation_prompt(request, version)
+│   │   └── estimation/v1/       # system.j2, user.j2, examples.j2
 │   ├── services/
-│   │   └── llm_service.py       # System prompt + ejemplos + llamada al proveedor
-│   └── context/
-│       └── examples.py          # Estimaciones previas (few-shot, CAG)
+│   │   ├── llm_service.py       # Orquesta: valida, renderiza prompts y llama al wrapper
+│   │   └── llm_wrapper.py       # Wrapper LiteLLM (fallback, caché, coste, logging)
 ├── frontend/                    # Capa de presentación (no importa `app.*`)
 │   ├── config.py                # API_BASE_URL y timeouts
 │   ├── client.py                # Cliente HTTP (httpx) contra la API
 │   ├── models.py                # Modelos locales de respuesta
 │   ├── logging_config.py        # Logging del frontend
-│   └── streamlit_app.py         # UI de chat (Streamlit)
+│   └── streamlit_app.py         # Formulario tipado (Streamlit)
 ├── tests/                       # Tests con pytest (proveedores y API mockeados)
+│   └── prompts/                 # Tests de los templates (sin LLM)
 ├── examples/
-│   └── transcripcion.md         # Transcripción de reunión de ejemplo (input del ejercicio)
+│   └── transcripcion.md         # Transcripción de reunión de ejemplo (input del formulario)
 ├── specs/
 │   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
+│   ├── sesion-4-formulario-tipado-prompt-jinja2.md  # Spec del formulario y prompts (sesión 4)
 │   └── proveedor-openai-compatible.md  # Spec del proveedor custom (OpenAI-compatible)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
 ├── docker-compose.yml       # Servicios api, ui y test
@@ -73,11 +79,16 @@ Documentación Swagger: http://localhost:8000/docs
 
 ## Uso
 
+El body es un `EstimationRequest` tipado: una descripción libre y tres knobs cerrados por `Enum` (`project_type`, `detail_level`, `output_format`).
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/estimate \
   -H "Content-Type: application/json" \
   -d '{
-    "transcription": "En la reunión con el equipo de marketing, el cliente explicó que necesita una landing page con formulario de contacto, integración con su CRM actual (HubSpot), y una sección de blog con editor WYSIWYG. El plazo ideal sería tenerlo listo en 4 semanas. El diseño ya existe en Figma."
+    "description": "En la reunión con el equipo de marketing, el cliente explicó que necesita una landing page con formulario de contacto, integración con su CRM actual (HubSpot), y una sección de blog con editor WYSIWYG. El plazo ideal sería tenerlo listo en 4 semanas.",
+    "project_type": "web_saas",
+    "detail_level": "detailed",
+    "output_format": "phases_table"
   }'
 ```
 
@@ -86,6 +97,7 @@ Respuesta:
 ```json
 {
   "estimation": "## Estimación: ...",
+  "prompt_version": "v1",
   "model": "gpt-4o-mini",
   "provider": "openai",
   "temperature": 0.2,
@@ -94,6 +106,14 @@ Respuesta:
   "truncated": false
 }
 ```
+
+Los valores válidos de los enums son:
+
+- `project_type`: `mobile_app`, `web_saas`, `internal_tool`, `data_pipeline`.
+- `detail_level`: `summary`, `medium`, `detailed`.
+- `output_format`: `phases_table`, `line_items`, `narrative`.
+
+Pydantic los valida en el borde: un valor desconocido devuelve **422**. `prompt_version` indica el template que produjo la estimación.
 
 `truncated: true` significa que el modelo agotó `LLM_MAX_TOKENS` antes de terminar y la estimación puede estar incompleta. En ese caso la API responde igualmente `200` (para no perder la respuesta parcial), pero lo indica de forma explícita y deja un warning en los logs.
 
@@ -113,12 +133,12 @@ curl http://localhost:8000/health
 
 ### Estimación en streaming (SSE)
 
-La UI de chat consume `POST /api/v1/estimate/stream`, que expone la generación token a token como **Server-Sent Events**:
+Además del endpoint bloqueante, `POST /api/v1/estimate/stream` expone la generación token a token como **Server-Sent Events**. El formulario del frontend usa el endpoint no-streaming, pero cualquier cliente HTTP puede consumir el stream con el mismo body tipado:
 
 ```bash
 curl -N -X POST http://localhost:8000/api/v1/estimate/stream \
   -H "Content-Type: application/json" \
-  -d '{"transcription": "En la reunión..."}'
+  -d '{"description": "En la reunión...", "project_type": "web_saas", "detail_level": "medium", "output_format": "phases_table"}'
 ```
 
 ```text
@@ -129,18 +149,18 @@ event: token
 data: {"text": "..."}
 
 event: done
-data: {"model":"gpt-4o-mini","provider":"openai","input_tokens":1234,"output_tokens":567,"truncated":false}
+data: {"prompt_version":"v1","model":"gpt-4o-mini","provider":"openai","input_tokens":1234,"output_tokens":567,"truncated":false}
 ```
 
 - `token` — delta de texto.
-- `done` — métricas de la llamada (modelo, proveedor, tokens, truncado).
+- `done` — métricas de la llamada (versión de prompt, modelo, proveedor, tokens, truncado).
 - `error` — fallo de configuración del proveedor o de generación (el `200` ya se envió, así que no se puede cambiar el estado).
 
-La longitud de la transcripción se valida con **422** (Pydantic) antes de abrir el flujo. Un proveedor mal configurado no devuelve `503` en este endpoint: se emite como evento `error` (la UI ya avisa antes con `llm_configured` de `GET /api/v1/context`). El endpoint usa el SSE nativo de FastAPI (`fastapi.sse`), que añade pings de keepalive automáticos.
+La descripción se valida con **422** (Pydantic) antes de abrir el flujo. Un proveedor mal configurado no devuelve `503` en este endpoint: se emite como evento `error` (la UI ya avisa antes con `llm_configured` de `GET /api/v1/context`). El endpoint usa el SSE nativo de FastAPI (`fastapi.sse`), que añade pings de keepalive automáticos.
 
 ### Contexto CAG
 
-`GET /api/v1/context` devuelve el system prompt activo, los ejemplos inyectados y los límites de transcripción, para que la UI muestre la información sin importar código del backend:
+`GET /api/v1/context` devuelve el system prompt **renderizado** con la versión por defecto y los límites de la descripción, para que la UI muestre la información sin importar código del backend:
 
 ```bash
 curl http://localhost:8000/api/v1/context
@@ -152,13 +172,13 @@ La llamada al proveedor está acotada por configuración:
 
 - `LLM_TIMEOUT_SECONDS` (por defecto `30`) y `LLM_MAX_RETRIES` (por defecto `2`) se aplican al cliente del SDK, para no heredar el timeout por defecto de diez minutos.
 - `LLM_MAX_TOKENS` (por defecto `2048`) acota el coste de salida y se traduce en `truncated` cuando la respuesta se corta.
-- `TRANSCRIPTION_MIN_LENGTH` / `TRANSCRIPTION_MAX_LENGTH` (por defecto `10` / `50000` caracteres) se validan en el borde (422) antes de gastar un token. El servicio repite la comprobación por si lo invoca otro adaptador (worker, CLI); en ese caso responde `422`.
+- `DESCRIPTION_MIN_LENGTH` / `DESCRIPTION_MAX_LENGTH` (por defecto `20` / `50000` caracteres) se validan en el borde (422) antes de gastar un token. El servicio repite la comprobación por si lo invoca otro adaptador (worker, CLI); en ese caso responde `422`.
 
-La transcripción se envuelve en una etiqueta con un sufijo aleatorio por petición (`<transcripcion-XXXX>...</transcripcion-XXXX>`) y el system prompt explica al modelo que ese bloque son datos, no instrucciones. Como el nombre de la etiqueta no es previsible, el texto de entrada no puede cerrarla.
+El `user.j2` envuelve la descripción en el bloque `<project_description>` y el `system.j2` explica al modelo que ese bloque son datos, no instrucciones, con la sección `<limite_de_datos>`.
 
-## Interfaz conversacional (Streamlit)
+## Formulario (Streamlit)
 
-Además de la API, el proyecto incluye una interfaz de chat web para pegar transcripciones y ver la estimación en streaming, sin usar `curl`, Postman ni Swagger. Es una **capa de presentación independiente**: consume la API por HTTP y no importa código del backend, así que puede sustituirse por otra UI reutilizando `frontend/client.py`.
+Además de la API, el proyecto incluye un formulario web que construye un `EstimationRequest` tipado y lo envía a `POST /api/v1/estimate`, sin usar `curl`, Postman ni Swagger. Es una **capa de presentación independiente**: consume la API por HTTP y no importa código del backend, así que puede sustituirse por otra UI reutilizando `frontend/client.py`.
 
 Arranca primero la API y luego la UI (en otra terminal):
 
@@ -170,7 +190,7 @@ uv run uvicorn app.main:app --reload
 uv run streamlit run frontend/streamlit_app.py
 ```
 
-Se abre en http://localhost:8501. El frontend apunta al backend por `API_BASE_URL` (por defecto `http://localhost:8000`). La conversación persiste durante la sesión (`st.session_state`) y el panel lateral muestra el system prompt activo, los ejemplos de contexto CAG y las métricas de la última llamada (modelo, proveedor, tokens de entrada/salida y tiempo de respuesta), todo obtenido de `GET /api/v1/context` y del evento `done` del stream.
+Se abre en http://localhost:8501. El frontend apunta al backend por `API_BASE_URL` (por defecto `http://localhost:8000`). El formulario (`st.form`) ofrece un textarea para la descripción y selectores para tipo de proyecto, nivel de detalle y formato de salida; los selectores envían los strings de los enums. El panel lateral muestra el system prompt renderizado y las métricas de la última llamada (versión de prompt, modelo, proveedor, tokens, coste, caché y fallback), obtenidas de `GET /api/v1/context` y de la respuesta de `/estimate`.
 
 Las claves LLM ya no las lee la UI: viven solo en el backend. Si el proveedor no está configurado, la UI lo avisa (`llm_configured`).
 
@@ -191,7 +211,7 @@ Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (in
 
 Cada petición recibe un `request_id` (de la cabecera `X-Request-ID` o generado) que se propaga por `structlog.contextvars` a **todos** los logs de esa petición y se devuelve en la respuesta, de modo que se puede reconstruir un flujo completo de extremo a extremo.
 
-Por privacidad se registran **solo metadatos**: nunca la API key ni el texto de la transcripción (posible información confidencial del cliente). El nivel se controla con `LOG_LEVEL` y el formato con `LOG_FORMAT` (`console` para texto legible, `json` para agregadores). En Docker los logs salen por stdout y se consultan con `docker compose logs -f api` (o `ui`).
+Por privacidad se registran **solo metadatos**: nunca la API key ni el texto de la descripción (posible información confidencial del cliente). El nivel se controla con `LOG_LEVEL` y el formato con `LOG_FORMAT` (`console` para texto legible, `json` para agregadores). En Docker los logs salen por stdout y se consultan con `docker compose logs -f api` (o `ui`).
 
 ## Wrapper de proveedores y caché
 
@@ -213,8 +233,8 @@ Para ver la caché en acción, lanza dos veces la misma petición:
 
 ```bash
 curl -s localhost:8000/api/v1/estimate -H 'Content-Type: application/json' \
-  -d '{"transcription": "Necesitamos un CRM con auth, contactos y roles. MVP en seis semanas."}' \
-  | jq '{cache_hit, cost_usd}'
+  -d '{"description": "Necesitamos un CRM con auth, contactos y roles. MVP en seis semanas.", "project_type": "web_saas", "detail_level": "medium", "output_format": "phases_table"}' \
+  | jq '{cache_hit, cost_usd, prompt_version}'
 ```
 
 Con Redis (`CACHE_BACKEND=redis`) puedes inspeccionar las claves:
@@ -223,9 +243,29 @@ Con Redis (`CACHE_BACKEND=redis`) puedes inspeccionar las claves:
 docker compose exec redis redis-cli KEYS 'estimation:*'
 ```
 
+## Prompts versionados
+
+El prompt ya no es un `f-string` en el código. Vive en plantillas Jinja2 con versiones en disco:
+
+```
+app/prompts/
+├── loader.py                 # render_estimation_prompt(request, version="v1") -> (system, user)
+└── estimation/
+    └── v1/
+        ├── system.j2         # rol, reglas, condicionales de formato y detalle
+        ├── user.j2           # envuelve la descripción en <project_description>
+        └── examples.j2       # ejemplos few-shot, incluidos con {% include %}
+```
+
+El `Environment` de Jinja2 usa `FileSystemLoader` sobre `app/prompts/`, `StrictUndefined` (un typo entre el contexto y la plantilla revienta en el render, no se interpola vacío) y `trim_blocks`/`lstrip_blocks` (las etiquetas de control no dejan saltos ni espacios en el prompt). `system.j2` decide el bloque de `output_format` y el de `detail_level` con `{% if %}` e incluye los ejemplos con `{% include "estimation/v1/examples.j2" %}`.
+
+`render_estimation_prompt` devuelve `(system, user)` por separado, que es lo que el wrapper envía como dos mensajes (`role: "system"` y `role: "user"`). La respuesta incluye `prompt_version`.
+
+Para añadir una versión, duplica `v1/` como `v2/`, edita las plantillas y llama a `render_estimation_prompt(request, version="v2")`. La convención `v1/`, `v2/` no es opcional: permite comparar, ensayar y volver atrás, y el `prompt_version` de la respuesta dice qué prompt produjo cada estimación. Como la clave de caché se deriva del system prompt completo, cambiar de versión invalida la caché sola.
+
 ## Transcripción de ejemplo
 
-En `examples/transcripcion.md` hay una transcripción de reunión realista (landing page + integración HubSpot + blog con editor WYSIWYG) lista para usar como parámetro del ejercicio. Copia el contenido de la sección **Transcripción** en el campo `transcription` del body.
+En `examples/transcripcion.md` hay una transcripción de reunión realista (landing page + integración HubSpot + blog con editor WYSIWYG) lista para usar como `description` del formulario (o del body de `POST /api/v1/estimate`).
 
 ## Tests
 
@@ -235,10 +275,10 @@ uv run pytest
 
 Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 
-- el endpoint `/api/v1/estimate` y los schemas de entrada/salida (incluida la validación de longitud mínima/máxima y que una entrada inválida **no** llega a invocar al LLM);
-- el endpoint SSE `/api/v1/estimate/stream` (eventos `token`/`done`/`error`) y `GET /api/v1/context`;
-- el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
-- la inyección del contexto CAG en el system prompt y el delimitado de la transcripción con nonce;
+- el endpoint `/api/v1/estimate` y los schemas de entrada/salida (enums tipados, validación de longitud y que una entrada inválida **no** llega a invocar al LLM) (`tests/test_estimations.py`, `tests/test_schemas.py`);
+- el endpoint SSE `/api/v1/estimate/stream` (eventos `token`/`done`/`error` con `prompt_version`) y `GET /api/v1/context`;
+- los templates de prompt sin tocar el LLM: la descripción dentro de `<project_description>`, el condicional de `output_format`, el de `detail_level`, la inclusión de ejemplos y `StrictUndefined` (`tests/prompts/test_estimation_v1.py`);
+- el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas, `estimate()` y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
 - la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
 - la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
 - el logging estructurado (eventos, coste, cache_hit y que las claves no se filtran) y la propagación de `X-Request-ID`;
@@ -251,7 +291,7 @@ El proyecto usa `ruff` (lint + formato) y `mypy` (type-check estricto sobre `app
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy app
+uv run mypy app frontend
 ```
 
 El pipeline de GitHub Actions (`.github/workflows/ci.yml`) se dispara en `push` a `main`/`feature/**` y en pull requests, y ejecuta tres jobs:
@@ -313,8 +353,8 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `CACHE_BACKEND`           | Caché de respuestas: `memory`, `redis` o `none`   | `memory`      |
 | `CACHE_TTL`               | TTL de las entradas de caché (segundos)           | `86400`       |
 | `REDIS_URL`               | URL de Redis (cuando `CACHE_BACKEND=redis`)       | `redis://localhost:6379` |
-| `TRANSCRIPTION_MIN_LENGTH` | Longitud mínima de la transcripción (caracteres) | `10`          |
-| `TRANSCRIPTION_MAX_LENGTH` | Longitud máxima de la transcripción (caracteres) | `50000`       |
+| `DESCRIPTION_MIN_LENGTH`  | Longitud mínima de la descripción (caracteres)    | `20`          |
+| `DESCRIPTION_MAX_LENGTH`  | Longitud máxima de la descripción (caracteres)    | `50000`       |
 | `OPEN_AI_KEY`             | API key de OpenAI                                 | —             |
 | `ANTHROPIC_API_KEY`       | API key de Anthropic                              | —             |
 | `CUSTOM_LLM_BASE_URL`     | URL base del endpoint OpenAI-compatible           | —             |
