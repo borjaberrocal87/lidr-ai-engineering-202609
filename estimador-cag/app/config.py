@@ -48,8 +48,8 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 30.0
     llm_max_retries: int = 2
     llm_max_tokens: int = 2048
-    transcription_min_length: int = 10
-    transcription_max_length: int = 50_000
+    description_min_length: int = 20
+    description_max_length: int = 50_000
 
     cache_backend: Literal["memory", "redis", "none"] = "memory"
     cache_ttl: int = 86_400

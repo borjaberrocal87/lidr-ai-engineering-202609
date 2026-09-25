@@ -3,31 +3,72 @@
 Estos modelos son la frontera entre el backend y cualquier cliente (hoy la UI
 de Streamlit, mañana otra). La UI no importa este módulo: habla HTTP contra
 estos esquemas, que se documentan solos en OpenAPI.
+
+Desde la sesión 04 el request es un formulario tipado: una descripción libre y
+tres decisiones de formato cerradas por `Enum`. La respuesta sigue siendo texto
+libre (JSON estructurado, guardrails y caché semántico llegan más adelante).
 """
+
+from enum import Enum
 
 from pydantic import BaseModel, Field
 
 from app.config import settings
 
 
-class EstimateRequest(BaseModel):
-    transcription: str = Field(
+class ProjectType(str, Enum):
+    """Categoría amplia del proyecto a estimar."""
+
+    MOBILE_APP = "mobile_app"
+    WEB_SAAS = "web_saas"
+    INTERNAL_TOOL = "internal_tool"
+    DATA_PIPELINE = "data_pipeline"
+
+
+class DetailLevel(str, Enum):
+    """Profundidad de la estimación."""
+
+    SUMMARY = "summary"
+    MEDIUM = "medium"
+    DETAILED = "detailed"
+
+
+class OutputFormat(str, Enum):
+    """Forma de la estimación renderizada."""
+
+    PHASES_TABLE = "phases_table"
+    LINE_ITEMS = "line_items"
+    NARRATIVE = "narrative"
+
+
+class EstimationRequest(BaseModel):
+    """Payload tipado que envía el formulario del cliente."""
+
+    description: str = Field(
         ...,
-        min_length=settings.transcription_min_length,
-        max_length=settings.transcription_max_length,
+        min_length=settings.description_min_length,
+        max_length=settings.description_max_length,
         description=(
-            "Texto de la transcripción de la reunión a estimar. "
-            "Longitud acotada por TRANSCRIPTION_MIN_LENGTH y TRANSCRIPTION_MAX_LENGTH."
+            "Descripción libre del proyecto a estimar. Longitud acotada por "
+            "DESCRIPTION_MIN_LENGTH y DESCRIPTION_MAX_LENGTH."
         ),
         examples=[
-            "En la reunión con el equipo de marketing, el cliente explicó que "
-            "necesita una landing page con formulario de contacto..."
+            "Plataforma web de gestión de inventario para una cadena de 5 tiendas "
+            "con control de stock, alertas y dashboard de rotación."
         ],
+    )
+    project_type: ProjectType = Field(..., description="Categoría amplia del proyecto.")
+    detail_level: DetailLevel = Field(..., description="Profundidad de la estimación.")
+    output_format: OutputFormat = Field(
+        ..., description="Forma de la estimación renderizada."
     )
 
 
 class EstimateResponse(BaseModel):
     estimation: str = Field(..., description="Estimación generada en Markdown.")
+    prompt_version: str = Field(
+        ..., description="Versión del template de prompt que produjo la estimación."
+    )
     model: str = Field(..., description="Modelo LLM utilizado.")
     provider: str = Field(..., description="Proveedor LLM utilizado.")
     temperature: float | None = Field(
@@ -60,18 +101,10 @@ class EstimateResponse(BaseModel):
     )
 
 
-class EstimationExampleSchema(BaseModel):
-    meeting_summary: str = Field(..., description="Resumen de la reunión de referencia.")
-    estimation: str = Field(..., description="Estimación de referencia generada.")
-
-
 class ContextResponse(BaseModel):
-    system_prompt: str = Field(..., description="System prompt CAG activo, en Markdown.")
-    examples: list[EstimationExampleSchema] = Field(
-        ..., description="Ejemplos de estimaciones inyectados como contexto (few-shot)."
-    )
-    transcription_min_length: int = Field(..., description="Longitud mínima aceptada.")
-    transcription_max_length: int = Field(..., description="Longitud máxima aceptada.")
+    system_prompt: str = Field(..., description="System prompt activo renderizado, en Markdown.")
+    description_min_length: int = Field(..., description="Longitud mínima aceptada.")
+    description_max_length: int = Field(..., description="Longitud máxima aceptada.")
     llm_configured: bool = Field(
         ...,
         description=(
@@ -84,6 +117,7 @@ class ContextResponse(BaseModel):
 class StreamDoneEvent(BaseModel):
     """Último evento SSE de una estimación en streaming: métricas de la llamada."""
 
+    prompt_version: str = Field(..., description="Versión del template de prompt utilizada.")
     model: str = Field(..., description="Modelo LLM utilizado.")
     provider: str = Field(..., description="Proveedor LLM utilizado.")
     input_tokens: int | None = Field(None, description="Tokens de entrada consumidos.")
