@@ -88,21 +88,32 @@ def get_context(*, client: httpx.Client | None = None) -> ContextResponse:
 
     return ContextResponse(
         system_prompt=payload["system_prompt"],
+        prompt_version=payload.get("prompt_version", ""),
+        available_versions=list(payload.get("available_versions", [])),
         description_min_length=payload["description_min_length"],
         description_max_length=payload["description_max_length"],
         llm_configured=payload["llm_configured"],
     )
 
 
+def _version_params(prompt_version: str | None) -> dict[str, str]:
+    return {"prompt_version": prompt_version} if prompt_version else {}
+
+
 def estimate(
     payload: dict[str, Any],
     *,
+    prompt_version: str | None = None,
     client: httpx.Client | None = None,
 ) -> EstimateResponse:
     """Envía un `EstimationRequest` tipado y devuelve la estimación."""
     with _acquire_client(client) as http:
         try:
-            response = http.post(_url("/api/v1/estimate"), json=payload)
+            response = http.post(
+                _url("/api/v1/estimate"),
+                json=payload,
+                params=_version_params(prompt_version),
+            )
         except httpx.HTTPError as exc:
             raise ApiUnavailableError(
                 f"No se pudo contactar con la API en {config.get_api_base_url()}."
@@ -145,6 +156,7 @@ def stream_estimation(
     payload: dict[str, Any],
     metrics: StreamMetrics | None = None,
     *,
+    prompt_version: str | None = None,
     client: httpx.Client | None = None,
 ) -> Iterator[str]:
     """Consume `/api/v1/estimate/stream` y cede el texto token a token.
@@ -159,6 +171,7 @@ def stream_estimation(
                 "POST",
                 _url("/api/v1/estimate/stream"),
                 json=payload,
+                params=_version_params(prompt_version),
             ) as response:
                 if response.status_code >= 400:
                     _raise_for_status(response)

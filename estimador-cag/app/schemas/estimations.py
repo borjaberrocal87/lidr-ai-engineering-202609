@@ -101,6 +101,10 @@ class EstimateResponse(BaseModel):
 
 class ContextResponse(BaseModel):
     system_prompt: str = Field(..., description="System prompt activo renderizado, en Markdown.")
+    prompt_version: str = Field(..., description="Versión del prompt renderizado.")
+    available_versions: list[str] = Field(
+        ..., description="Versiones de prompt disponibles en el servicio."
+    )
     description_min_length: int = Field(..., description="Longitud mínima aceptada.")
     description_max_length: int = Field(..., description="Longitud máxima aceptada.")
     llm_configured: bool = Field(

@@ -286,6 +286,45 @@ def test_cache_key_material_varia_con_el_request(monkeypatch) -> None:
     assert fake.complete_calls[0]["cache_key"] != fake.complete_calls[1]["cache_key"]
 
 
+def test_cache_key_material_varia_con_la_version(monkeypatch) -> None:
+    fake = FakeWrapper()
+    _use_wrapper(monkeypatch, fake)
+
+    generate_estimation(_request(), version="v1")
+    generate_estimation(_request(), version="v2")
+
+    assert fake.complete_calls[0]["cache_key"] != fake.complete_calls[1]["cache_key"]
+
+
+def test_generate_estimation_usa_la_version_solicitada(monkeypatch) -> None:
+    fake = FakeWrapper()
+    _use_wrapper(monkeypatch, fake)
+
+    generate_estimation(_request(), version="v2")
+
+    call = fake.complete_calls[0]
+    assert "revisor escéptico" in call["system_prompt"]
+
+
+def test_generate_estimation_aisla_cache_por_version(monkeypatch) -> None:
+    _openai_settings(monkeypatch)
+    calls = {"n": 0}
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        calls["n"] += 1
+        return _completion()
+
+    wrapper = _real_wrapper()
+    monkeypatch.setattr(wrapper.router, "completion", fake_completion)
+    monkeypatch.setattr(llm_service, "get_llm_wrapper", lambda: wrapper)
+
+    generate_estimation(_request(), version="v1")
+    generate_estimation(_request(), version="v1")  # acierto de caché
+    generate_estimation(_request(), version="v2")  # versión distinta -> nueva llamada
+
+    assert calls["n"] == 2
+
+
 def test_stream_estimation_reusa_cache_con_la_misma_descripcion(monkeypatch) -> None:
     _openai_settings(monkeypatch)
     calls = {"n": 0}

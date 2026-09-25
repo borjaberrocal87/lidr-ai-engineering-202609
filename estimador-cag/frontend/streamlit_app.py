@@ -93,6 +93,13 @@ with st.form("estimation_form", clear_on_submit=False):
         horizontal=True,
     )
     output_format = st.selectbox("Formato de salida", options=OUTPUT_FORMATS, index=0)
+    versions = context.available_versions or [context.prompt_version or "v1"]
+    default_version = context.prompt_version if context.prompt_version in versions else versions[0]
+    prompt_version = st.selectbox(
+        "Versión del prompt",
+        options=versions,
+        index=versions.index(default_version),
+    )
     submitted = st.form_submit_button("Generar estimación", type="primary")
 
 if submitted:
@@ -108,7 +115,7 @@ if submitted:
         }
         with st.spinner("Llamando al estimador…"):
             try:
-                result = estimate(payload)
+                result = estimate(payload, prompt_version=prompt_version)
             except ApiConfigurationError as exc:
                 st.error(str(exc))
             except ApiInputError as exc:

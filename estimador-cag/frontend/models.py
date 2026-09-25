@@ -6,7 +6,7 @@ duplican los strings de los `Enum` del backend porque el frontend no importa
 `app.*`; si cambia el contrato, cambian aquí.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 PROJECT_TYPES: list[str] = ["mobile_app", "web_saas", "internal_tool", "data_pipeline"]
 DETAIL_LEVELS: list[str] = ["summary", "medium", "detailed"]
@@ -16,6 +16,8 @@ OUTPUT_FORMATS: list[str] = ["phases_table", "line_items", "narrative"]
 @dataclass(frozen=True)
 class ContextResponse:
     system_prompt: str
+    prompt_version: str = ""
+    available_versions: list[str] = field(default_factory=list)
     description_min_length: int = 0
     description_max_length: int = 0
     llm_configured: bool = False

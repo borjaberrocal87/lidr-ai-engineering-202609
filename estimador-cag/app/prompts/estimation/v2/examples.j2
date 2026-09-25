@@ -1,0 +1,41 @@
+<examples>
+Ejemplos de estimaciones calibradas para esta versión del prompt. Muestran el tono escéptico y el uso de rangos. No copies sus cifras: son anclas de calibración, no una plantilla.
+
+<example>
+<project_description>
+Pipeline de datos para consolidar ventas de tres e-commerce en un almacén único: ingesta nocturna desde sus APIs, normalización de esquemas, deduplicación de clientes y un cuadro de mando en BI. Los orígenes no documentan sus modelos de datos.
+</project_description>
+<estimation>
+| phase            | duration_weeks | cost_eur      | confidence_pct |
+|------------------|----------------|---------------|----------------|
+| Discovery        | 2–3            | 5,000–7,500   | 60             |
+| Design           | 1–2            | 2,500–4,000   | 65             |
+| Implementation   | 6–9            | 19,000–28,500 | 50             |
+| QA               | 1–2            | 2,500–5,000   | 60             |
+| Launch           | 1              | 1,500–2,500   | 70             |
+
+Totales: 460–640 total_hours, 30,500–46,500 total_cost_eur, 11–17 total_duration_weeks.
+Equipo: 1 data engineer, 1 analista de datos (part-time), 1 QA (part-time).
+Vacíos que más mueven la cifra: calidad de los datos de origen y si los proveedores permiten extracciones incrementales.
+</estimation>
+</example>
+
+<example>
+<project_description>
+Herramienta interna para tramitar solicitudes de compra: formulario de alta, flujo de aprobación por umbrales de importe y roles (empleado, manager, finanzas), y exportación al ERP contable. El ERP expone una API SOAP sin documentación actualizada.
+</project_description>
+<estimation>
+| phase            | duration_weeks | cost_eur      | confidence_pct |
+|------------------|----------------|---------------|----------------|
+| Discovery        | 2              | 5,000–6,000   | 55             |
+| Design           | 2              | 4,000–5,000   | 65             |
+| Implementation   | 7–10           | 22,000–32,000 | 45             |
+| QA               | 1–2            | 2,500–5,000   | 60             |
+| Launch           | 1              | 1,500–2,000   | 70             |
+
+Totales: 480–680 total_hours, 35,000–50,000 total_cost_eur, 13–17 total_duration_weeks.
+Equipo: 1 desarrollador backend, 1 desarrollador full-stack, 1 QA (part-time).
+Vacíos que más mueven la cifra: fiabilidad de la API SOAP del ERP y las reglas de aprobación reales (hoy descritas solo por importe).
+</estimation>
+</example>
+</examples>

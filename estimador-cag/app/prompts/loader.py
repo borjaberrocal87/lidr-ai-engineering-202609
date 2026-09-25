@@ -57,6 +57,23 @@ def render_estimation_prompt(
     return system, user
 
 
+def available_estimation_versions() -> list[str]:
+    """Versiones de prompt de estimación presentes en disco, ordenadas.
+
+    Una versión cuenta si tiene `system.j2` y `user.j2`. Lo usa el router para
+    validar el query param `?prompt_version=` y `/context` para exponerlas.
+    """
+    directory = _BASE_DIR / ESTIMATION_USE_CASE
+    if not directory.is_dir():
+        return []
+    versions = [
+        child.name
+        for child in directory.iterdir()
+        if child.is_dir() and (child / "system.j2").is_file() and (child / "user.j2").is_file()
+    ]
+    return sorted(versions)
+
+
 @cache
 def prompt_fingerprint(version: str = DEFAULT_ESTIMATION_PROMPT_VERSION) -> str:
     """Huella determinista de las **fuentes** de una versión del prompt.
