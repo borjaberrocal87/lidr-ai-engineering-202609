@@ -279,6 +279,23 @@ curl -s "localhost:8000/api/v1/context?prompt_version=v2" | jq '{prompt_version,
 - `v1` — tono directo, cifras cerradas.
 - `v2` — tono escéptico: expresa duración y coste como **rangos**, enumera los vacíos de información y siempre añade riesgos y supuestos. Usa un set de ejemplos distinto (data pipeline, herramienta interna).
 
+### Proyectos de referencia (opcional)
+
+El request admite `reference_projects`: hasta 5 proyectos similares para calibrar la estimación. Si vienen, el `user.j2` los recorre con `{% for %}` dentro de un bloque `<reference_projects>`; si no, el bloque no se renderiza. Son datos de entrada, no instrucciones, y forman parte de la clave de caché.
+
+```json
+{
+  "description": "App de gestión de siniestros para una aseguradora.",
+  "project_type": "mobile_app",
+  "detail_level": "medium",
+  "output_format": "line_items",
+  "reference_projects": [
+    {"name": "CRM seguros", "description": "Pólizas y agentes.", "estimation": "10 semanas / 32.000 EUR"},
+    {"name": "Portal de clientes", "description": "Área privada con facturas."}
+  ]
+}
+```
+
 Para añadir una versión, duplica `v1/` como `v3/`, edita las plantillas y llama a `render_estimation_prompt(request, version="v3")`; el endpoint la expondrá automáticamente. La convención `v1/`, `v2/` no es opcional: permite comparar, ensayar y volver atrás, y el `prompt_version` de la respuesta dice qué prompt produjo cada estimación. La clave de caché incluye la versión y la huella de las fuentes del prompt, así que cambiar de versión (o editar un `.j2`) invalida la caché sola.
 
 ## Transcripción de ejemplo
@@ -295,7 +312,7 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 
 - el endpoint `/api/v1/estimate` y los schemas de entrada/salida (enums tipados, validación de longitud y que una entrada inválida **no** llega a invocar al LLM) (`tests/test_estimations.py`, `tests/test_schemas.py`);
 - el endpoint SSE `/api/v1/estimate/stream` (eventos `token`/`done`/`error` con `prompt_version`) y `GET /api/v1/context`;
-- los templates de prompt sin tocar el LLM: la descripción dentro de `<project_description>`, los condicionales de `output_format` y `detail_level`, la inclusión de ejemplos, `StrictUndefined` y el versionado v1/v2 (`tests/prompts/test_estimation_v1.py`, `tests/prompts/test_estimation_versions.py`);
+- los templates de prompt sin tocar el LLM: la descripción dentro de `<project_description>`, los condicionales de `output_format` y `detail_level`, la inclusión de ejemplos, los proyectos de referencia, `StrictUndefined` y el versionado v1/v2 (`tests/prompts/test_estimation_v1.py`, `tests/prompts/test_estimation_versions.py`);
 - el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas, `estimate()` y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
 - la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
 - la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;

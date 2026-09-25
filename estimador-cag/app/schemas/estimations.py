@@ -41,6 +41,20 @@ class OutputFormat(StrEnum):
     NARRATIVE = "narrative"
 
 
+class ReferenceProject(BaseModel):
+    """Proyecto similar que el usuario aporta para calibrar la estimación."""
+
+    name: str = Field(..., min_length=1, max_length=200, description="Nombre del proyecto.")
+    description: str = Field(
+        ..., min_length=1, max_length=2000, description="Qué era y qué alcance tenía."
+    )
+    estimation: str | None = Field(
+        None,
+        max_length=4000,
+        description="Resultado de la estimación previa, si se conoce (horas, coste, duración).",
+    )
+
+
 class EstimationRequest(BaseModel):
     """Payload tipado que envía el formulario del cliente."""
 
@@ -60,6 +74,11 @@ class EstimationRequest(BaseModel):
     project_type: ProjectType = Field(..., description="Categoría amplia del proyecto.")
     detail_level: DetailLevel = Field(..., description="Profundidad de la estimación.")
     output_format: OutputFormat = Field(..., description="Forma de la estimación renderizada.")
+    reference_projects: list[ReferenceProject] | None = Field(
+        default=None,
+        max_length=5,
+        description="Proyectos similares para calibrar la estimación (opcional, máx. 5).",
+    )
 
 
 class EstimateResponse(BaseModel):

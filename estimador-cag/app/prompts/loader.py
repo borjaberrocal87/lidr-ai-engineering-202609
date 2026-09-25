@@ -51,6 +51,9 @@ def render_estimation_prompt(
         "project_type": request.project_type.value,
         "detail_level": request.detail_level.value,
         "output_format": request.output_format.value,
+        "reference_projects": [
+            project.model_dump() for project in (request.reference_projects or [])
+        ],
     }
     system = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/system.j2").render(**context)
     user = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/user.j2").render(**context)

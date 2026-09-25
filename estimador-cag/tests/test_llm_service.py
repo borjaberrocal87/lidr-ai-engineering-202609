@@ -296,6 +296,29 @@ def test_cache_key_material_varia_con_la_version(monkeypatch) -> None:
     assert fake.complete_calls[0]["cache_key"] != fake.complete_calls[1]["cache_key"]
 
 
+def test_cache_key_material_varia_con_las_referencias(monkeypatch) -> None:
+    fake = FakeWrapper()
+    _use_wrapper(monkeypatch, fake)
+
+    generate_estimation(_request(reference_projects=[{"name": "A", "description": "uno"}]))
+    generate_estimation(_request(reference_projects=[{"name": "B", "description": "dos"}]))
+
+    assert fake.complete_calls[0]["cache_key"] != fake.complete_calls[1]["cache_key"]
+
+
+def test_generate_estimation_incluye_referencias_en_el_user_prompt(monkeypatch) -> None:
+    fake = FakeWrapper()
+    _use_wrapper(monkeypatch, fake)
+
+    generate_estimation(
+        _request(reference_projects=[{"name": "CRM seguros", "description": "pólizas y agentes"}])
+    )
+
+    call = fake.complete_calls[0]
+    assert "CRM seguros" in call["user_message"]
+    assert "<reference_projects>" in call["user_message"]
+
+
 def test_generate_estimation_usa_la_version_solicitada(monkeypatch) -> None:
     fake = FakeWrapper()
     _use_wrapper(monkeypatch, fake)

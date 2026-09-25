@@ -343,6 +343,31 @@ def test_estimate_stream_rejects_short_description(client: TestClient, monkeypat
     assert response.status_code == 422
 
 
+def test_estimate_accepts_reference_projects(
+    client: TestClient, estimation_payload: dict[str, str], monkeypatch
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_generate_estimation(
+        request: EstimationRequest, version: str = "v1"
+    ) -> EstimationResult:
+        seen["refs"] = request.reference_projects
+        return EstimationResult(estimation="## x", model="gpt-4o-mini", provider="openai")
+
+    monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
+
+    payload = {
+        **estimation_payload,
+        "reference_projects": [{"name": "CRM seguros", "description": "pólizas y agentes"}],
+    }
+    response = client.post("/api/v1/estimate", json=payload)
+
+    assert response.status_code == 200
+    refs = seen["refs"]
+    assert isinstance(refs, list)
+    assert refs[0].name == "CRM seguros"
+
+
 def test_context_endpoint(client: TestClient) -> None:
     response = client.get("/api/v1/context")
 

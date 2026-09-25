@@ -72,3 +72,32 @@ def test_missing_required_enum_fails() -> None:
         EstimationRequest(**payload)
 
     assert any(err["loc"] == ("project_type",) for err in exc_info.value.errors())
+
+
+def test_reference_projects_is_optional_and_typed() -> None:
+    request = EstimationRequest(**VALID_PAYLOAD)
+    assert request.reference_projects is None
+
+    with_references = EstimationRequest(
+        **VALID_PAYLOAD,
+        reference_projects=[
+            {"name": "CRM seguros", "description": "Pólizas y agentes", "estimation": "10 semanas"}
+        ],
+    )
+    assert with_references.reference_projects is not None
+    assert with_references.reference_projects[0].name == "CRM seguros"
+    assert with_references.reference_projects[0].estimation == "10 semanas"
+
+
+def test_reference_projects_rejects_more_than_five() -> None:
+    payload = {
+        **VALID_PAYLOAD,
+        "reference_projects": [
+            {"name": f"proyecto-{i}", "description": "descripción"} for i in range(6)
+        ],
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        EstimationRequest(**payload)
+
+    assert any(err["loc"] == ("reference_projects",) for err in exc_info.value.errors())

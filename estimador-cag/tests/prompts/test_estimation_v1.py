@@ -14,6 +14,7 @@ from app.schemas.estimations import (
     EstimationRequest,
     OutputFormat,
     ProjectType,
+    ReferenceProject,
 )
 
 
@@ -71,6 +72,33 @@ def test_project_type_is_interpolated_in_user_prompt() -> None:
     _system, user = render_estimation_prompt(_make_request(project_type=ProjectType.DATA_PIPELINE))
 
     assert "data_pipeline" in user
+
+
+def test_reference_projects_block_renders_names_when_present() -> None:
+    request = _make_request(
+        reference_projects=[
+            ReferenceProject(
+                name="CRM para seguros",
+                description="CRM con pólizas, agentes y siniestros.",
+                estimation="10 semanas / 32.000 EUR",
+            ),
+            ReferenceProject(name="Portal de clientes", description="Área privada con facturas."),
+        ]
+    )
+
+    _system, user = render_estimation_prompt(request)
+
+    assert "<reference_projects>" in user
+    assert "</reference_projects>" in user
+    assert "CRM para seguros" in user
+    assert "Portal de clientes" in user
+    assert "10 semanas / 32.000 EUR" in user
+
+
+def test_reference_projects_block_absent_when_none() -> None:
+    _system, user = render_estimation_prompt(_make_request())
+
+    assert "<reference_projects>" not in user
 
 
 def test_strict_undefined_raises_on_missing_variable() -> None:
