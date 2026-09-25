@@ -59,9 +59,7 @@ class EstimationRequest(BaseModel):
     )
     project_type: ProjectType = Field(..., description="Categoría amplia del proyecto.")
     detail_level: DetailLevel = Field(..., description="Profundidad de la estimación.")
-    output_format: OutputFormat = Field(
-        ..., description="Forma de la estimación renderizada."
-    )
+    output_format: OutputFormat = Field(..., description="Forma de la estimación renderizada.")
 
 
 class EstimateResponse(BaseModel):

@@ -53,12 +53,8 @@ def test_phases_table_keyword_appears_only_when_format_requested() -> None:
 
 
 def test_detailed_includes_assumptions_per_phase_summary_does_not() -> None:
-    detailed_system, _ = render_estimation_prompt(
-        _make_request(detail_level=DetailLevel.DETAILED)
-    )
-    summary_system, _ = render_estimation_prompt(
-        _make_request(detail_level=DetailLevel.SUMMARY)
-    )
+    detailed_system, _ = render_estimation_prompt(_make_request(detail_level=DetailLevel.DETAILED))
+    summary_system, _ = render_estimation_prompt(_make_request(detail_level=DetailLevel.SUMMARY))
 
     assert "enumera las asunciones de cada fase" in detailed_system.lower()
     assert "enumera las asunciones de cada fase" not in summary_system.lower()
@@ -72,9 +68,7 @@ def test_examples_block_is_included_in_system_prompt() -> None:
 
 
 def test_project_type_is_interpolated_in_user_prompt() -> None:
-    _system, user = render_estimation_prompt(
-        _make_request(project_type=ProjectType.DATA_PIPELINE)
-    )
+    _system, user = render_estimation_prompt(_make_request(project_type=ProjectType.DATA_PIPELINE))
 
     assert "data_pipeline" in user
 

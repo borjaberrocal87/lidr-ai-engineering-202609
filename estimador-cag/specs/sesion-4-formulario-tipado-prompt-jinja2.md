@@ -543,8 +543,12 @@ def test_user_prompt_wraps_description_in_project_description_block() -> None:
 
 
 def test_phases_table_keyword_appears_only_when_format_requested() -> None:
-    table_system, _ = render_estimation_prompt(_make_request(output_format=OutputFormat.PHASES_TABLE))
-    narrative_system, _ = render_estimation_prompt(_make_request(output_format=OutputFormat.NARRATIVE))
+    table_system, _ = render_estimation_prompt(
+        _make_request(output_format=OutputFormat.PHASES_TABLE)
+    )
+    narrative_system, _ = render_estimation_prompt(
+        _make_request(output_format=OutputFormat.NARRATIVE)
+    )
     assert "phases_table" in table_system
     assert "phases_table" not in narrative_system
 

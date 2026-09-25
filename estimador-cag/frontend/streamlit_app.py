@@ -82,8 +82,7 @@ with st.form("estimation_form", clear_on_submit=False):
         height=200,
         placeholder="Describe objetivos, funcionalidades clave y restricciones…",
         help=(
-            f"Entre {context.description_min_length} y "
-            f"{context.description_max_length} caracteres."
+            f"Entre {context.description_min_length} y {context.description_max_length} caracteres."
         ),
     )
     project_type = st.selectbox("Tipo de proyecto", options=PROJECT_TYPES, index=1)
@@ -99,9 +98,7 @@ with st.form("estimation_form", clear_on_submit=False):
 if submitted:
     cleaned = description.strip()
     if len(cleaned) < context.description_min_length:
-        st.error(
-            f"La descripción debe tener al menos {context.description_min_length} caracteres."
-        )
+        st.error(f"La descripción debe tener al menos {context.description_min_length} caracteres.")
     else:
         payload = {
             "description": cleaned,
