@@ -45,6 +45,7 @@ REQUIRED_PATHS = (
     "tests/prompts/__init__.py",
     "tests/prompts/test_estimation_v1.py",
     "tests/prompts/test_estimation_versions.py",
+    "tests/prompts/test_prompt_logging.py",
     "pyproject.toml",
     "README.md",
     ".env.example",

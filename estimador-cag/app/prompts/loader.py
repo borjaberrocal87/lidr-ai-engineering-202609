@@ -16,9 +16,12 @@ import hashlib
 from functools import cache
 from pathlib import Path
 
+import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from app.schemas.estimations import EstimationRequest
+
+logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BASE_DIR = Path(__file__).resolve().parent
 
@@ -57,7 +60,23 @@ def render_estimation_prompt(
     }
     system = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/system.j2").render(**context)
     user = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/user.j2").render(**context)
+    logger.info(
+        "prompt.rendered",
+        use_case=ESTIMATION_USE_CASE,
+        version=version,
+        system_chars=len(system),
+        user_chars=len(user),
+        system_hash=_content_hash(system),
+        user_hash=_content_hash(user),
+        prompt_fingerprint=prompt_fingerprint(version),
+        reference_projects=len(context["reference_projects"]),
+    )
     return system, user
+
+
+def _content_hash(text: str) -> str:
+    """Hash corto del contenido, para trazar el render sin registrar su texto."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
 def available_estimation_versions() -> list[str]:

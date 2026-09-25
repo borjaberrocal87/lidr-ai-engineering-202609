@@ -200,6 +200,7 @@ Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (in
 
 - `llm.call.start` / `llm.stream.start` — modelo, proveedor y `max_tokens`.
 - `llm.call.end` / `llm.stream.end` — tokens de entrada/salida, coste estimado (`cost_usd`), si se usó el fallback (`fallback_used`) y latencia en milisegundos.
+- `prompt.rendered` (en el loader) — `use_case`, `version`, tamaños y hashes del system/user, huella de la versión y número de proyectos de referencia. Nunca el texto del prompt ni de la descripción.
 - `cache.hit` / `cache.miss` / `cache.stored` — resultado de la caché de respuestas.
 - `llm.call.error` / `llm.stream.error` — error con traceback y latencia.
 - `llm.response.truncated` (en el router) — warning cuando el modelo agotó `LLM_MAX_TOKENS`.
