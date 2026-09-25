@@ -9,8 +9,8 @@ from app.prompts.loader import DEFAULT_ESTIMATION_PROMPT_VERSION, render_estimat
 from app.schemas.estimations import (
     ContextResponse,
     DetailLevel,
-    EstimationRequest,
     EstimateResponse,
+    EstimationRequest,
     OutputFormat,
     ProjectType,
     StreamDoneEvent,
@@ -164,7 +164,8 @@ def estimate_stream(payload: EstimationRequest) -> Iterator[ServerSentEvent]:
     summary="Prompt activo y límites (para que la UI no importe el backend)",
 )
 def context() -> ContextResponse:
-    system_prompt, _ = render_estimation_prompt(_default_estimation_request(), version=PROMPT_VERSION)
+    default_request = _default_estimation_request()
+    system_prompt, _ = render_estimation_prompt(default_request, version=PROMPT_VERSION)
     return ContextResponse(
         system_prompt=system_prompt,
         description_min_length=settings.description_min_length,

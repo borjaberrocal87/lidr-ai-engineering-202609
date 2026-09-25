@@ -9,14 +9,14 @@ tres decisiones de formato cerradas por `Enum`. La respuesta sigue siendo texto
 libre (JSON estructurado, guardrails y caché semántico llegan más adelante).
 """
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 from app.config import settings
 
 
-class ProjectType(str, Enum):
+class ProjectType(StrEnum):
     """Categoría amplia del proyecto a estimar."""
 
     MOBILE_APP = "mobile_app"
@@ -25,7 +25,7 @@ class ProjectType(str, Enum):
     DATA_PIPELINE = "data_pipeline"
 
 
-class DetailLevel(str, Enum):
+class DetailLevel(StrEnum):
     """Profundidad de la estimación."""
 
     SUMMARY = "summary"
@@ -33,7 +33,7 @@ class DetailLevel(str, Enum):
     DETAILED = "detailed"
 
 
-class OutputFormat(str, Enum):
+class OutputFormat(StrEnum):
     """Forma de la estimación renderizada."""
 
     PHASES_TABLE = "phases_table"
