@@ -24,6 +24,9 @@ def test_estimate_success(client: TestClient, transcription: str, monkeypatch) -
             temperature=0.2,
             input_tokens=123,
             output_tokens=45,
+            cache_hit=True,
+            cost_usd=0.0021,
+            fallback_used=True,
         )
 
     monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
@@ -38,6 +41,9 @@ def test_estimate_success(client: TestClient, transcription: str, monkeypatch) -
     assert body["input_tokens"] == 123
     assert body["output_tokens"] == 45
     assert body["truncated"] is False
+    assert body["cache_hit"] is True
+    assert body["cost_usd"] == 0.0021
+    assert body["fallback_used"] is True
     assert "Estimación" in body["estimation"]
 
 
@@ -187,6 +193,9 @@ def test_estimate_stream_success(client: TestClient, transcription: str, monkeyp
             "input_tokens": 123,
             "output_tokens": 45,
             "truncated": False,
+            "cache_hit": False,
+            "cost_usd": None,
+            "fallback_used": False,
         },
     )
 

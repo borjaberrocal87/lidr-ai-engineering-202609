@@ -113,12 +113,19 @@ if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
                     "output_tokens": metrics.output_tokens,
                     "elapsed_seconds": elapsed_seconds,
                     "truncated": metrics.truncated,
+                    "cache_hit": metrics.cache_hit,
+                    "cost_usd": metrics.cost_usd,
+                    "fallback_used": metrics.fallback_used,
                 }
                 if metrics.truncated:
                     st.warning(
                         "La estimación se cortó al alcanzar el límite de tokens "
                         "(`LLM_MAX_TOKENS`): puede estar incompleta."
                     )
+                if metrics.cache_hit:
+                    st.caption("Respuesta servida desde caché (cache hit).")
+                if metrics.fallback_used:
+                    st.caption("Se usó el modelo de fallback.")
                 st.caption(f"Modelo: {metrics.model} · Proveedor: {metrics.provider}")
 
 with st.sidebar:
@@ -142,11 +149,15 @@ with st.sidebar:
         elapsed = last_metrics["elapsed_seconds"]
         input_tokens = last_metrics["input_tokens"]
         output_tokens = last_metrics["output_tokens"]
+        cost_usd = last_metrics.get("cost_usd")
         st.markdown(
             f"- **Modelo:** {last_metrics['model']}\n"
             f"- **Proveedor:** {last_metrics['provider']}\n"
             f"- **Tokens de entrada:** {input_tokens if input_tokens is not None else '—'}\n"
             f"- **Tokens de salida:** {output_tokens if output_tokens is not None else '—'}\n"
+            f"- **Coste estimado:** {f'{cost_usd:.4f} USD' if cost_usd is not None else '—'}\n"
+            f"- **Desde caché:** {'sí' if last_metrics.get('cache_hit') else 'no'}\n"
+            f"- **Fallback:** {'sí' if last_metrics.get('fallback_used') else 'no'}\n"
             f"- **Tiempo de respuesta:** {elapsed:.2f} s\n"
             f"- **Truncada:** {'sí' if last_metrics.get('truncated') else 'no'}"
         )

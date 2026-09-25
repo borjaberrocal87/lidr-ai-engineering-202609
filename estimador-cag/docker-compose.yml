@@ -1,4 +1,17 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: estimador-cag-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
   api:
     build:
       context: .
@@ -7,6 +20,13 @@ services:
     container_name: estimador-cag
     env_file:
       - .env
+    environment:
+      # La API usa la caché Redis del servicio `redis` por la red interna.
+      CACHE_BACKEND: redis
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "${API_PORT:-8000}:8000"
     restart: unless-stopped

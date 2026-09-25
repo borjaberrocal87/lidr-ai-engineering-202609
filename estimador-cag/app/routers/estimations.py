@@ -64,6 +64,9 @@ def estimate(payload: EstimateRequest) -> EstimateResponse:
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
         truncated=result.truncated,
+        cache_hit=result.cache_hit,
+        cost_usd=result.cost_usd,
+        fallback_used=result.fallback_used,
     )
 
 
@@ -124,6 +127,9 @@ def estimate_stream(payload: EstimateRequest) -> Iterator[ServerSentEvent]:
         input_tokens=metrics.input_tokens,
         output_tokens=metrics.output_tokens,
         truncated=metrics.truncated,
+        cache_hit=metrics.cache_hit,
+        cost_usd=metrics.cost_usd,
+        fallback_used=metrics.fallback_used,
     )
     yield ServerSentEvent(event="done", data=done.model_dump())
 
