@@ -30,6 +30,12 @@ def test_modelo_explicito_se_respeta() -> None:
     assert settings.llm_model == "gpt-4o"
 
 
+def test_routing_mode_por_defecto_es_fallback() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_routing_mode == "fallback"
+
+
 def test_custom_sin_modelo_es_error() -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, llm_provider="custom", llm_model="")

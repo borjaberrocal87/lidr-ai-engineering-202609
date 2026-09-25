@@ -178,17 +178,50 @@ Las claves LLM ya no las lee la UI: viven solo en el backend. Si el proveedor no
 
 Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (integrado con `logging`) en la **API**, que es quien habla con el proveedor. El frontend solo registra su propia actividad con `logging` estándar. Cada llamada al LLM emite:
 
-- `llm.call.start` / `llm.stream.start` — proveedor, modelo, temperatura y longitud de la transcripción.
-- `llm.call.end` / `llm.stream.end` — tokens de entrada/salida, si la respuesta se truncó y latencia en milisegundos.
-- `llm.call.error` / `llm.stream.error` — error con traceback y latencia. La versión en streaming añade `llm.stream.aborted` si el cliente corta antes de terminar.
+- `llm.call.start` / `llm.stream.start` — modelo, proveedor y `max_tokens`.
+- `llm.call.end` / `llm.stream.end` — tokens de entrada/salida, coste estimado (`cost_usd`), si se usó el fallback (`fallback_used`) y latencia en milisegundos.
+- `cache.hit` / `cache.miss` / `cache.stored` — resultado de la caché de respuestas.
+- `llm.call.error` / `llm.stream.error` — error con traceback y latencia.
 - `llm.response.truncated` (en el router) — warning cuando el modelo agotó `LLM_MAX_TOKENS`.
 
 ```text
-2026-09-17T15:04:54.945815Z [info] llm.call.start provider=custom model=qwen3.8-flash temperature=0.2 transcription_chars=842
-2026-09-17T15:05:03.123456Z [info] llm.call.end   provider=custom model=qwen3.8-flash input_tokens=1234 output_tokens=567 latency_ms=8421.3
+2026-09-17T15:04:54.945815Z [info] llm.call.start model=gpt-4o-mini provider=openai max_tokens=2048
+2026-09-17T15:05:03.123456Z [info] llm.call.end   model=gpt-4o-mini provider=openai input_tokens=1234 output_tokens=567 cost_usd=0.000525 fallback_used=False latency_ms=8421.3
 ```
 
+Cada petición recibe un `request_id` (de la cabecera `X-Request-ID` o generado) que se propaga por `structlog.contextvars` a **todos** los logs de esa petición y se devuelve en la respuesta, de modo que se puede reconstruir un flujo completo de extremo a extremo.
+
 Por privacidad se registran **solo metadatos**: nunca la API key ni el texto de la transcripción (posible información confidencial del cliente). El nivel se controla con `LOG_LEVEL` y el formato con `LOG_FORMAT` (`console` para texto legible, `json` para agregadores). En Docker los logs salen por stdout y se consultan con `docker compose logs -f api` (o `ui`).
+
+## Wrapper de proveedores y caché
+
+La llamada al proveedor vive en `app/services/llm_wrapper.py`, un wrapper sobre **LiteLLM** que unifica los tres proveedores (`openai`, `anthropic` y `custom` OpenAI-compatible) y añade:
+
+- **Fallback**: el `Router` gestiona primario y secundario según `LLM_ROUTING_MODE`.
+  - `fallback` (por defecto): el primario (`LLM_MODEL`) se usa siempre y solo se cae a `LLM_FALLBACK_MODEL` si el primario lanza una excepción tras los reintentos.
+  - `balanced`: ambas deployments comparten `model_name`, así que LiteLLM reparte las peticiones entre primario y secundario (`simple-shuffle`); útil para comparar modelos.
+  En ambos casos la respuesta indica `fallback_used` (en `balanced`, significa "atendido por el deployment secundario").
+- **Caché exact-match** (`app/services/cache.py`): la clave es un SHA-256 del system prompt completo, el mensaje de usuario y los knobs de generación (`model`, `max_tokens`, `temperature`). Cambiar el prompt CAG invalida la caché sola.
+  - `CACHE_BACKEND=memory` (por defecto) usa una caché TTL en proceso, sin infraestructura.
+  - `CACHE_BACKEND=redis` usa Redis (persistente y compartida) con `REDIS_URL`/`CACHE_TTL`.
+  - `CACHE_BACKEND=none` la desactiva.
+- **Coste estimado** (`cost_usd`) a partir de una tabla de precios por millón de tokens.
+
+`POST /api/v1/estimate` y el evento SSE `done` exponen `cache_hit`, `cost_usd` y `fallback_used`.
+
+Para ver la caché en acción, lanza dos veces la misma petición:
+
+```bash
+curl -s localhost:8000/api/v1/estimate -H 'Content-Type: application/json' \
+  -d '{"transcription": "Necesitamos un CRM con auth, contactos y roles. MVP en seis semanas."}' \
+  | jq '{cache_hit, cost_usd}'
+```
+
+Con Redis (`CACHE_BACKEND=redis`) puedes inspeccionar las claves:
+
+```bash
+docker compose exec redis redis-cli KEYS 'estimation:*'
+```
 
 ## Transcripción de ejemplo
 
@@ -207,6 +240,8 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 - el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
 - la inyección del contexto CAG en el system prompt y el delimitado de la transcripción con nonce;
 - la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
+- la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
+- el logging estructurado (eventos, coste, cache_hit y que las claves no se filtran) y la propagación de `X-Request-ID`;
 - la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`).
 
 ## Calidad y CI
@@ -249,6 +284,7 @@ docker compose down
 
 - Swagger: http://localhost:8000/docs
 - Interfaz Streamlit: http://localhost:8501 (servicio `ui`, misma imagen que la API; habla con el servicio `api` por la red interna vía `API_BASE_URL=http://api:8000`)
+- Redis: servicio `redis` (caché persistente de respuestas; la API lo usa por la red interna con `CACHE_BACKEND=redis`)
 - Puerto personalizado: `API_PORT=8123 docker compose up --build -d` (y `UI_PORT=8502` para Streamlit)
 - Arrancar solo la interfaz: `docker compose up --build ui`
 - Tests dentro de Docker:
@@ -268,10 +304,15 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `LOG_FORMAT`              | Formato de logs: `console` o `json`               | `console`     |
 | `LLM_PROVIDER`            | Proveedor activo: `openai`, `anthropic` o `custom` | `openai`      |
 | `LLM_MODEL`               | Modelo del proveedor activo                       | default del proveedor (`gpt-4o-mini` para `openai`) |
+| `LLM_FALLBACK_MODEL`      | Modelo de fallback si el primario falla (vacío = sin fallback) | — |
+| `LLM_ROUTING_MODE`        | Router de LiteLLM: `fallback` (primario estricto) o `balanced` (reparto) | `fallback` |
 | `TEMPERATURE`             | Temperatura de generación (no aplica a `anthropic`) | `0.2`       |
 | `LLM_TIMEOUT_SECONDS`     | Timeout de la llamada al proveedor (segundos)     | `30`          |
 | `LLM_MAX_RETRIES`         | Reintentos del cliente del SDK                    | `2`           |
 | `LLM_MAX_TOKENS`          | Máximo de tokens de salida                        | `2048`        |
+| `CACHE_BACKEND`           | Caché de respuestas: `memory`, `redis` o `none`   | `memory`      |
+| `CACHE_TTL`               | TTL de las entradas de caché (segundos)           | `86400`       |
+| `REDIS_URL`               | URL de Redis (cuando `CACHE_BACKEND=redis`)       | `redis://localhost:6379` |
 | `TRANSCRIPTION_MIN_LENGTH` | Longitud mínima de la transcripción (caracteres) | `10`          |
 | `TRANSCRIPTION_MAX_LENGTH` | Longitud máxima de la transcripción (caracteres) | `50000`       |
 | `OPEN_AI_KEY`             | API key de OpenAI                                 | —             |
@@ -279,6 +320,8 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `CUSTOM_LLM_BASE_URL`     | URL base del endpoint OpenAI-compatible           | —             |
 | `CUSTOM_LLM_API_KEY`      | API key del endpoint OpenAI-compatible            | —             |
 | `API_BASE_URL`            | URL base de la API que consume el frontend        | `http://localhost:8000` |
+
+> En Docker Compose, el servicio `api` fuerza `CACHE_BACKEND=redis` y `REDIS_URL=redis://redis:6379` (servicio `redis` de la misma red).
 
 > Si `LLM_MODEL` se deja vacío, se deriva del proveedor activo. El proveedor `custom` no tiene default: exige `LLM_MODEL` explícito.
 >

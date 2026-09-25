@@ -31,3 +31,6 @@ class StreamMetrics:
     input_tokens: int | None = None
     output_tokens: int | None = None
     truncated: bool = False
+    cache_hit: bool = False
+    cost_usd: float | None = None
+    fallback_used: bool = False

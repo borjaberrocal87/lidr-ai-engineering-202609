@@ -41,6 +41,8 @@ class Settings(BaseSettings):
 
     llm_provider: Literal["openai", "anthropic", "custom"] = "openai"
     llm_model: str = ""
+    llm_fallback_model: str = ""
+    llm_routing_mode: Literal["fallback", "balanced"] = "fallback"
     temperature: float = DEFAULT_TEMPERATURE
 
     llm_timeout_seconds: float = 30.0
@@ -48,6 +50,10 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 2048
     transcription_min_length: int = 10
     transcription_max_length: int = 50_000
+
+    cache_backend: Literal["memory", "redis", "none"] = "memory"
+    cache_ttl: int = 86_400
+    redis_url: str = "redis://localhost:6379"
 
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None

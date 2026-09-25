@@ -141,6 +141,9 @@ def stream_estimation(
                         active.input_tokens = data.get("input_tokens")
                         active.output_tokens = data.get("output_tokens")
                         active.truncated = bool(data.get("truncated", False))
+                        active.cache_hit = bool(data.get("cache_hit", False))
+                        active.cost_usd = data.get("cost_usd")
+                        active.fallback_used = bool(data.get("fallback_used", False))
                     elif event_name == "error":
                         raise ApiProviderError(str(data.get("detail", "Fallo del proveedor LLM.")))
         except httpx.HTTPError as exc:

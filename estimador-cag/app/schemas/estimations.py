@@ -46,6 +46,18 @@ class EstimateResponse(BaseModel):
             "y la estimación puede estar incompleta."
         ),
     )
+    cache_hit: bool = Field(
+        False,
+        description="True si la respuesta se sirvió desde la caché sin llamar al proveedor.",
+    )
+    cost_usd: float | None = Field(
+        None,
+        description="Coste estimado de la llamada en USD (0 en un acierto de caché).",
+    )
+    fallback_used: bool = Field(
+        False,
+        description="True si el modelo primario falló y se usó LLM_FALLBACK_MODEL.",
+    )
 
 
 class EstimationExampleSchema(BaseModel):
@@ -77,3 +89,6 @@ class StreamDoneEvent(BaseModel):
     input_tokens: int | None = Field(None, description="Tokens de entrada consumidos.")
     output_tokens: int | None = Field(None, description="Tokens de salida generados.")
     truncated: bool = Field(False, description="True si el modelo agotó LLM_MAX_TOKENS.")
+    cache_hit: bool = Field(False, description="True si la respuesta vino de la caché.")
+    cost_usd: float | None = Field(None, description="Coste estimado de la llamada (USD).")
+    fallback_used: bool = Field(False, description="True si se usó el modelo de fallback.")
