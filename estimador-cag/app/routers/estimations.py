@@ -5,12 +5,14 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.config import settings
-from app.context.examples import ESTIMATION_EXAMPLES
+from app.prompts.loader import DEFAULT_ESTIMATION_PROMPT_VERSION, render_estimation_prompt
 from app.schemas.estimations import (
     ContextResponse,
-    EstimateRequest,
+    DetailLevel,
+    EstimationRequest,
     EstimateResponse,
-    EstimationExampleSchema,
+    OutputFormat,
+    ProjectType,
     StreamDoneEvent,
 )
 from app.services.llm_service import (
@@ -18,7 +20,6 @@ from app.services.llm_service import (
     LLMInputError,
     LLMProviderError,
     StreamMetrics,
-    build_system_prompt,
     generate_estimation,
     stream_estimation,
 )
@@ -27,15 +28,27 @@ logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
+PROMPT_VERSION = DEFAULT_ESTIMATION_PROMPT_VERSION
+
+
+def _default_estimation_request() -> EstimationRequest:
+    """Request neutro para inspeccionar el prompt renderizado en `/context`."""
+    return EstimationRequest(
+        description="Proyecto de ejemplo para inspeccionar el prompt de estimación activo.",
+        project_type=ProjectType.WEB_SAAS,
+        detail_level=DetailLevel.MEDIUM,
+        output_format=OutputFormat.PHASES_TABLE,
+    )
+
 
 @router.post(
     "/estimate",
     response_model=EstimateResponse,
-    summary="Genera una estimación de software a partir de una transcripción",
+    summary="Genera una estimación de software a partir de un formulario tipado",
 )
-def estimate(payload: EstimateRequest) -> EstimateResponse:
+def estimate(payload: EstimationRequest) -> EstimateResponse:
     try:
-        result = generate_estimation(payload.transcription)
+        result = generate_estimation(payload)
     except LLMConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -56,8 +69,18 @@ def estimate(payload: EstimateRequest) -> EstimateResponse:
     if result.truncated:
         logger.warning("llm.response.truncated", model=result.model, provider=result.provider)
 
+    logger.info(
+        "estimate.request",
+        prompt_version=PROMPT_VERSION,
+        project_type=payload.project_type.value,
+        detail_level=payload.detail_level.value,
+        output_format=payload.output_format.value,
+        description_chars=len(payload.description),
+    )
+
     return EstimateResponse(
         estimation=result.estimation,
+        prompt_version=PROMPT_VERSION,
         model=result.model,
         provider=result.provider,
         temperature=result.temperature,
@@ -82,20 +105,20 @@ def estimate(payload: EstimateRequest) -> EstimateResponse:
                 "y `error` (fallo de configuración o del proveedor)."
             ),
         },
-        422: {"description": "Transcripción fuera de los límites permitidos."},
+        422: {"description": "Descripción fuera de los límites permitidos."},
     },
 )
-def estimate_stream(payload: EstimateRequest) -> Iterator[ServerSentEvent]:
+def estimate_stream(payload: EstimationRequest) -> Iterator[ServerSentEvent]:
     """Expone `stream_estimation` como SSE nativo de FastAPI para clientes HTTP.
 
     Al ser un endpoint generador, la respuesta ya se ha abierto (200) cuando se
     ejecuta el cuerpo, así que cualquier fallo (configuración, proveedor) se
-    comunica como evento `error`. La longitud de la transcripción la valida
-    Pydantic antes de abrir el flujo (422).
+    comunica como evento `error`. El request lo valida Pydantic antes de abrir el
+    flujo (422).
     """
     metrics = StreamMetrics(model="", provider="")
     try:
-        tokens = stream_estimation(payload.transcription, metrics)
+        tokens = stream_estimation(payload, metrics)
     except (LLMConfigurationError, LLMInputError) as exc:
         yield ServerSentEvent(event="error", data={"detail": str(exc)})
         return
@@ -122,6 +145,7 @@ def estimate_stream(payload: EstimateRequest) -> Iterator[ServerSentEvent]:
         logger.warning("llm.response.truncated", model=metrics.model, provider=metrics.provider)
 
     done = StreamDoneEvent(
+        prompt_version=PROMPT_VERSION,
         model=metrics.model,
         provider=metrics.provider,
         input_tokens=metrics.input_tokens,
@@ -137,13 +161,13 @@ def estimate_stream(payload: EstimateRequest) -> Iterator[ServerSentEvent]:
 @router.get(
     "/context",
     response_model=ContextResponse,
-    summary="Contexto CAG y límites activos (para que la UI no importe el backend)",
+    summary="Prompt activo y límites (para que la UI no importe el backend)",
 )
 def context() -> ContextResponse:
+    system_prompt, _ = render_estimation_prompt(_default_estimation_request(), version=PROMPT_VERSION)
     return ContextResponse(
-        system_prompt=build_system_prompt(),
-        examples=[EstimationExampleSchema(**example) for example in ESTIMATION_EXAMPLES],
-        transcription_min_length=settings.transcription_min_length,
-        transcription_max_length=settings.transcription_max_length,
+        system_prompt=system_prompt,
+        description_min_length=settings.description_min_length,
+        description_max_length=settings.description_max_length,
         llm_configured=settings.is_configured,
     )
