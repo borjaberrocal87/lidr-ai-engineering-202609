@@ -1,8 +1,12 @@
-"""Interfaz conversacional (Streamlit) del estimador de software CAG.
+"""Formulario (Streamlit) del estimador de software.
 
 Capa de presentación: consume la API FastAPI por HTTP a través de
 `frontend.client`. No importa `app.*`, de modo que se puede sustituir por otra
 UI reutilizando el mismo cliente.
+
+El usuario ya no escribe en un chat: rellena un formulario que produce un
+`EstimationRequest` tipado (descripción + tipo de proyecto + nivel de detalle +
+formato de salida) y lo envía a `POST /api/v1/estimate`.
 """
 
 import sys
@@ -15,8 +19,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-import time  # noqa: E402
-
 import streamlit as st  # noqa: E402
 
 from frontend.client import (  # noqa: E402
@@ -25,11 +27,16 @@ from frontend.client import (  # noqa: E402
     ApiInputError,
     ApiProviderError,
     ApiUnavailableError,
+    estimate,
     get_context,
-    stream_estimation,
 )
 from frontend.logging_config import configure_logging  # noqa: E402
-from frontend.models import ContextResponse, StreamMetrics  # noqa: E402
+from frontend.models import (  # noqa: E402
+    DETAIL_LEVELS,
+    OUTPUT_FORMATS,
+    PROJECT_TYPES,
+    ContextResponse,
+)
 
 configure_logging()
 
@@ -45,15 +52,13 @@ def _load_context() -> ContextResponse:
     return get_context()
 
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
 if "last_metrics" not in st.session_state:
     st.session_state.last_metrics = None
 
 st.title("Estimador de software")
 st.caption(
-    "Pega la transcripción de una reunión con un cliente y recibirás una "
-    "estimación de software generada por un LLM con arquitectura CAG."
+    "Rellena el formulario y recibirás una estimación de software generada por "
+    "un LLM con arquitectura CAG, siguiendo el formato que elijas."
 )
 
 try:
@@ -71,28 +76,42 @@ if not context.llm_configured:
         "el `.env` del servidor."
     )
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+with st.form("estimation_form", clear_on_submit=False):
+    description = st.text_area(
+        "Descripción del proyecto",
+        height=200,
+        placeholder="Describe objetivos, funcionalidades clave y restricciones…",
+        help=(
+            f"Entre {context.description_min_length} y "
+            f"{context.description_max_length} caracteres."
+        ),
+    )
+    project_type = st.selectbox("Tipo de proyecto", options=PROJECT_TYPES, index=1)
+    detail_level = st.radio(
+        "Nivel de detalle",
+        options=DETAIL_LEVELS,
+        index=1,
+        horizontal=True,
+    )
+    output_format = st.selectbox("Formato de salida", options=OUTPUT_FORMATS, index=0)
+    submitted = st.form_submit_button("Generar estimación", type="primary")
 
-if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
-    min_length = context.transcription_min_length
-    max_length = context.transcription_max_length
-    if not min_length <= len(prompt) <= max_length:
+if submitted:
+    cleaned = description.strip()
+    if len(cleaned) < context.description_min_length:
         st.error(
-            f"La transcripción debe tener entre {min_length} y "
-            f"{max_length} caracteres (tiene {len(prompt)})."
+            f"La descripción debe tener al menos {context.description_min_length} caracteres."
         )
     else:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            metrics = StreamMetrics()
-            started_at = time.perf_counter()
+        payload = {
+            "description": cleaned,
+            "project_type": project_type,
+            "detail_level": detail_level,
+            "output_format": output_format,
+        }
+        with st.spinner("Llamando al estimador…"):
             try:
-                full_response = st.write_stream(stream_estimation(prompt, metrics))
+                result = estimate(payload)
             except ApiConfigurationError as exc:
                 st.error(str(exc))
             except ApiInputError as exc:
@@ -104,53 +123,51 @@ if prompt := st.chat_input("Pega aquí la transcripción de la reunión..."):
             except ApiError as exc:
                 st.error(str(exc))
             else:
-                elapsed_seconds = time.perf_counter() - started_at
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
                 st.session_state.last_metrics = {
-                    "model": metrics.model,
-                    "provider": metrics.provider,
-                    "input_tokens": metrics.input_tokens,
-                    "output_tokens": metrics.output_tokens,
-                    "elapsed_seconds": elapsed_seconds,
-                    "truncated": metrics.truncated,
-                    "cache_hit": metrics.cache_hit,
-                    "cost_usd": metrics.cost_usd,
-                    "fallback_used": metrics.fallback_used,
+                    "prompt_version": result.prompt_version,
+                    "model": result.model,
+                    "provider": result.provider,
+                    "input_tokens": result.input_tokens,
+                    "output_tokens": result.output_tokens,
+                    "cache_hit": result.cache_hit,
+                    "cost_usd": result.cost_usd,
+                    "fallback_used": result.fallback_used,
+                    "truncated": result.truncated,
                 }
-                if metrics.truncated:
+                st.markdown(f"**Versión del prompt:** `{result.prompt_version}`")
+                st.markdown(result.estimation)
+                if result.truncated:
                     st.warning(
                         "La estimación se cortó al alcanzar el límite de tokens "
                         "(`LLM_MAX_TOKENS`): puede estar incompleta."
                     )
-                if metrics.cache_hit:
+                if result.cache_hit:
                     st.caption("Respuesta servida desde caché (cache hit).")
-                if metrics.fallback_used:
+                if result.fallback_used:
                     st.caption("Se usó el modelo de fallback.")
-                st.caption(f"Modelo: {metrics.model} · Proveedor: {metrics.provider}")
+                st.caption(f"Modelo: {result.model} · Proveedor: {result.provider}")
 
 with st.sidebar:
-    st.header("Contexto CAG")
-
-    st.subheader("System prompt activo")
+    st.header("Prompt activo")
+    st.caption("Se muestra el prompt renderizado con la configuración por defecto.")
     st.code(context.system_prompt, language="markdown")
 
-    st.subheader("Contexto inyectado")
-    st.caption(f"{len(context.examples)} estimaciones de referencia en el prompt")
-    for index, example in enumerate(context.examples, start=1):
-        with st.expander(f"Ejemplo {index}"):
-            st.markdown(f"**Resumen de la reunión:**\n\n{example.meeting_summary}")
-            st.markdown(example.estimation)
+    st.subheader("Límites")
+    st.markdown(
+        f"- **Descripción mínima:** {context.description_min_length} caracteres\n"
+        f"- **Descripción máxima:** {context.description_max_length} caracteres"
+    )
 
     st.subheader("Última llamada")
     last_metrics = st.session_state.last_metrics
     if last_metrics is None:
         st.caption("Todavía no se ha generado ninguna estimación.")
     else:
-        elapsed = last_metrics["elapsed_seconds"]
         input_tokens = last_metrics["input_tokens"]
         output_tokens = last_metrics["output_tokens"]
         cost_usd = last_metrics.get("cost_usd")
         st.markdown(
+            f"- **Prompt:** `{last_metrics.get('prompt_version', '—')}`\n"
             f"- **Modelo:** {last_metrics['model']}\n"
             f"- **Proveedor:** {last_metrics['provider']}\n"
             f"- **Tokens de entrada:** {input_tokens if input_tokens is not None else '—'}\n"
@@ -158,6 +175,5 @@ with st.sidebar:
             f"- **Coste estimado:** {f'{cost_usd:.4f} USD' if cost_usd is not None else '—'}\n"
             f"- **Desde caché:** {'sí' if last_metrics.get('cache_hit') else 'no'}\n"
             f"- **Fallback:** {'sí' if last_metrics.get('fallback_used') else 'no'}\n"
-            f"- **Tiempo de respuesta:** {elapsed:.2f} s\n"
             f"- **Truncada:** {'sí' if last_metrics.get('truncated') else 'no'}"
         )
