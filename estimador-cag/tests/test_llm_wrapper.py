@@ -106,7 +106,7 @@ def test_complete_normalises_and_caches(monkeypatch) -> None:
     assert cached["estimation"] == "hello world"
 
 
-def test_cache_user_message_decouples_key_from_wrapping(monkeypatch) -> None:
+def test_explicit_cache_key_decouples_key_from_prompt(monkeypatch) -> None:
     wrapper = _wrapper()
     calls = {"n": 0}
 
@@ -118,22 +118,44 @@ def test_cache_user_message_decouples_key_from_wrapping(monkeypatch) -> None:
 
     first = wrapper.complete(
         system_prompt="sys",
-        user_message="<transcripcion-aaaa>hola</transcripcion-aaaa>",
+        user_message="<project_description-aaaa>hola</project_description-aaaa>",
         temperature=0.2,
         max_tokens=100,
-        cache_user_message="hola",
+        cache_key="hola",
     )
     second = wrapper.complete(
         system_prompt="sys",
-        user_message="<transcripcion-bbbb>hola</transcripcion-bbbb>",
+        user_message="<project_description-bbbb>hola</project_description-bbbb>",
         temperature=0.2,
         max_tokens=100,
-        cache_user_message="hola",
+        cache_key="hola",
     )
 
     assert calls["n"] == 1
     assert first["cache_hit"] is False
     assert second["cache_hit"] is True
+
+
+def test_different_cache_key_with_same_prompt_misses(monkeypatch) -> None:
+    wrapper = _wrapper()
+    calls = {"n": 0}
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        calls["n"] += 1
+        return _fake_completion("gpt-4o-mini", content="hello")
+
+    monkeypatch.setattr(wrapper.router, "completion", fake_completion)
+
+    first = wrapper.complete(
+        system_prompt="sys", user_message="usr", temperature=0.2, max_tokens=100, cache_key="v1"
+    )
+    second = wrapper.complete(
+        system_prompt="sys", user_message="usr", temperature=0.2, max_tokens=100, cache_key="v2"
+    )
+
+    assert calls["n"] == 2
+    assert first["cache_hit"] is False
+    assert second["cache_hit"] is False
 
 
 def test_complete_does_not_cache_truncated(monkeypatch) -> None:

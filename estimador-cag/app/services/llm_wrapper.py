@@ -210,19 +210,18 @@ class LLMWrapper:
         user_message: str,
         temperature: float | None,
         max_tokens: int,
-        cache_user_message: str | None = None,
+        cache_key: str | None = None,
     ) -> str:
-        """Clave de caché sobre el contenido lógico, no sobre el artefacto enviado.
+        """Clave de caché: material de dominio opaco, no el artefacto enviado.
 
-        `cache_user_message` permite hashear el mensaje canónico (p. ej. la
-        descripción del proyecto sin el envoltorio del template), aunque al
-        modelo se le envíe `user_message`. Así la clave no depende de
-        artefactos de formato y la caché acierta entre peticiones equivalentes.
+        Si el llamante pasa `cache_key` (típicamente el dominio, que conoce el
+        request y la versión del prompt), la caché deja de depender del texto
+        renderizado. Si no, se cae al hash de `system_prompt`+`user_message`
+        para llamantes genéricos.
         """
-        keyed_message = user_message if cache_user_message is None else cache_user_message
+        key_material = cache_key if cache_key is not None else f"{system_prompt}\n{user_message}"
         return make_cache_key(
-            system_prompt=system_prompt,
-            user_message=keyed_message,
+            cache_key=key_material,
             model=self.primary_model,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -259,12 +258,10 @@ class LLMWrapper:
         user_message: str,
         temperature: float | None,
         max_tokens: int,
-        cache_user_message: str | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any]:
         """Llamada bloqueante con caché y fallback. Devuelve la respuesta normalizada."""
-        key = self._cache_key(
-            system_prompt, user_message, temperature, max_tokens, cache_user_message
-        )
+        key = self._cache_key(system_prompt, user_message, temperature, max_tokens, cache_key)
         cached = self.cache.get(key)
         if cached is not None:
             # Se preservan `fallback_used` y `cost_usd` originales: un hit de caché
@@ -319,16 +316,14 @@ class LLMWrapper:
         temperature: float | None,
         max_tokens: int,
         metrics: StreamMetrics | None = None,
-        cache_user_message: str | None = None,
+        cache_key: str | None = None,
     ) -> Iterator[str]:
         """Generador de texto con caché y fallback.
 
         En un acierto de caché, reproduce la estimación completa como un único
         chunk para que la UX del cliente no cambie.
         """
-        key = self._cache_key(
-            system_prompt, user_message, temperature, max_tokens, cache_user_message
-        )
+        key = self._cache_key(system_prompt, user_message, temperature, max_tokens, cache_key)
         cached = self.cache.get(key)
         if cached is not None:
             text = str(cached.get("estimation", ""))

@@ -221,7 +221,7 @@ La llamada al proveedor vive en `app/services/llm_wrapper.py`, un wrapper sobre 
   - `fallback` (por defecto): el primario (`LLM_MODEL`) se usa siempre y solo se cae a `LLM_FALLBACK_MODEL` si el primario lanza una excepción tras los reintentos.
   - `balanced`: ambas deployments comparten `model_name`, así que LiteLLM reparte las peticiones entre primario y secundario (`simple-shuffle`); útil para comparar modelos.
   En ambos casos la respuesta indica `fallback_used` (en `balanced`, significa "atendido por el deployment secundario").
-- **Caché exact-match** (`app/services/cache.py`): la clave es un SHA-256 del system prompt completo, el mensaje de usuario y los knobs de generación (`model`, `max_tokens`, `temperature`). Cambiar el prompt CAG invalida la caché sola.
+- **Caché exact-match** (`app/services/cache.py`): la clave es un SHA-256 de un *material de clave* canónico —el `EstimationRequest`, la `prompt_version` y la huella (`prompt_fingerprint`) de las fuentes de esa versión— más los knobs de generación (`model`, `max_tokens`, `temperature`). El adaptador de caché no conoce la semántica del prompt: el dominio le pasa material opaco. Cualquier cambio relevante (campos del request, versión, o edición de un `.j2`) invalida la caché solo.
   - `CACHE_BACKEND=memory` (por defecto) usa una caché TTL en proceso, sin infraestructura.
   - `CACHE_BACKEND=redis` usa Redis (persistente y compartida) con `REDIS_URL`/`CACHE_TTL`.
   - `CACHE_BACKEND=none` la desactiva.
@@ -261,7 +261,7 @@ El `Environment` de Jinja2 usa `FileSystemLoader` sobre `app/prompts/`, `StrictU
 
 `render_estimation_prompt` devuelve `(system, user)` por separado, que es lo que el wrapper envía como dos mensajes (`role: "system"` y `role: "user"`). La respuesta incluye `prompt_version`.
 
-Para añadir una versión, duplica `v1/` como `v2/`, edita las plantillas y llama a `render_estimation_prompt(request, version="v2")`. La convención `v1/`, `v2/` no es opcional: permite comparar, ensayar y volver atrás, y el `prompt_version` de la respuesta dice qué prompt produjo cada estimación. Como la clave de caché se deriva del system prompt completo, cambiar de versión invalida la caché sola.
+Para añadir una versión, duplica `v1/` como `v2/`, edita las plantillas y llama a `render_estimation_prompt(request, version="v2")`. La convención `v1/`, `v2/` no es opcional: permite comparar, ensayar y volver atrás, y el `prompt_version` de la respuesta dice qué prompt produjo cada estimación. La clave de caché incluye la versión y la huella de las fuentes del prompt, así que cambiar de versión (o editar un `.j2`) invalida la caché sola.
 
 ## Transcripción de ejemplo
 

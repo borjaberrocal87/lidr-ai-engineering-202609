@@ -10,6 +10,7 @@ El contenido del prompt ya no es código: viene de
 o las reglas no obliga a tocar el servicio.
 """
 
+import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -17,7 +18,11 @@ import structlog
 
 from app.config import DEFAULT_TEMPERATURE, reveal_secret, settings
 from app.dependencies import get_llm_wrapper
-from app.prompts.loader import render_estimation_prompt
+from app.prompts.loader import (
+    DEFAULT_ESTIMATION_PROMPT_VERSION,
+    prompt_fingerprint,
+    render_estimation_prompt,
+)
 from app.schemas.estimations import EstimationRequest
 from app.services.errors import (
     LLMConfigurationError as LLMConfigurationError,
@@ -117,19 +122,42 @@ def _temperature_for_result() -> float | None:
     return settings.temperature
 
 
-def generate_estimation(request: EstimationRequest) -> EstimationResult:
+def _cache_key_material(request: EstimationRequest, version: str) -> str:
+    """Material canónico de la clave de caché, propiedad del dominio.
+
+    Incluye el request completo, la versión del prompt y la huella de sus
+    templates. Así la caché no depende del texto renderizado y cualquier cambio
+    relevante (request o edición de un `.j2`) produce una clave distinta.
+    """
+    return json.dumps(
+        {
+            "use_case": "estimation",
+            "prompt_version": version,
+            "prompt_fingerprint": prompt_fingerprint(version),
+            "request": request.model_dump(mode="json"),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+
+def generate_estimation(
+    request: EstimationRequest,
+    version: str = DEFAULT_ESTIMATION_PROMPT_VERSION,
+) -> EstimationResult:
     """Genera una estimación a partir de un request tipado usando el proveedor configurado."""
     _check_description(request.description)
     _require_configuration()
     _warn_if_temperature_ignored()
 
-    system_prompt, user_message = render_estimation_prompt(request)
+    system_prompt, user_message = render_estimation_prompt(request, version=version)
     result = get_llm_wrapper().complete(
         system_prompt=system_prompt,
         user_message=user_message,
         temperature=settings.temperature,
         max_tokens=settings.llm_max_tokens,
-        cache_user_message=request.description,
+        cache_key=_cache_key_material(request, version),
     )
 
     text = result["estimation"]
@@ -165,6 +193,7 @@ def _ensure_non_empty(inner: Iterator[str]) -> Iterator[str]:
 def stream_estimation(
     request: EstimationRequest,
     metrics: StreamMetrics | None = None,
+    version: str = DEFAULT_ESTIMATION_PROMPT_VERSION,
 ) -> Iterator[str]:
     """Genera una estimación en streaming, cediendo el texto token a token.
 
@@ -177,7 +206,7 @@ def stream_estimation(
     _require_configuration()
     _warn_if_temperature_ignored()
 
-    system_prompt, user_message = render_estimation_prompt(request)
+    system_prompt, user_message = render_estimation_prompt(request, version=version)
     active_metrics = metrics if metrics is not None else StreamMetrics()
     inner = get_llm_wrapper().complete_stream(
         system_prompt=system_prompt,
@@ -185,6 +214,6 @@ def stream_estimation(
         temperature=settings.temperature,
         max_tokens=settings.llm_max_tokens,
         metrics=active_metrics,
-        cache_user_message=request.description,
+        cache_key=_cache_key_material(request, version),
     )
     return _ensure_non_empty(inner)

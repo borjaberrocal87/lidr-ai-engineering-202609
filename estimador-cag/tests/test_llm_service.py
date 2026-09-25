@@ -158,7 +158,7 @@ def test_generate_estimation_envia_prompt_renderizado_y_descripcion_separados(mo
     assert "<project_description>" in call["user_message"]
     assert call["temperature"] == 0.2
     assert call["max_tokens"] == llm_service.settings.llm_max_tokens
-    assert call["cache_user_message"] == DESCRIPTION
+    assert DESCRIPTION in call["cache_key"]
 
 
 def test_generate_estimation_respuesta_vacia_raises(monkeypatch) -> None:
@@ -192,7 +192,7 @@ def test_stream_estimation_yields_deltas_and_metrics(monkeypatch) -> None:
     assert "<examples>" in call["system_prompt"]
     assert DESCRIPTION in call["user_message"]
     assert call["max_tokens"] == llm_service.settings.llm_max_tokens
-    assert call["cache_user_message"] == DESCRIPTION
+    assert DESCRIPTION in call["cache_key"]
 
 
 def test_stream_respuesta_vacia_raises(monkeypatch) -> None:
@@ -274,6 +274,16 @@ def test_generate_estimation_reusa_cache_con_la_misma_descripcion(monkeypatch) -
     assert calls["n"] == 1
     assert first.cache_hit is False
     assert second.cache_hit is True
+
+
+def test_cache_key_material_varia_con_el_request(monkeypatch) -> None:
+    fake = FakeWrapper()
+    _use_wrapper(monkeypatch, fake)
+
+    generate_estimation(_request(output_format=OutputFormat.PHASES_TABLE))
+    generate_estimation(_request(output_format=OutputFormat.NARRATIVE))
+
+    assert fake.complete_calls[0]["cache_key"] != fake.complete_calls[1]["cache_key"]
 
 
 def test_stream_estimation_reusa_cache_con_la_misma_descripcion(monkeypatch) -> None:

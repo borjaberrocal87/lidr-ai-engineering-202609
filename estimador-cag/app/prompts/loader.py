@@ -12,6 +12,8 @@ con ``trim_blocks``/``lstrip_blocks`` para que las etiquetas de control
 
 from __future__ import annotations
 
+import hashlib
+from functools import cache
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -19,6 +21,8 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from app.schemas.estimations import EstimationRequest
 
 _BASE_DIR = Path(__file__).resolve().parent
+
+ESTIMATION_USE_CASE = "estimation"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
 
@@ -48,6 +52,23 @@ def render_estimation_prompt(
         "detail_level": request.detail_level.value,
         "output_format": request.output_format.value,
     }
-    system = _env.get_template(f"estimation/{version}/system.j2").render(**context)
-    user = _env.get_template(f"estimation/{version}/user.j2").render(**context)
+    system = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/system.j2").render(**context)
+    user = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/user.j2").render(**context)
     return system, user
+
+
+@cache
+def prompt_fingerprint(version: str = DEFAULT_ESTIMATION_PROMPT_VERSION) -> str:
+    """Huella determinista de las **fuentes** de una versión del prompt.
+
+    Se calcula sobre los ficheros ``.j2`` de la versión (no sobre el render, que
+    varía por petición). Sirve como identidad del artefacto de prompt para la
+    clave de caché: cualquier edición de un template cambia la huella e invalida
+    la caché, aunque no se suba el número de versión.
+    """
+    directory = _BASE_DIR / ESTIMATION_USE_CASE / version
+    digest = hashlib.sha256()
+    for path in sorted(directory.glob("*.j2")):
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]

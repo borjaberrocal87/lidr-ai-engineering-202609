@@ -13,8 +13,7 @@ from app.services.cache import (
 
 def _key(**overrides) -> str:
     args = {
-        "system_prompt": "sys",
-        "user_message": "usr",
+        "cache_key": "usr",
         "model": "gpt-4o-mini",
         "max_tokens": 100,
         "temperature": 0.2,
@@ -29,8 +28,7 @@ def test_make_cache_key_is_deterministic() -> None:
 
 def test_make_cache_key_changes_when_inputs_change() -> None:
     base = _key()
-    assert _key(system_prompt="otro") != base
-    assert _key(user_message="otro") != base
+    assert _key(cache_key="otro") != base
     assert _key(model="gpt-4o") != base
     assert _key(max_tokens=200) != base
     assert _key(temperature=0.9) != base
