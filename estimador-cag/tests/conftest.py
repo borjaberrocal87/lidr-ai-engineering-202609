@@ -3,7 +3,7 @@ from collections.abc import Iterator
 import pytest
 from starlette.testclient import TestClient
 
-from app.config import get_settings
+from app.config import DEFAULT_TEMPERATURE, get_settings, settings
 from app.dependencies import get_cache, get_llm_wrapper
 from app.main import app
 
@@ -18,6 +18,37 @@ def _reset_settings_cache():
     get_settings.cache_clear()
     get_llm_wrapper.cache_clear()
     get_cache.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _base_llm_settings(monkeypatch):
+    """Config determinista e independiente del `.env` local.
+
+    En CI no existe `.env` (está gitignoreado), así que fijamos una base
+    conocida para que los tests no dependan de credenciales reales. Cada test
+    puede sobreescribir lo que necesite después.
+    """
+    baseline = {
+        "llm_provider": "openai",
+        "llm_model": "gpt-4o-mini",
+        "llm_fallback_model": "",
+        "llm_routing_mode": "fallback",
+        "temperature": DEFAULT_TEMPERATURE,
+        "llm_timeout_seconds": 30.0,
+        "llm_max_retries": 2,
+        "llm_max_tokens": 2048,
+        "transcription_min_length": 10,
+        "transcription_max_length": 50_000,
+        "cache_backend": "memory",
+        "cache_ttl": 86_400,
+        "redis_url": "redis://localhost:6379",
+        "open_ai_key": "test-key",
+        "anthropic_api_key": "test-key",
+        "custom_llm_base_url": "",
+        "custom_llm_api_key": "test-key",
+    }
+    for name, value in baseline.items():
+        monkeypatch.setattr(settings, name, value)
 
 
 @pytest.fixture(autouse=True)
