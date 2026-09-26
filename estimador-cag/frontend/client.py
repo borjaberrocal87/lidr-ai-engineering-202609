@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from frontend import config
-from frontend.models import ContextExample, ContextResponse, StreamMetrics
+from frontend.models import ContextResponse, EstimateResponse, StreamMetrics
 
 
 class ApiError(RuntimeError):
@@ -75,7 +75,7 @@ def _raise_for_status(response: httpx.Response) -> None:
 
 
 def get_context(*, client: httpx.Client | None = None) -> ContextResponse:
-    """Obtiene el system prompt, los ejemplos CAG y los límites activos."""
+    """Obtiene el system prompt renderizado y los límites activos."""
     with _acquire_client(client) as http:
         try:
             response = http.get(_url("/api/v1/context"))
@@ -88,10 +88,40 @@ def get_context(*, client: httpx.Client | None = None) -> ContextResponse:
 
     return ContextResponse(
         system_prompt=payload["system_prompt"],
-        examples=[ContextExample(**example) for example in payload["examples"]],
-        transcription_min_length=payload["transcription_min_length"],
-        transcription_max_length=payload["transcription_max_length"],
+        description_min_length=payload["description_min_length"],
+        description_max_length=payload["description_max_length"],
         llm_configured=payload["llm_configured"],
+    )
+
+
+def estimate(
+    payload: dict[str, Any],
+    *,
+    client: httpx.Client | None = None,
+) -> EstimateResponse:
+    """Envía un `EstimationRequest` tipado y devuelve la estimación."""
+    with _acquire_client(client) as http:
+        try:
+            response = http.post(_url("/api/v1/estimate"), json=payload)
+        except httpx.HTTPError as exc:
+            raise ApiUnavailableError(
+                f"No se pudo contactar con la API en {config.get_api_base_url()}."
+            ) from exc
+        _raise_for_status(response)
+        body = response.json()
+
+    return EstimateResponse(
+        estimation=body["estimation"],
+        prompt_version=body["prompt_version"],
+        model=body.get("model", ""),
+        provider=body.get("provider", ""),
+        temperature=body.get("temperature"),
+        input_tokens=body.get("input_tokens"),
+        output_tokens=body.get("output_tokens"),
+        truncated=bool(body.get("truncated", False)),
+        cache_hit=bool(body.get("cache_hit", False)),
+        cost_usd=body.get("cost_usd"),
+        fallback_used=bool(body.get("fallback_used", False)),
     )
 
 
@@ -112,7 +142,7 @@ def _iter_sse(response: httpx.Response) -> Iterator[tuple[str, dict[str, Any]]]:
 
 
 def stream_estimation(
-    transcription: str,
+    payload: dict[str, Any],
     metrics: StreamMetrics | None = None,
     *,
     client: httpx.Client | None = None,
@@ -128,7 +158,7 @@ def stream_estimation(
             with http.stream(
                 "POST",
                 _url("/api/v1/estimate/stream"),
-                json={"transcription": transcription},
+                json=payload,
             ) as response:
                 if response.status_code >= 400:
                     _raise_for_status(response)
@@ -136,6 +166,7 @@ def stream_estimation(
                     if event_name == "token":
                         yield str(data.get("text", ""))
                     elif event_name == "done":
+                        active.prompt_version = str(data.get("prompt_version", ""))
                         active.model = str(data.get("model", ""))
                         active.provider = str(data.get("provider", ""))
                         active.input_tokens = data.get("input_tokens")

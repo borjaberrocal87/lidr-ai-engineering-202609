@@ -215,9 +215,9 @@ class LLMWrapper:
         """Clave de caché sobre el contenido lógico, no sobre el artefacto enviado.
 
         `cache_user_message` permite hashear el mensaje canónico (p. ej. la
-        transcripción sin el nonce aleatorio de `_wrap_transcription`), aunque al
-        modelo se le envíe `user_message`. Sin él, el nonce cambiaría en cada
-        petición y la caché nunca acertaría.
+        descripción del proyecto sin el envoltorio del template), aunque al
+        modelo se le envíe `user_message`. Así la clave no depende de
+        artefactos de formato y la caché acierta entre peticiones equivalentes.
         """
         keyed_message = user_message if cache_user_message is None else cache_user_message
         return make_cache_key(

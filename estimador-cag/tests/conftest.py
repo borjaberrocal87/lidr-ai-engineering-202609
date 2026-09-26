@@ -37,8 +37,8 @@ def _base_llm_settings(monkeypatch):
         "llm_timeout_seconds": 30.0,
         "llm_max_retries": 2,
         "llm_max_tokens": 2048,
-        "transcription_min_length": 10,
-        "transcription_max_length": 50_000,
+        "description_min_length": 20,
+        "description_max_length": 50_000,
         "cache_backend": "memory",
         "cache_ttl": 86_400,
         "redis_url": "redis://localhost:6379",
@@ -73,11 +73,39 @@ def client() -> Iterator[TestClient]:
 
 
 @pytest.fixture
-def transcription() -> str:
+def description() -> str:
     return (
         "En la reunión con el equipo de marketing, el cliente explicó que "
         "necesita una landing page con formulario de contacto, integración con "
         "su CRM actual (HubSpot), y una sección de blog con editor WYSIWYG."
+    )
+
+
+@pytest.fixture
+def estimation_payload(description: str) -> dict[str, str]:
+    """Payload JSON válido para los endpoints de estimación."""
+    return {
+        "description": description,
+        "project_type": "web_saas",
+        "detail_level": "medium",
+        "output_format": "phases_table",
+    }
+
+
+@pytest.fixture
+def estimation_request(description: str):
+    from app.schemas.estimations import (
+        DetailLevel,
+        EstimationRequest,
+        OutputFormat,
+        ProjectType,
+    )
+
+    return EstimationRequest(
+        description=description,
+        project_type=ProjectType.WEB_SAAS,
+        detail_level=DetailLevel.MEDIUM,
+        output_format=OutputFormat.PHASES_TABLE,
     )
 
 
