@@ -44,6 +44,8 @@ def test_get_context_parses_payload() -> None:
             200,
             json={
                 "system_prompt": "Eres un estimador...",
+                "prompt_version": "v2",
+                "available_versions": ["v1", "v2"],
                 "description_min_length": 20,
                 "description_max_length": 50000,
                 "llm_configured": True,
@@ -53,6 +55,8 @@ def test_get_context_parses_payload() -> None:
     context = client.get_context(client=_client(handler))
 
     assert context.system_prompt.startswith("Eres")
+    assert context.prompt_version == "v2"
+    assert context.available_versions == ["v1", "v2"]
     assert context.description_min_length == 20
     assert context.description_max_length == 50000
     assert context.llm_configured is True
@@ -103,6 +107,24 @@ def test_estimate_posts_typed_payload_and_parses_response() -> None:
     assert result.input_tokens == 10
     assert result.output_tokens == 20
     assert result.cost_usd == 0.001
+
+
+def test_estimate_sends_prompt_version_query_param() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params.get("prompt_version") == "v2"
+        return httpx.Response(
+            200,
+            json={
+                "estimation": "## Estimación v2",
+                "prompt_version": "v2",
+                "model": "gpt-4o-mini",
+                "provider": "openai",
+            },
+        )
+
+    result = client.estimate(PAYLOAD, prompt_version="v2", client=_client(handler))
+
+    assert result.prompt_version == "v2"
 
 
 @pytest.mark.parametrize(

@@ -1,9 +1,11 @@
 """Capa de caché exact-match para respuestas del LLM.
 
-La clave es un SHA-256 del system prompt completo más el mensaje de usuario más
-los knobs de generación (modelo, `max_tokens`, temperatura). Cualquier cambio en
-el prompt CAG (ejemplos, instrucciones, límite de datos) invalida la caché solo,
-sin flush manual.
+La clave es un SHA-256 de un **material de clave opaco** (que la capa de dominio
+construye a partir del request, la versión de prompt y la huella de sus
+templates) más los knobs de generación (modelo, `max_tokens`, temperatura). La
+caché no conoce la semántica del prompt: solo hashea lo que le pasan, de modo
+que cualquier cambio relevante (contenido del request o edición de un `.j2`)
+invalida la caché solo, sin flush manual.
 
 Se ofrecen tres implementaciones tras la misma interfaz `ResponseCache`:
 
@@ -38,17 +40,20 @@ class ResponseCache(Protocol):
 
 def make_cache_key(
     *,
-    system_prompt: str,
-    user_message: str,
+    cache_key: str,
     model: str,
     max_tokens: int,
     temperature: float | None,
 ) -> str:
-    """Construye una clave determinista a partir de todo lo que afecta a la salida."""
+    """Construye una clave determinista a partir del material de clave y los knobs.
+
+    `cache_key` es material opaco: la capa que conoce el dominio lo construye a
+    partir de la petición y la identidad del prompt. El adaptador de caché solo
+    lo combina con lo que afecta a la generación.
+    """
     payload = json.dumps(
         {
-            "system_prompt": system_prompt,
-            "user_message": user_message,
+            "cache_key": cache_key,
             "model": model,
             "max_tokens": max_tokens,
             "temperature": temperature,

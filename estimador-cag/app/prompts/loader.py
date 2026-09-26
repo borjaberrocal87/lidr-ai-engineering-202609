@@ -12,13 +12,20 @@ con ``trim_blocks``/``lstrip_blocks`` para que las etiquetas de control
 
 from __future__ import annotations
 
+import hashlib
+from functools import cache
 from pathlib import Path
 
+import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from app.schemas.estimations import EstimationRequest
 
+logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
+
 _BASE_DIR = Path(__file__).resolve().parent
+
+ESTIMATION_USE_CASE = "estimation"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
 
@@ -47,7 +54,60 @@ def render_estimation_prompt(
         "project_type": request.project_type.value,
         "detail_level": request.detail_level.value,
         "output_format": request.output_format.value,
+        "reference_projects": [
+            project.model_dump() for project in (request.reference_projects or [])
+        ],
     }
-    system = _env.get_template(f"estimation/{version}/system.j2").render(**context)
-    user = _env.get_template(f"estimation/{version}/user.j2").render(**context)
+    system = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/system.j2").render(**context)
+    user = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/user.j2").render(**context)
+    logger.info(
+        "prompt.rendered",
+        use_case=ESTIMATION_USE_CASE,
+        version=version,
+        system_chars=len(system),
+        user_chars=len(user),
+        system_hash=_content_hash(system),
+        user_hash=_content_hash(user),
+        prompt_fingerprint=prompt_fingerprint(version),
+        reference_projects=len(context["reference_projects"]),
+    )
     return system, user
+
+
+def _content_hash(text: str) -> str:
+    """Hash corto del contenido, para trazar el render sin registrar su texto."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def available_estimation_versions() -> list[str]:
+    """Versiones de prompt de estimación presentes en disco, ordenadas.
+
+    Una versión cuenta si tiene `system.j2` y `user.j2`. Lo usa el router para
+    validar el query param `?prompt_version=` y `/context` para exponerlas.
+    """
+    directory = _BASE_DIR / ESTIMATION_USE_CASE
+    if not directory.is_dir():
+        return []
+    versions = [
+        child.name
+        for child in directory.iterdir()
+        if child.is_dir() and (child / "system.j2").is_file() and (child / "user.j2").is_file()
+    ]
+    return sorted(versions)
+
+
+@cache
+def prompt_fingerprint(version: str = DEFAULT_ESTIMATION_PROMPT_VERSION) -> str:
+    """Huella determinista de las **fuentes** de una versión del prompt.
+
+    Se calcula sobre los ficheros ``.j2`` de la versión (no sobre el render, que
+    varía por petición). Sirve como identidad del artefacto de prompt para la
+    clave de caché: cualquier edición de un template cambia la huella e invalida
+    la caché, aunque no se suba el número de versión.
+    """
+    directory = _BASE_DIR / ESTIMATION_USE_CASE / version
+    digest = hashlib.sha256()
+    for path in sorted(directory.glob("*.j2")):
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]

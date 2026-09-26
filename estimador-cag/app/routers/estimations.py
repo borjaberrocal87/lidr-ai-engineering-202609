@@ -1,11 +1,15 @@
 from collections.abc import Iterator
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.config import settings
-from app.prompts.loader import DEFAULT_ESTIMATION_PROMPT_VERSION, render_estimation_prompt
+from app.prompts.loader import (
+    DEFAULT_ESTIMATION_PROMPT_VERSION,
+    available_estimation_versions,
+    render_estimation_prompt,
+)
 from app.schemas.estimations import (
     ContextResponse,
     DetailLevel,
@@ -41,14 +45,40 @@ def _default_estimation_request() -> EstimationRequest:
     )
 
 
+def _resolve_prompt_version(version: str) -> str:
+    """Valida la versión pedida contra las disponibles en disco (404 si no existe)."""
+    available = available_estimation_versions()
+    if version not in available:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Versión de prompt desconocida: {version!r}. "
+                f"Disponibles: {', '.join(available) or 'ninguna'}."
+            ),
+        )
+    return version
+
+
+def validated_prompt_version(prompt_version: str = PROMPT_VERSION) -> str:
+    """Dependencia que valida el query param `prompt_version` antes del handler.
+
+    Al resolverla FastAPI antes de ejecutar el endpoint, el 404 se devuelve antes
+    de abrir el flujo SSE (que ya no podría cambiar el estado).
+    """
+    return _resolve_prompt_version(prompt_version)
+
+
 @router.post(
     "/estimate",
     response_model=EstimateResponse,
     summary="Genera una estimación de software a partir de un formulario tipado",
 )
-def estimate(payload: EstimationRequest) -> EstimateResponse:
+def estimate(
+    payload: EstimationRequest,
+    version: str = Depends(validated_prompt_version),
+) -> EstimateResponse:
     try:
-        result = generate_estimation(payload)
+        result = generate_estimation(payload, version=version)
     except LLMConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -71,7 +101,7 @@ def estimate(payload: EstimationRequest) -> EstimateResponse:
 
     logger.info(
         "estimate.request",
-        prompt_version=PROMPT_VERSION,
+        prompt_version=version,
         project_type=payload.project_type.value,
         detail_level=payload.detail_level.value,
         output_format=payload.output_format.value,
@@ -80,7 +110,7 @@ def estimate(payload: EstimationRequest) -> EstimateResponse:
 
     return EstimateResponse(
         estimation=result.estimation,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=version,
         model=result.model,
         provider=result.provider,
         temperature=result.temperature,
@@ -108,17 +138,27 @@ def estimate(payload: EstimationRequest) -> EstimateResponse:
         422: {"description": "Descripción fuera de los límites permitidos."},
     },
 )
-def estimate_stream(payload: EstimationRequest) -> Iterator[ServerSentEvent]:
+def estimate_stream(
+    payload: EstimationRequest,
+    version: str = Depends(validated_prompt_version),
+) -> Iterator[ServerSentEvent]:
     """Expone `stream_estimation` como SSE nativo de FastAPI para clientes HTTP.
 
     Al ser un endpoint generador, la respuesta ya se ha abierto (200) cuando se
     ejecuta el cuerpo, así que cualquier fallo (configuración, proveedor) se
-    comunica como evento `error`. El request lo valida Pydantic antes de abrir el
-    flujo (422).
+    comunica como evento `error`. El request y la versión de prompt se validan
+    antes de abrir el flujo (422 y 404) mediante Pydantic y la dependencia.
     """
+    yield from _stream_estimation_events(payload, version)
+
+
+def _stream_estimation_events(
+    payload: EstimationRequest,
+    version: str,
+) -> Iterator[ServerSentEvent]:
     metrics = StreamMetrics(model="", provider="")
     try:
-        tokens = stream_estimation(payload, metrics)
+        tokens = stream_estimation(payload, metrics, version=version)
     except (LLMConfigurationError, LLMInputError) as exc:
         yield ServerSentEvent(event="error", data={"detail": str(exc)})
         return
@@ -145,7 +185,7 @@ def estimate_stream(payload: EstimationRequest) -> Iterator[ServerSentEvent]:
         logger.warning("llm.response.truncated", model=metrics.model, provider=metrics.provider)
 
     done = StreamDoneEvent(
-        prompt_version=PROMPT_VERSION,
+        prompt_version=version,
         model=metrics.model,
         provider=metrics.provider,
         input_tokens=metrics.input_tokens,
@@ -163,11 +203,14 @@ def estimate_stream(payload: EstimationRequest) -> Iterator[ServerSentEvent]:
     response_model=ContextResponse,
     summary="Prompt activo y límites (para que la UI no importe el backend)",
 )
-def context() -> ContextResponse:
+def context(prompt_version: str = PROMPT_VERSION) -> ContextResponse:
+    version = _resolve_prompt_version(prompt_version)
     default_request = _default_estimation_request()
-    system_prompt, _ = render_estimation_prompt(default_request, version=PROMPT_VERSION)
+    system_prompt, _ = render_estimation_prompt(default_request, version=version)
     return ContextResponse(
         system_prompt=system_prompt,
+        prompt_version=version,
+        available_versions=available_estimation_versions(),
         description_min_length=settings.description_min_length,
         description_max_length=settings.description_max_length,
         llm_configured=settings.is_configured,

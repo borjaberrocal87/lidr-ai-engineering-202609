@@ -190,7 +190,7 @@ uv run uvicorn app.main:app --reload
 uv run streamlit run frontend/streamlit_app.py
 ```
 
-Se abre en http://localhost:8501. El frontend apunta al backend por `API_BASE_URL` (por defecto `http://localhost:8000`). El formulario (`st.form`) ofrece un textarea para la descripción y selectores para tipo de proyecto, nivel de detalle y formato de salida; los selectores envían los strings de los enums. El panel lateral muestra el system prompt renderizado y las métricas de la última llamada (versión de prompt, modelo, proveedor, tokens, coste, caché y fallback), obtenidas de `GET /api/v1/context` y de la respuesta de `/estimate`.
+Se abre en http://localhost:8501. El frontend apunta al backend por `API_BASE_URL` (por defecto `http://localhost:8000`). El formulario (`st.form`) ofrece un textarea para la descripción y selectores para tipo de proyecto, nivel de detalle, formato de salida y **versión del prompt** (alimentado por `available_versions` de `/context`); los selectores envían los strings de los enums. El panel lateral muestra el system prompt renderizado y las métricas de la última llamada (versión de prompt, modelo, proveedor, tokens, coste, caché y fallback), obtenidas de `GET /api/v1/context` y de la respuesta de `/estimate`.
 
 Las claves LLM ya no las lee la UI: viven solo en el backend. Si el proveedor no está configurado, la UI lo avisa (`llm_configured`).
 
@@ -200,6 +200,7 @@ Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (in
 
 - `llm.call.start` / `llm.stream.start` — modelo, proveedor y `max_tokens`.
 - `llm.call.end` / `llm.stream.end` — tokens de entrada/salida, coste estimado (`cost_usd`), si se usó el fallback (`fallback_used`) y latencia en milisegundos.
+- `prompt.rendered` (en el loader) — `use_case`, `version`, tamaños y hashes del system/user, huella de la versión y número de proyectos de referencia. Nunca el texto del prompt ni de la descripción.
 - `cache.hit` / `cache.miss` / `cache.stored` — resultado de la caché de respuestas.
 - `llm.call.error` / `llm.stream.error` — error con traceback y latencia.
 - `llm.response.truncated` (en el router) — warning cuando el modelo agotó `LLM_MAX_TOKENS`.
@@ -221,7 +222,7 @@ La llamada al proveedor vive en `app/services/llm_wrapper.py`, un wrapper sobre 
   - `fallback` (por defecto): el primario (`LLM_MODEL`) se usa siempre y solo se cae a `LLM_FALLBACK_MODEL` si el primario lanza una excepción tras los reintentos.
   - `balanced`: ambas deployments comparten `model_name`, así que LiteLLM reparte las peticiones entre primario y secundario (`simple-shuffle`); útil para comparar modelos.
   En ambos casos la respuesta indica `fallback_used` (en `balanced`, significa "atendido por el deployment secundario").
-- **Caché exact-match** (`app/services/cache.py`): la clave es un SHA-256 del system prompt completo, el mensaje de usuario y los knobs de generación (`model`, `max_tokens`, `temperature`). Cambiar el prompt CAG invalida la caché sola.
+- **Caché exact-match** (`app/services/cache.py`): la clave es un SHA-256 de un *material de clave* canónico —el `EstimationRequest`, la `prompt_version` y la huella (`prompt_fingerprint`) de las fuentes de esa versión— más los knobs de generación (`model`, `max_tokens`, `temperature`). El adaptador de caché no conoce la semántica del prompt: el dominio le pasa material opaco. Cualquier cambio relevante (campos del request, versión, o edición de un `.j2`) invalida la caché solo.
   - `CACHE_BACKEND=memory` (por defecto) usa una caché TTL en proceso, sin infraestructura.
   - `CACHE_BACKEND=redis` usa Redis (persistente y compartida) con `REDIS_URL`/`CACHE_TTL`.
   - `CACHE_BACKEND=none` la desactiva.
@@ -249,19 +250,54 @@ El prompt ya no es un `f-string` en el código. Vive en plantillas Jinja2 con ve
 
 ```
 app/prompts/
-├── loader.py                 # render_estimation_prompt(request, version="v1") -> (system, user)
+├── loader.py                 # render_estimation_prompt(request, version) -> (system, user)
 └── estimation/
-    └── v1/
-        ├── system.j2         # rol, reglas, condicionales de formato y detalle
-        ├── user.j2           # envuelve la descripción en <project_description>
-        └── examples.j2       # ejemplos few-shot, incluidos con {% include %}
+    ├── v1/                   # tono directo, cifras únicas
+    │   ├── system.j2         # rol, reglas, condicionales de formato y detalle
+    │   ├── user.j2           # envuelve la descripción en <project_description>
+    │   └── examples.j2       # ejemplos few-shot, incluidos con {% include %}
+    └── v2/                   # tono escéptico: rangos, siempre riesgos y supuestos
+        ├── system.j2
+        ├── user.j2
+        └── examples.j2
 ```
 
-El `Environment` de Jinja2 usa `FileSystemLoader` sobre `app/prompts/`, `StrictUndefined` (un typo entre el contexto y la plantilla revienta en el render, no se interpola vacío) y `trim_blocks`/`lstrip_blocks` (las etiquetas de control no dejan saltos ni espacios en el prompt). `system.j2` decide el bloque de `output_format` y el de `detail_level` con `{% if %}` e incluye los ejemplos con `{% include "estimation/v1/examples.j2" %}`.
+El `Environment` de Jinja2 usa `FileSystemLoader` sobre `app/prompts/`, `StrictUndefined` (un typo entre el contexto y la plantilla revienta en el render, no se interpola vacío) y `trim_blocks`/`lstrip_blocks` (las etiquetas de control no dejan saltos ni espacios en el prompt). `system.j2` decide el bloque de `output_format` y el de `detail_level` con `{% if %}` e incluye los ejemplos con `{% include "estimation/<versión>/examples.j2" %}`.
 
-`render_estimation_prompt` devuelve `(system, user)` por separado, que es lo que el wrapper envía como dos mensajes (`role: "system"` y `role: "user"`). La respuesta incluye `prompt_version`.
+`render_estimation_prompt` devuelve `(system, user)` por separado, que es lo que el wrapper envía como dos mensajes (`role: "system"` y `role: "user"`). `available_estimation_versions()` lista las versiones presentes en disco.
 
-Para añadir una versión, duplica `v1/` como `v2/`, edita las plantillas y llama a `render_estimation_prompt(request, version="v2")`. La convención `v1/`, `v2/` no es opcional: permite comparar, ensayar y volver atrás, y el `prompt_version` de la respuesta dice qué prompt produjo cada estimación. Como la clave de caché se deriva del system prompt completo, cambiar de versión invalida la caché sola.
+La versión se elige con el query param `prompt_version` (por defecto `v1`); una versión desconocida devuelve **404**:
+
+```bash
+curl -s "localhost:8000/api/v1/estimate?prompt_version=v2" \
+  -H 'Content-Type: application/json' \
+  -d '{"description":"Pipeline de datos para consolidar ventas de tres e-commerce.","project_type":"data_pipeline","detail_level":"detailed","output_format":"phases_table"}' \
+  | jq '{prompt_version, estimation}'
+
+curl -s "localhost:8000/api/v1/context?prompt_version=v2" | jq '{prompt_version, available_versions}'
+```
+
+- `v1` — tono directo, cifras cerradas.
+- `v2` — tono escéptico: expresa duración y coste como **rangos**, enumera los vacíos de información y siempre añade riesgos y supuestos. Usa un set de ejemplos distinto (data pipeline, herramienta interna).
+
+### Proyectos de referencia (opcional)
+
+El request admite `reference_projects`: hasta 5 proyectos similares para calibrar la estimación. Si vienen, el `user.j2` los recorre con `{% for %}` dentro de un bloque `<reference_projects>`; si no, el bloque no se renderiza. Son datos de entrada, no instrucciones, y forman parte de la clave de caché.
+
+```json
+{
+  "description": "App de gestión de siniestros para una aseguradora.",
+  "project_type": "mobile_app",
+  "detail_level": "medium",
+  "output_format": "line_items",
+  "reference_projects": [
+    {"name": "CRM seguros", "description": "Pólizas y agentes.", "estimation": "10 semanas / 32.000 EUR"},
+    {"name": "Portal de clientes", "description": "Área privada con facturas."}
+  ]
+}
+```
+
+Para añadir una versión, duplica `v1/` como `v3/`, edita las plantillas y llama a `render_estimation_prompt(request, version="v3")`; el endpoint la expondrá automáticamente. La convención `v1/`, `v2/` no es opcional: permite comparar, ensayar y volver atrás, y el `prompt_version` de la respuesta dice qué prompt produjo cada estimación. La clave de caché incluye la versión y la huella de las fuentes del prompt, así que cambiar de versión (o editar un `.j2`) invalida la caché sola.
 
 ## Transcripción de ejemplo
 
@@ -277,7 +313,7 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 
 - el endpoint `/api/v1/estimate` y los schemas de entrada/salida (enums tipados, validación de longitud y que una entrada inválida **no** llega a invocar al LLM) (`tests/test_estimations.py`, `tests/test_schemas.py`);
 - el endpoint SSE `/api/v1/estimate/stream` (eventos `token`/`done`/`error` con `prompt_version`) y `GET /api/v1/context`;
-- los templates de prompt sin tocar el LLM: la descripción dentro de `<project_description>`, el condicional de `output_format`, el de `detail_level`, la inclusión de ejemplos y `StrictUndefined` (`tests/prompts/test_estimation_v1.py`);
+- los templates de prompt sin tocar el LLM: la descripción dentro de `<project_description>`, los condicionales de `output_format` y `detail_level`, la inclusión de ejemplos, los proyectos de referencia, `StrictUndefined` y el versionado v1/v2 (`tests/prompts/test_estimation_v1.py`, `tests/prompts/test_estimation_versions.py`);
 - el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas, `estimate()` y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
 - la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
 - la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
