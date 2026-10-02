@@ -1,0 +1,26 @@
+{
+  "name": "estimador-cliente-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cliente de negocio (Express + EJS) que consume la API de estimaciones",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "build:css": "tailwindcss -i ./src/app.css -o ./public/styles.css --minify",
+    "migrate": "node src/migrate.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0",
+    "tailwindcss": "^3.4.17"
+  }
+}
