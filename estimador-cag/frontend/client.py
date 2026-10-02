@@ -41,6 +41,15 @@ class ApiProviderError(ApiError):
     """El proveedor LLM falló (502 o evento SSE `error`)."""
 
 
+class ApiGuardrailError(ApiError):
+    """La descripción fue rechazada por un guardrail de entrada (400)."""
+
+    def __init__(self, message: str, *, reason: str = "") -> None:
+        super().__init__(message)
+        self.message = message
+        self.reason = reason
+
+
 @contextmanager
 def _acquire_client(client: httpx.Client | None) -> Iterator[httpx.Client]:
     """Usa el cliente inyectado (tests) o crea uno propio de vida corta."""
@@ -67,9 +76,27 @@ def _detail(response: httpx.Response) -> str:
     return str(payload)
 
 
+def _guardrail_error(response: httpx.Response) -> ApiGuardrailError:
+    """Extrae `{reason, message}` del 400 de guardrail, sin romper si no es JSON."""
+    try:
+        response.read()
+        payload: Any = response.json()
+    except Exception:
+        return ApiGuardrailError(response.text or "Entrada rechazada por los guardrails.")
+    detail = payload.get("detail") if isinstance(payload, dict) else payload
+    if isinstance(detail, dict):
+        return ApiGuardrailError(
+            str(detail.get("message", "Entrada rechazada por los guardrails.")),
+            reason=str(detail.get("reason", "")),
+        )
+    return ApiGuardrailError(str(detail))
+
+
 def _raise_for_status(response: httpx.Response) -> None:
     if response.status_code < 400:
         return
+    if response.status_code == httpx.codes.BAD_REQUEST:
+        raise _guardrail_error(response)
     detail = _detail(response)
     if response.status_code == httpx.codes.UNPROCESSABLE_ENTITY:
         raise ApiInputError(detail)
@@ -210,7 +237,11 @@ def stream_estimation(
                         active.cost_usd = data.get("cost_usd")
                         active.fallback_used = bool(data.get("fallback_used", False))
                     elif event_name == "error":
-                        raise ApiProviderError(str(data.get("detail", "Fallo del proveedor LLM.")))
+                        detail = str(data.get("detail", "Fallo del proveedor LLM."))
+                        reason = str(data.get("reason", ""))
+                        if reason:
+                            raise ApiGuardrailError(detail, reason=reason)
+                        raise ApiProviderError(detail)
         except httpx.HTTPError as exc:
             raise ApiUnavailableError(
                 f"Se interrumpió la conexión con la API ({config.get_api_base_url()})."

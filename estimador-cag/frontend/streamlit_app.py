@@ -24,6 +24,7 @@ import streamlit as st  # noqa: E402
 from frontend.client import (  # noqa: E402
     ApiConfigurationError,
     ApiError,
+    ApiGuardrailError,
     ApiInputError,
     ApiProviderError,
     ApiUnavailableError,
@@ -116,6 +117,8 @@ if submitted:
         with st.spinner("Llamando al estimador…"):
             try:
                 result = estimate(payload, prompt_version=prompt_version)
+            except ApiGuardrailError as exc:
+                st.warning(f"Descripción rechazada por los guardrails: {exc.message}")
             except ApiConfigurationError as exc:
                 st.error(str(exc))
             except ApiInputError as exc:
