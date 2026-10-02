@@ -2,7 +2,14 @@
 
 from typing import Any
 
-from app.cache.semantic import EstimationSemanticCache, _similarity, _to_bytes
+from app.cache.semantic import (
+    EstimationSemanticCache,
+    _index_name,
+    _index_schema,
+    _similarity,
+    _slug,
+    _to_bytes,
+)
 from app.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
@@ -45,14 +52,19 @@ class _FakeVectorizer:
 
 
 class _FakeIndex:
-    def __init__(self, results: list[dict] | None = None, *, boom: bool = False) -> None:
+    def __init__(
+        self, results: list[dict] | None = None, *, boom: bool = False, query_boom: bool = False
+    ) -> None:
         self.results = results or []
         self.boom = boom
+        self.query_boom = query_boom
         self.loaded: list[tuple[list[dict], int | None]] = []
         self.queries: list[Any] = []
 
     def query(self, query: Any) -> list[dict]:
         self.queries.append(query)
+        if self.query_boom:
+            raise RuntimeError("Error parsing vector similarity query: size mismatch")
         return list(self.results)
 
     def load(self, data: list[dict], ttl: int | None = None) -> list[str]:
@@ -69,6 +81,9 @@ def _cache(
     cache.redis_client = None
     cache.vectorizer = _FakeVectorizer()
     cache.index = index if index is not None else _FakeIndex()
+    cache.dims = 3
+    cache.model = "qwen3-embedding"
+    cache.index_name = "estimations_qwen3-embedding_3"
     cache.threshold = threshold
     cache.ttl = 3600
     cache.log_only = log_only
@@ -142,6 +157,34 @@ def test_store_swallows_errors() -> None:
 def test_similarity_accepts_both_shapes() -> None:
     assert _similarity({"vector_distance": 0.1}) == 0.9
     assert _similarity({"similarity": 0.95}) == 0.95
+
+
+def test_slug_sanitizes_model_name() -> None:
+    assert _slug("Qwen/Qwen3-Embedding-8B") == "qwen-qwen3-embedding-8b"
+
+
+def test_index_name_includes_model_and_dims() -> None:
+    assert _index_name("qwen3-embedding", 4096) == "estimations_qwen3-embedding_4096"
+    assert (
+        _index_name("Qwen/Qwen3-Embedding-8B", 4096) == "estimations_qwen-qwen3-embedding-8b_4096"
+    )
+
+
+def test_index_schema_uses_inferred_dimension() -> None:
+    schema = _index_schema(index_name="estimations_qwen3-embedding_4096", dims=4096)
+
+    vector = next(field for field in schema["fields"] if field["name"] == "embedding")
+    assert vector["attrs"]["dims"] == 4096
+    assert schema["index"]["name"] == "estimations_qwen3-embedding_4096"
+    # El prefijo se deriva del índice para que dos índices no compartan documentos.
+    assert schema["index"]["prefix"] == "estimations_qwen3-embedding_4096:"
+
+
+def test_lookup_degrades_when_query_fails() -> None:
+    cache = _cache(index=_FakeIndex(query_boom=True))
+
+    # Un índice desalineado (size mismatch) no debe propagar la excepción.
+    assert cache.lookup(_request(), "v1") is None
 
 
 def test_to_bytes_returns_float32_bytes() -> None:
