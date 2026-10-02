@@ -37,6 +37,11 @@ estimador-cag/
 │   ├── models.py                # Modelos locales de respuesta
 │   ├── logging_config.py        # Logging del frontend
 │   └── streamlit_app.py         # Formulario tipado (Streamlit)
+├── cliente-web/                 # Cliente de negocio Node (Express + EJS + Tailwind + Postgres)
+│   ├── src/                     # server, app, cliente HTTP, repositorio y rutas
+│   ├── views/                   # EJS (formulario, listado, detalle)
+│   ├── test/                    # node:test + supertest
+│   └── Dockerfile
 ├── tests/                       # Tests con pytest (proveedores y API mockeados)
 │   └── prompts/                 # Tests de los templates (sin LLM)
 ├── examples/
@@ -228,6 +233,19 @@ Se abre en http://localhost:8501. El frontend apunta al backend por `API_BASE_UR
 
 Las claves LLM ya no las lee la UI: viven solo en el backend. Si el proveedor no está configurado, la UI lo avisa (`llm_configured`).
 
+## Cliente de negocio (Node)
+
+`cliente-web/` es un cliente de negocio en **Node/Express + EJS + Tailwind** que consume la misma API por HTTP, ofrece formulario, histórico y detalle, y **persiste** cada estimación en **Postgres**. Comparte el look & feel de LIDR (tema oscuro, Helvetica, amarillo `#F6DE82`). Nunca habla con el proveedor LLM: las claves viven solo en la API Python.
+
+```bash
+cd cliente-web
+npm install
+cp .env.example .env
+npm start          # http://localhost:3000
+```
+
+Los tests del cliente (`npm test`) usan `node:test` + `supertest` con repositorio en memoria y estimador falso, sin red ni base de datos. Detalles en `cliente-web/README.md`.
+
 ## Logging
 
 Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (integrado con `logging`) en la **API**, que es quien habla con el proveedor. El frontend solo registra su propia actividad con `logging` estándar. Cada llamada al LLM emite:
@@ -366,6 +384,8 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 - el logging estructurado (eventos, coste, cache_hit y que las claves no se filtran) y la propagación de `X-Request-ID`;
 - la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`).
 
+El cliente de negocio tiene su propia batería (Node): `cd cliente-web && npm test` (rutas de Express y cliente HTTP con estimador falso).
+
 ## Calidad y CI
 
 El proyecto usa `ruff` (lint + formato) y `mypy` (type-check estricto sobre `app/`):
@@ -407,6 +427,7 @@ docker compose down
 - Swagger: http://localhost:8000/docs
 - Interfaz Streamlit: http://localhost:8501 (servicio `ui`, misma imagen que la API; habla con el servicio `api` por la red interna vía `API_BASE_URL=http://api:8000`)
 - Redis: servicio `redis` con `redis/redis-stack:7.4.0-v0` (caché exact-match persistente y caché semántica vía RediSearch; la API lo usa por la red interna con `CACHE_BACKEND=redis`)
+- Cliente de negocio: servicio `cliente-web` en http://localhost:3000 (Node/Express; habla con `api` y persiste en `postgres`). Puertos configurables con `WEB_PORT` y `POSTGRES_PORT`.
 - Puerto personalizado: `API_PORT=8123 docker compose up --build -d` (y `UI_PORT=8502` para Streamlit)
 - Arrancar solo la interfaz: `docker compose up --build ui`
 - Tests dentro de Docker:
