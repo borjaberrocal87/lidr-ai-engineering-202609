@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import structlog
 
 from app.config import DEFAULT_TEMPERATURE, reveal_secret, settings
-from app.dependencies import get_cache, get_llm_wrapper, get_openai_client
+from app.dependencies import get_cache, get_llm_wrapper, get_openai_client, get_semantic_cache
 from app.guardrails.input import check_input
 from app.guardrails.output import enforce_scope_response
 from app.prompts.loader import (
@@ -249,6 +249,13 @@ def generate_structured_estimation(
             cache_hit=True,
         )
 
+    semantic_cache = get_semantic_cache()
+    if semantic_cache is not None:
+        semantic_hit = semantic_cache.lookup(request, version)
+        if semantic_hit is not None:
+            logger.info("estimate.semantic_cache_hit", prompt_version=version)
+            return StructuredEstimation(result=semantic_hit, model="", provider="", cache_hit=True)
+
     result, meta = get_llm_wrapper().complete_structured(
         system_prompt=system_prompt,
         user_message=user_message,
@@ -280,6 +287,8 @@ def generate_structured_estimation(
             "fallback_used": meta_fallback,
         },
     )
+    if semantic_cache is not None:
+        semantic_cache.store(request, result, version)
 
     return StructuredEstimation(
         result=result,
