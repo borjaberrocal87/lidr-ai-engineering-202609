@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.config import settings
+from app.guardrails.input import InputGuardrailViolation
 from app.prompts.loader import (
     DEFAULT_ESTIMATION_PROMPT_VERSION,
     available_estimation_versions,
@@ -79,6 +80,12 @@ def estimate(
 ) -> StructuredEstimateResponse:
     try:
         outcome = generate_structured_estimation(payload, version=version)
+    except InputGuardrailViolation as exc:
+        logger.info("estimate.guardrail_blocked", reason=exc.reason, message=exc.message)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"reason": exc.reason, "message": exc.message},
+        ) from exc
     except LLMConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -156,6 +163,9 @@ def _stream_estimation_events(
     metrics = StreamMetrics(model="", provider="")
     try:
         tokens = stream_estimation(payload, metrics, version=version)
+    except InputGuardrailViolation as exc:
+        yield ServerSentEvent(event="error", data={"detail": exc.message, "reason": exc.reason})
+        return
     except (LLMConfigurationError, LLMInputError) as exc:
         yield ServerSentEvent(event="error", data={"detail": str(exc)})
         return

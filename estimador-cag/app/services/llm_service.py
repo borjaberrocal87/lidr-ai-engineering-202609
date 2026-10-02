@@ -17,7 +17,9 @@ from dataclasses import dataclass
 import structlog
 
 from app.config import DEFAULT_TEMPERATURE, reveal_secret, settings
-from app.dependencies import get_cache, get_llm_wrapper
+from app.dependencies import get_cache, get_llm_wrapper, get_openai_client
+from app.guardrails.input import check_input
+from app.guardrails.output import enforce_scope_response
 from app.prompts.loader import (
     DEFAULT_ESTIMATION_PROMPT_VERSION,
     prompt_fingerprint,
@@ -159,6 +161,18 @@ def _cache_key_material(request: EstimationRequest, version: str) -> str:
     )
 
 
+def _run_input_guardrails(request: EstimationRequest) -> None:
+    """Ejecuta los guardrails de entrada si están activos.
+
+    La moderación solo se invoca si hay cliente (clave OpenAI y flag activo); las
+    capas regex corren siempre.
+    """
+    if not settings.guardrails_enabled:
+        return
+    client = get_openai_client() if settings.has_moderation else None
+    check_input(request.description, openai_client=client)
+
+
 def generate_estimation(
     request: EstimationRequest,
     version: str = DEFAULT_ESTIMATION_PROMPT_VERSION,
@@ -166,6 +180,7 @@ def generate_estimation(
     """Genera una estimación de **texto libre** (legado) usando el proveedor configurado."""
     _check_description(request.description)
     _require_configuration()
+    _run_input_guardrails(request)
     _warn_if_temperature_ignored()
 
     system_prompt, user_message = render_estimation_prompt(request, version=version)
@@ -209,6 +224,7 @@ def generate_structured_estimation(
     """
     _check_description(request.description)
     _require_configuration()
+    _run_input_guardrails(request)
     _warn_if_temperature_ignored()
 
     system_prompt, user_message = render_estimation_prompt(request, version=version)
@@ -241,6 +257,9 @@ def generate_structured_estimation(
         max_tokens=settings.llm_max_tokens,
         max_retries=settings.structured_max_retries,
     )
+
+    if settings.guardrails_enabled:
+        result = enforce_scope_response(result)
 
     meta_model = str(meta.get("model", ""))
     meta_provider = str(meta.get("provider", ""))
@@ -298,6 +317,7 @@ def stream_estimation(
     """
     _check_description(request.description)
     _require_configuration()
+    _run_input_guardrails(request)
     _warn_if_temperature_ignored()
 
     system_prompt, user_message = render_estimation_prompt(request, version=version)

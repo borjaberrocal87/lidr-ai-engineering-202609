@@ -7,6 +7,8 @@ de Redis durante toda la vida del proceso. Los tests pueden sustituir
 
 from functools import lru_cache
 
+from openai import OpenAI
+
 from app.config import get_settings, reveal_secret
 from app.services.cache import InMemoryCache, NullCache, RedisCache, ResponseCache
 from app.services.llm_wrapper import LLMWrapper, provider_from_model
@@ -40,3 +42,19 @@ def get_llm_wrapper() -> LLMWrapper:
         custom_base_url=settings.custom_llm_base_url,
         custom_api_key=reveal_secret(settings.custom_llm_api_key),
     )
+
+
+@lru_cache
+def get_openai_client() -> OpenAI | None:
+    """Cliente OpenAI perezoso para la moderación y los embeddings.
+
+    Devuelve ``None`` si no hay clave o si la moderación está desactivada, de
+    modo que el pipeline sigue funcionando solo con las capas regex.
+    """
+    settings = get_settings()
+    if not settings.has_moderation:
+        return None
+    key = reveal_secret(settings.open_ai_key)
+    if not key:
+        return None
+    return OpenAI(api_key=key)

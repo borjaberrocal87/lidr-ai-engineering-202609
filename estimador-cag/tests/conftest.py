@@ -4,7 +4,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.config import DEFAULT_TEMPERATURE, get_settings, settings
-from app.dependencies import get_cache, get_llm_wrapper
+from app.dependencies import get_cache, get_llm_wrapper, get_openai_client
 from app.main import app
 
 
@@ -14,10 +14,12 @@ def _reset_settings_cache():
     get_settings.cache_clear()
     get_llm_wrapper.cache_clear()
     get_cache.cache_clear()
+    get_openai_client.cache_clear()
     yield
     get_settings.cache_clear()
     get_llm_wrapper.cache_clear()
     get_cache.cache_clear()
+    get_openai_client.cache_clear()
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +44,8 @@ def _base_llm_settings(monkeypatch):
         "cache_backend": "memory",
         "cache_ttl": 86_400,
         "redis_url": "redis://localhost:6379",
+        "guardrails_enabled": True,
+        "guardrail_moderation_enabled": False,
         "open_ai_key": "test-key",
         "anthropic_api_key": "test-key",
         "custom_llm_base_url": "",
