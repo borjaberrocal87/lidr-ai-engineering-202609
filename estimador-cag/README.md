@@ -304,6 +304,7 @@ Además de la caché exact-match, la sesión 4 añade una **caché semántica** 
 
 - Requiere `redis/redis-stack` (la imagen `redis:7-alpine` no trae RediSearch). En Docker Compose el servicio `redis` ya usa `redis/redis-stack:7.4.0-v0` y expone RedisInsight en `:8001`.
 - Los embeddings se piden a OpenAI (`EMBEDDING_MODEL`, por defecto `text-embedding-3-small`) o a un endpoint compatible (`EMBEDDING_BASE_URL` + `EMBEDDING_API_KEY`).
+- La **dimensión** del índice vectorial se deduce del propio modelo (no se configura): `qwen3-embedding` = 4096, `text-embedding-3-small` = 1536. El índice se nombra `estimations_<modelo>_<dims>`, así que cambiar de modelo usa un índice nuevo; el anterior se puede borrar con `redis-cli FT.DROPINDEX <nombre> DD`.
 - `SEMANTIC_CACHE_LOG_ONLY=true` registra los aciertos potenciales sin servirlos, para calibrar el umbral.
 - La capa se **desactiva sola** (con warning) si no hay embeddings o si RediSearch no está disponible; la generación continúa.
 
