@@ -158,43 +158,6 @@ class StructuredEstimateResponse(BaseModel):
     fallback_used: bool = Field(False, description="True si se usó el modelo de fallback.")
 
 
-class EstimateResponse(BaseModel):
-    estimation: str = Field(..., description="Estimación generada en Markdown.")
-    prompt_version: str = Field(
-        ..., description="Versión del template de prompt que produjo la estimación."
-    )
-    model: str = Field(..., description="Modelo LLM utilizado.")
-    provider: str = Field(..., description="Proveedor LLM utilizado.")
-    temperature: float | None = Field(
-        None,
-        description=(
-            "Temperatura usada en la generación. Null para proveedores cuyo "
-            "SDK no acepta el parámetro (p. ej. Anthropic)."
-        ),
-    )
-    input_tokens: int | None = Field(None, description="Tokens de entrada consumidos.")
-    output_tokens: int | None = Field(None, description="Tokens de salida generados.")
-    truncated: bool = Field(
-        False,
-        description=(
-            "True si el modelo se quedó sin presupuesto de salida (LLM_MAX_TOKENS) "
-            "y la estimación puede estar incompleta."
-        ),
-    )
-    cache_hit: bool = Field(
-        False,
-        description="True si la respuesta se sirvió desde la caché sin llamar al proveedor.",
-    )
-    cost_usd: float | None = Field(
-        None,
-        description="Coste estimado de la llamada en USD (0 en un acierto de caché).",
-    )
-    fallback_used: bool = Field(
-        False,
-        description="True si el modelo primario falló y se usó LLM_FALLBACK_MODEL.",
-    )
-
-
 class ContextResponse(BaseModel):
     system_prompt: str = Field(..., description="System prompt activo renderizado, en Markdown.")
     prompt_version: str = Field(..., description="Versión del prompt renderizado.")

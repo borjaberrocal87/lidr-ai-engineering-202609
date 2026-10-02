@@ -127,25 +127,37 @@ if submitted:
             except ApiError as exc:
                 st.error(str(exc))
             else:
+                est = result.result
                 st.session_state.last_metrics = {
                     "prompt_version": result.prompt_version,
                     "model": result.model,
                     "provider": result.provider,
                     "input_tokens": result.input_tokens,
                     "output_tokens": result.output_tokens,
-                    "cache_hit": result.cache_hit,
+                    "cache_hit": result.cached,
                     "cost_usd": result.cost_usd,
                     "fallback_used": result.fallback_used,
-                    "truncated": result.truncated,
                 }
                 st.markdown(f"**Versión del prompt:** `{result.prompt_version}`")
-                st.markdown(result.estimation)
-                if result.truncated:
-                    st.warning(
-                        "La estimación se cortó al alcanzar el límite de tokens "
-                        "(`LLM_MAX_TOKENS`): puede estar incompleta."
+                if est.out_of_scope:
+                    st.warning(est.summary)
+                else:
+                    st.markdown(est.summary)
+                    duration_col, cost_col, confidence_col = st.columns(3)
+                    duration_col.metric("Duración", f"{est.total_duration_weeks} sem")
+                    cost_col.metric("Coste", f"{est.total_cost_eur:,} €")
+                    confidence_col.metric("Confianza", f"{est.confidence_pct}%")
+                    table = [
+                        "| Fase | Semanas | Coste (EUR) | Detalle |",
+                        "|---|---:|---:|---|",
+                    ]
+                    table.extend(
+                        f"| {phase.name} | {phase.duration_weeks} | {phase.cost_eur:,} | "
+                        f"{phase.summary} |"
+                        for phase in est.phases
                     )
-                if result.cache_hit:
+                    st.markdown("\n".join(table))
+                if result.cached:
                     st.caption("Respuesta servida desde caché (cache hit).")
                 if result.fallback_used:
                     st.caption("Se usó el modelo de fallback.")
@@ -178,6 +190,5 @@ with st.sidebar:
             f"- **Tokens de salida:** {output_tokens if output_tokens is not None else '—'}\n"
             f"- **Coste estimado:** {f'{cost_usd:.4f} USD' if cost_usd is not None else '—'}\n"
             f"- **Desde caché:** {'sí' if last_metrics.get('cache_hit') else 'no'}\n"
-            f"- **Fallback:** {'sí' if last_metrics.get('fallback_used') else 'no'}\n"
-            f"- **Truncada:** {'sí' if last_metrics.get('truncated') else 'no'}"
+            f"- **Fallback:** {'sí' if last_metrics.get('fallback_used') else 'no'}"
         )

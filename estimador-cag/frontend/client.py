@@ -12,7 +12,13 @@ from typing import Any
 import httpx
 
 from frontend import config
-from frontend.models import ContextResponse, EstimateResponse, StreamMetrics
+from frontend.models import (
+    ContextResponse,
+    EstimationResult,
+    Phase,
+    StreamMetrics,
+    StructuredEstimateResponse,
+)
 
 
 class ApiError(RuntimeError):
@@ -105,8 +111,8 @@ def estimate(
     *,
     prompt_version: str | None = None,
     client: httpx.Client | None = None,
-) -> EstimateResponse:
-    """Envía un `EstimationRequest` tipado y devuelve la estimación."""
+) -> StructuredEstimateResponse:
+    """Envía un `EstimationRequest` tipado y devuelve la estimación estructurada."""
     with _acquire_client(client) as http:
         try:
             response = http.post(
@@ -121,16 +127,31 @@ def estimate(
         _raise_for_status(response)
         body = response.json()
 
-    return EstimateResponse(
-        estimation=body["estimation"],
+    result_payload = body["result"]
+    result = EstimationResult(
+        summary=result_payload["summary"],
+        confidence_pct=result_payload["confidence_pct"],
+        phases=[
+            Phase(
+                name=phase["name"],
+                duration_weeks=phase["duration_weeks"],
+                cost_eur=phase["cost_eur"],
+                summary=phase["summary"],
+            )
+            for phase in result_payload["phases"]
+        ],
+        total_duration_weeks=result_payload["total_duration_weeks"],
+        total_cost_eur=result_payload["total_cost_eur"],
+    )
+
+    return StructuredEstimateResponse(
+        result=result,
         prompt_version=body["prompt_version"],
+        cached=bool(body.get("cached", False)),
         model=body.get("model", ""),
         provider=body.get("provider", ""),
-        temperature=body.get("temperature"),
         input_tokens=body.get("input_tokens"),
         output_tokens=body.get("output_tokens"),
-        truncated=bool(body.get("truncated", False)),
-        cache_hit=bool(body.get("cache_hit", False)),
         cost_usd=body.get("cost_usd"),
         fallback_used=bool(body.get("fallback_used", False)),
     )
