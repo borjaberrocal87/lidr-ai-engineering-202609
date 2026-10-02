@@ -21,8 +21,10 @@ from app.services.errors import (
 )
 from app.services.llm_service import (
     StreamMetrics,
+    StructuredEstimation,
     TextEstimationResult,
     generate_estimation,
+    generate_structured_estimation,
     stream_estimation,
 )
 from app.services.llm_wrapper import LLMWrapper
@@ -373,3 +375,51 @@ def test_stream_estimation_reusa_cache_con_la_misma_descripcion(monkeypatch) -> 
     assert "".join(second) == "## Estimación"
     assert first_metrics.cache_hit is False
     assert second_metrics.cache_hit is True
+
+
+def test_generate_structured_estimation_maps_result(monkeypatch) -> None:
+    fake = FakeWrapper()
+    _use_wrapper(monkeypatch, fake)
+
+    outcome = generate_structured_estimation(_request())
+
+    assert isinstance(outcome, StructuredEstimation)
+    assert outcome.result.total_cost_eur == 2000
+    assert outcome.model == "gpt-4o-mini"
+    assert outcome.provider == "openai"
+    assert outcome.input_tokens == 11
+    assert outcome.cache_hit is False
+    call = fake.structured_calls[0]
+    assert "<examples>" in call["system_prompt"]
+    assert DESCRIPTION in call["user_message"]
+    assert call["max_retries"] == llm_service.settings.structured_max_retries
+
+
+def test_generate_structured_estimation_reuses_cache(monkeypatch) -> None:
+    _openai_settings(monkeypatch)
+    fake = FakeWrapper()
+    _use_wrapper(monkeypatch, fake)
+
+    first = generate_structured_estimation(_request())
+    second = generate_structured_estimation(_request())
+
+    assert first.cache_hit is False
+    assert second.cache_hit is True
+    assert len(fake.structured_calls) == 1
+    assert second.result.total_cost_eur == 2000
+
+
+def test_generate_structured_estimation_missing_key_raises(monkeypatch) -> None:
+    monkeypatch.setattr(llm_service.settings, "llm_provider", "openai")
+    monkeypatch.setattr(llm_service.settings, "open_ai_key", "")
+
+    with pytest.raises(LLMConfigurationError, match="OPEN_AI_KEY"):
+        generate_structured_estimation(_request())
+
+
+def test_generate_structured_estimation_propagates_provider_error(monkeypatch) -> None:
+    fake = FakeWrapper(error=LLMProviderError("Fallo del proveedor LLM 'openai'."))
+    _use_wrapper(monkeypatch, fake)
+
+    with pytest.raises(LLMProviderError):
+        generate_structured_estimation(_request())
