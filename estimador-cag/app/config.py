@@ -73,6 +73,15 @@ class Settings(BaseSettings):
     embedding_base_url: str = ""
     embedding_api_key: SecretStr | None = None
 
+    # Sesión 5 — memoria conversacional y adjuntos.
+    # MAX_CONVERSATION_TURNS cuenta pares user+assistant. El system prompt es
+    # invariante y se regenera cada turno, fuera de la ventana.
+    max_conversation_turns: int = 6
+    # Tope por adjunto extraído (caracteres), para proteger el prompt.
+    max_attachment_chars: int = 60_000
+    # Vacío => usa el modelo principal del servicio para extraer metadata.
+    metadata_extractor_model: str = ""
+
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
 

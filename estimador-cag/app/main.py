@@ -7,7 +7,7 @@ from starlette.responses import Response
 
 from app.config import APP_NAME, settings
 from app.logging_config import configure_logging
-from app.routers import estimations
+from app.routers import estimations, sessions
 
 configure_logging()
 
@@ -38,6 +38,7 @@ async def request_context(
 
 
 app.include_router(estimations.router, prefix="/api/v1", tags=["estimations"])
+app.include_router(sessions.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Estado del servicio")
