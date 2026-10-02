@@ -1,9 +1,12 @@
 services:
   redis:
-    image: redis:7-alpine
+    # Redis Stack incluye RediSearch, necesario para la caché semántica (vectores).
+    # `redis:7-alpine` no trae el módulo y el índice semántico fallaría al crearse.
+    image: redis/redis-stack:7.4.0-v0
     container_name: estimador-cag-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
+      - "${REDISINSIGHT_PORT:-8001}:8001"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
