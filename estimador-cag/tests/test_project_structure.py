@@ -18,6 +18,13 @@ REQUIRED_PATHS = (
     "app/dependencies.py",
     "app/routers/__init__.py",
     "app/routers/estimations.py",
+    "app/routers/sessions.py",
+    "app/sessions/__init__.py",
+    "app/sessions/models.py",
+    "app/sessions/store.py",
+    "app/sessions/metadata_extractor.py",
+    "app/attachments/__init__.py",
+    "app/attachments/extractor.py",
     "app/services/__init__.py",
     "app/services/llm_service.py",
     "app/services/llm_wrapper.py",
@@ -31,6 +38,8 @@ REQUIRED_PATHS = (
     "app/prompts/estimation/v2/system.j2",
     "app/prompts/estimation/v2/user.j2",
     "app/prompts/estimation/v2/examples.j2",
+    "app/prompts/metadata_extraction/v1/system.j2",
+    "app/prompts/metadata_extraction/v1/user.j2",
     "app/schemas/__init__.py",
     "app/schemas/estimations.py",
     "frontend/__init__.py",
@@ -46,6 +55,9 @@ REQUIRED_PATHS = (
     "tests/prompts/test_estimation_v1.py",
     "tests/prompts/test_estimation_versions.py",
     "tests/prompts/test_prompt_logging.py",
+    "tests/test_sessions_models.py",
+    "tests/test_attachments_extractor.py",
+    "tests/test_sessions_endpoints.py",
     "pyproject.toml",
     "README.md",
     ".env.example",
@@ -62,20 +74,29 @@ def test_required_paths_exist() -> None:
 def test_app_exposes_expected_entrypoints() -> None:
     from app.config import settings
     from app.main import app
-    from app.routers import estimations
-    from app.services.llm_service import LLMConfigurationError, generate_estimation
+    from app.routers import estimations, sessions
+    from app.services.llm_service import (
+        LLMConfigurationError,
+        generate_estimation,
+        generate_session_estimation,
+    )
 
     assert app.title
     assert settings.llm_provider in {"openai", "anthropic", "custom"}
     assert callable(generate_estimation)
+    assert callable(generate_session_estimation)
     assert issubclass(LLMConfigurationError, RuntimeError)
     assert estimations.router is not None
+    assert sessions.router is not None
 
     paths = set(app.openapi()["paths"])
     assert "/health" in paths
     assert "/api/v1/estimate" in paths
     assert "/api/v1/estimate/stream" in paths
     assert "/api/v1/context" in paths
+    assert "/api/v1/sessions" in paths
+    assert "/api/v1/sessions/{session_id}" in paths
+    assert "/api/v1/sessions/{session_id}/estimate" in paths
 
 
 def test_env_file_is_gitignored() -> None:
