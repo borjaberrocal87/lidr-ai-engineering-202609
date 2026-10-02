@@ -55,6 +55,24 @@ class Settings(BaseSettings):
     cache_ttl: int = 86_400
     redis_url: str = "redis://localhost:6379"
 
+    # Sesión 4 — salida estructurada (JSON schema + validación + reintento).
+    structured_max_retries: int = 2
+
+    # Sesión 4 — guardrails de entrada/salida.
+    guardrails_enabled: bool = True
+    guardrail_moderation_enabled: bool = True
+
+    # Sesión 4 — caché semántica (embeddings + Redis Stack / RediSearch).
+    semantic_cache_enabled: bool = True
+    semantic_cache_threshold: float = 0.85
+    semantic_cache_ttl: int = 86_400
+    # Si true, se registran los aciertos potenciales pero no se sirven.
+    semantic_cache_log_only: bool = False
+    embedding_model: str = "text-embedding-3-small"
+    # Endpoint OpenAI-compatible para embeddings (vacío = usar OpenAI estándar).
+    embedding_base_url: str = ""
+    embedding_api_key: SecretStr | None = None
+
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
 
@@ -87,6 +105,18 @@ class Settings(BaseSettings):
         if self.llm_provider == "custom":
             return bool(reveal_secret(self.custom_llm_api_key)) and bool(self.custom_llm_base_url)
         return False
+
+    @property
+    def has_moderation(self) -> bool:
+        """La moderación usa la API de OpenAI; sin clave propia se desactiva."""
+        return self.guardrail_moderation_enabled and bool(reveal_secret(self.open_ai_key))
+
+    @property
+    def has_embeddings(self) -> bool:
+        """Hay embeddings si se configura un endpoint propio o si hay clave OpenAI."""
+        if self.embedding_base_url and reveal_secret(self.embedding_api_key):
+            return True
+        return bool(reveal_secret(self.open_ai_key))
 
 
 @lru_cache
