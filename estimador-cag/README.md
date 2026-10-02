@@ -4,6 +4,8 @@ API FastAPI que recibe una **descripción de proyecto tipada** (descripción lib
 
 El prompt no vive en el código: se compone con **plantillas Jinja2 versionadas** (`app/prompts/`), de modo que cambiar texto, ejemplos o reglas es cambiar un `.j2`, no refactorizar el servicio. La salida del modelo se fuerza a un **JSON schema**, se valida con **Pydantic** (con reintento ante errores) y pasa por **guardrails** de entrada y salida.
 
+Además del endpoint transaccional, la **sesión 5** añade **memoria conversacional**: `POST /api/v1/sessions/{session_id}/estimate` mantiene una ventana deslizante de turnos y unos `project_metadata` (hechos del proyecto) separados del historial, y acepta **adjuntos PDF/DOCX** que se extraen localmente y enriquecen la transcripción.
+
 ## Alcance
 
 El contexto CAG son los ejemplos few-shot de `app/prompts/estimation/v1/examples.j2`, inyectados en el system prompt en cada llamada. Sin base de datos ni retrieval: es una decisión, no deuda pendiente.
@@ -19,12 +21,20 @@ estimador-cag/
 │   ├── config.py                # Settings (Pydantic BaseSettings) desde .env
 │   ├── logging_config.py        # Configuración de structlog (console/json)
 │   ├── routers/
-│   │   └── estimations.py       # /estimate, /estimate/stream (SSE) y /context
+│   │   ├── estimations.py       # /estimate, /estimate/stream (SSE) y /context
+│   │   └── sessions.py          # /sessions, /sessions/{id} y .../estimate (multipart)
 │   ├── schemas/
 │   │   └── estimations.py       # Contrato HTTP (Pydantic) y enums del formulario
 │   ├── prompts/                 # Prompts versionados (Jinja2)
-│   │   ├── loader.py            # render_estimation_prompt(request, version)
-│   │   └── estimation/v1/       # system.j2, user.j2, examples.j2
+│   │   ├── loader.py            # render_estimation_prompt / render_conversational_prompt
+│   │   ├── estimation/v1/       # system.j2, user.j2, examples.j2
+│   │   └── metadata_extraction/v1/  # system.j2, user.j2 (extractor de project_metadata)
+│   ├── sessions/                # Memoria conversacional en memoria del proceso (sesión 5)
+│   │   ├── models.py            # ConversationHistory, ProjectMetadata, Session
+│   │   ├── store.py             # SessionStore (dict por session_id)
+│   │   └── metadata_extractor.py  # Segunda llamada LLM por turno
+│   ├── attachments/
+│   │   └── extractor.py         # Extracción local de texto de PDF/DOCX (camino B)
 │   ├── guardrails/
 │   │   ├── input.py             # Moderación + prompt-injection + PII
 │   │   └── output.py            # Filtro enforce_scope_response (baja confianza)
@@ -50,6 +60,7 @@ estimador-cag/
 │   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
 │   ├── sesion-4-formulario-tipado-prompt-jinja2.md  # Spec del formulario y prompts (sesión 4)
+│   ├── sesion-5-memoria-conversacional-adjuntos.md  # Spec de memoria y adjuntos (sesión 5)
 │   └── proveedor-openai-compatible.md  # Spec del proveedor custom (OpenAI-compatible)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
 ├── docker-compose.yml       # Servicios api, ui y test
@@ -235,6 +246,45 @@ Se abre en http://localhost:8501. El frontend apunta al backend por `API_BASE_UR
 
 Las claves LLM ya no las lee la UI: viven solo en el backend. Si el proveedor no está configurado, la UI lo avisa (`llm_configured`).
 
+La UI de la sesión 5 es **conversacional**: crea una sesión al cargar, guarda el `session_id` en `st.session_state`, permite adjuntar PDF/DOCX por turno, muestra el historial y tiene un botón **"Nueva conversación"**. En el panel lateral se ve la `project_metadata` (memoria) separada del historial. Detalle en la sección siguiente.
+
+## Sesiones conversacionales y adjuntos
+
+A partir de la sesión 5 el estimator mantiene **memoria dentro de una sesión**: el contexto del proyecto en curso se preserva entre turnos y el cliente puede adjuntar documentos. Tres endpoints nuevos, todos bajo `/api/v1`:
+
+| Método | Ruta | Descripción |
+| --- | --- | --- |
+| `POST` | `/sessions` | Crea una sesión vacía y devuelve `{ "session_id": "<uuid>" }`. |
+| `GET` | `/sessions/{session_id}` | Vista de debug: `metadata`, tamaño del historial y `max_turns`. |
+| `POST` | `/sessions/{session_id}/estimate` | Turno multi-turno (`multipart/form-data`) con transcripción + adjuntos. |
+
+```bash
+# 1) Crear sesión
+SESSION=$(curl -s -X POST localhost:8000/api/v1/sessions | jq -r .session_id)
+
+# 2) Turno con adjunto (PDF o DOCX)
+curl -s -X POST "localhost:8000/api/v1/sessions/$SESSION/estimate" \
+  -F 'transcript=Necesitamos un CRM para el equipo de ventas.' \
+  -F 'project_type=web_saas' \
+  -F 'detail_level=medium' \
+  -F 'output_format=phases_table' \
+  -F 'attachments=@docs/spec.docx' \
+  | jq '{prompt_version, metadata, history_messages, result}'
+
+# 3) Ver la memoria acumulada
+curl -s "localhost:8000/api/v1/sessions/$SESSION" | jq .metadata
+```
+
+### Historial vs memoria
+
+- **Historial**: el array `messages` que viaja al modelo. Se conserva una **ventana deslizante** por sesión (`MAX_CONVERSATION_TURNS`, por defecto 6 pares user+assistant); al superarla se descartan los pares más antiguos. El **system prompt no se almacena**: se regenera en cada turno desde la metadata actual.
+- **Memoria**: `project_metadata` (`project_name`, `assumed_team_size`, `mentioned_technologies`, `agreed_scope`). Se inyecta en un bloque `<project_metadata>` del system prompt. La extracción es una **segunda llamada LLM por turno** con salida estructurada (`METADATA_EXTRACTOR_MODEL`); si falla, se conserva la metadata anterior. El merge sobrescribe escalares con valores no nulos y une las tecnologías sin distinguir mayúsculas.
+- El endpoint conversacional **no usa caché**: cada turno depende del historial y de la metadata, así que dos transcripciones idénticas en sesiones distintas no son la misma llamada.
+
+### Adjuntos: Camino B (extracción local)
+
+Elegimos extraer el texto en el servicio con **`pypdf`** (PDF) y **`python-docx`** (Word) y concatenarlo a la transcripción delimitado por fences (`--- attachment: <fichero> ---` / `--- end attachment ---`). Ventajas: es independiente del proveedor, se puede testear sin red y deja el texto preparado para el chunking de RAG. El precio es que se pierde la comprensión multimodal de diagramas. Cada adjunto se trunca a `MAX_ATTACHMENT_CHARS`. Una extensión no soportada devuelve **415**; un fichero corrupto, **422**.
+
 ## Cliente de negocio (Node)
 
 `cliente-web/` es un cliente de negocio en **Node/Express + EJS + Tailwind** que consume la misma API por HTTP, ofrece formulario, histórico y detalle, y **persiste** cada estimación en **Postgres**. Comparte el look & feel de LIDR (tema oscuro, Helvetica, amarillo `#F6DE82`). Nunca habla con el proveedor LLM: las claves viven solo en la API Python.
@@ -381,7 +431,8 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 - el contrato estructurado: validadores de negocio (`phases` suma `total_cost_eur`, prefijo `Out of scope:` con baja confianza), el wrapper nativo de JSON schema (degradación de formato, reintento de validación, fallback y proveedor `custom`) y los guardrails de entrada/salida (`tests/test_llm_wrapper.py`, `tests/test_llm_service.py`, `tests/test_guardrails_input.py`, `tests/test_guardrails_output.py`);
 - el endpoint SSE `/api/v1/estimate/stream` (eventos `token`/`done`/`error` con `prompt_version`) y `GET /api/v1/context`;
 - los templates de prompt sin tocar el LLM: la descripción dentro de `<project_description>`, los condicionales de `output_format` y `detail_level`, la inclusión de ejemplos, los proyectos de referencia, `StrictUndefined` y el versionado v1/v2 (`tests/prompts/test_estimation_v1.py`, `tests/prompts/test_estimation_versions.py`);
-- el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas, `estimate()` y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
+- el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas, `estimate()`, `create_session`/`get_session`/`estimate_in_session` y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
+- la memoria conversacional: ventana deslizante, `merge_with` de la metadata, extractor de adjuntos y sesiones multi-turno con `httpx.AsyncClient` (metadata acumulada, adjunto que llega al modelo y ventana acotada) (`tests/test_sessions_models.py`, `tests/test_attachments_extractor.py`, `tests/test_sessions_endpoints.py`);
 - la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
 - la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`), la caché semántica (bucket, umbral, `log_only` y degradación) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
 - el logging estructurado (eventos, coste, cache_hit y que las claves no se filtran) y la propagación de `X-Request-ID`;
@@ -471,6 +522,9 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `EMBEDDING_API_KEY`       | API key del endpoint de embeddings                | —             |
 | `DESCRIPTION_MIN_LENGTH`  | Longitud mínima de la descripción (caracteres)    | `20`          |
 | `DESCRIPTION_MAX_LENGTH`  | Longitud máxima de la descripción (caracteres)    | `50000`       |
+| `MAX_CONVERSATION_TURNS`  | Pares user+assistant de la ventana deslizante     | `6`           |
+| `MAX_ATTACHMENT_CHARS`    | Tope de texto extraído por adjunto (caracteres)   | `60000`       |
+| `METADATA_EXTRACTOR_MODEL` | Modelo del extractor de metadata (vacío = `LLM_MODEL`) | —       |
 | `OPEN_AI_KEY`             | API key de OpenAI                                 | —             |
 | `ANTHROPIC_API_KEY`       | API key de Anthropic                              | —             |
 | `CUSTOM_LLM_BASE_URL`     | URL base del endpoint OpenAI-compatible           | —             |
