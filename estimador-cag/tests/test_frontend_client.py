@@ -10,6 +10,7 @@ from frontend import client
 from frontend.client import (
     ApiConfigurationError,
     ApiError,
+    ApiGuardrailError,
     ApiInputError,
     ApiProviderError,
     ApiUnavailableError,
@@ -78,49 +79,75 @@ def test_get_context_unexpected_status_raises_api_error() -> None:
         client.get_context(client=_client(handler))
 
 
+def _structured_body(**overrides) -> dict:
+    body = {
+        "result": {
+            "summary": "Resumen de la estimación.",
+            "confidence_pct": 72,
+            "phases": [
+                {
+                    "name": "Discovery",
+                    "duration_weeks": 1,
+                    "cost_eur": 2000,
+                    "summary": "Definición de alcance.",
+                }
+            ],
+            "total_duration_weeks": 1,
+            "total_cost_eur": 2000,
+        },
+        "prompt_version": "v1",
+        "cached": False,
+        "model": "gpt-4o-mini",
+        "provider": "openai",
+        "input_tokens": 10,
+        "output_tokens": 20,
+        "cost_usd": 0.001,
+        "fallback_used": False,
+    }
+    body.update(overrides)
+    return body
+
+
 def test_estimate_posts_typed_payload_and_parses_response() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/api/v1/estimate"
         assert json.loads(request.content) == PAYLOAD
-        return httpx.Response(
-            200,
-            json={
-                "estimation": "## Estimación",
-                "prompt_version": "v1",
-                "model": "gpt-4o-mini",
-                "provider": "openai",
-                "input_tokens": 10,
-                "output_tokens": 20,
-                "truncated": False,
-                "cache_hit": False,
-                "cost_usd": 0.001,
-                "fallback_used": False,
-            },
-        )
+        return httpx.Response(200, json=_structured_body())
 
     result = client.estimate(PAYLOAD, client=_client(handler))
 
-    assert result.estimation == "## Estimación"
+    assert result.result.summary == "Resumen de la estimación."
+    assert result.result.confidence_pct == 72
+    assert result.result.phases[0].name == "Discovery"
+    assert result.result.total_duration_weeks == 1
+    assert result.result.total_cost_eur == 2000
+    assert result.result.out_of_scope is False
     assert result.prompt_version == "v1"
     assert result.model == "gpt-4o-mini"
     assert result.provider == "openai"
     assert result.input_tokens == 10
     assert result.output_tokens == 20
     assert result.cost_usd == 0.001
+    assert result.cached is False
+
+
+def test_estimate_marks_out_of_scope() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = _structured_body(cached=True)
+        body["result"]["confidence_pct"] = 10
+        body["result"]["summary"] = "Out of scope: falta información de alcance."
+        return httpx.Response(200, json=body)
+
+    result = client.estimate(PAYLOAD, client=_client(handler))
+
+    assert result.result.out_of_scope is True
+    assert result.cached is True
 
 
 def test_estimate_sends_prompt_version_query_param() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.params.get("prompt_version") == "v2"
-        return httpx.Response(
-            200,
-            json={
-                "estimation": "## Estimación v2",
-                "prompt_version": "v2",
-                "model": "gpt-4o-mini",
-                "provider": "openai",
-            },
-        )
+        return httpx.Response(200, json=_structured_body(prompt_version="v2"))
 
     result = client.estimate(PAYLOAD, prompt_version="v2", client=_client(handler))
 
@@ -226,3 +253,32 @@ def test_stream_estimation_unavailable_raises() -> None:
 
     with pytest.raises(ApiUnavailableError):
         list(client.stream_estimation(PAYLOAD, client=_client(handler)))
+
+
+def test_estimate_maps_guardrail_400() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"detail": {"reason": "pii", "message": "Se detectó un email."}},
+        )
+
+    with pytest.raises(ApiGuardrailError) as exc_info:
+        client.estimate(PAYLOAD, client=_client(handler))
+
+    assert exc_info.value.reason == "pii"
+    assert "email" in exc_info.value.message
+
+
+def test_stream_guardrail_error_event_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse(("error", {"detail": "Se detectó un email.", "reason": "pii"})),
+        )
+
+    stream = client.stream_estimation(PAYLOAD, client=_client(handler))
+    with pytest.raises(ApiGuardrailError) as exc_info:
+        next(stream)
+
+    assert exc_info.value.reason == "pii"

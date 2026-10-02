@@ -4,15 +4,52 @@ from collections.abc import Iterator
 from starlette.testclient import TestClient
 
 from app.config import settings
+from app.guardrails.input import InputGuardrailViolation
 from app.routers import estimations
-from app.schemas.estimations import EstimationRequest
+from app.schemas.estimations import EstimationRequest, EstimationResult, Phase
 from app.services.llm_service import (
-    EstimationResult,
     LLMConfigurationError,
     LLMInputError,
     LLMProviderError,
     StreamMetrics,
+    StructuredEstimation,
 )
+
+
+def _result(*, confidence_pct: int = 72) -> EstimationResult:
+    return EstimationResult(
+        summary="Una landing page con CRM, blog y formulario de contacto.",
+        confidence_pct=confidence_pct,
+        phases=[
+            Phase(
+                name="Descubrimiento",
+                duration_weeks=1,
+                cost_eur=2000,
+                summary="Entrevistas con marketing y definición de alcance.",
+            ),
+            Phase(
+                name="Implementación",
+                duration_weeks=3,
+                cost_eur=6000,
+                summary="Maquetación, integración con HubSpot y blog WYSIWYG.",
+            ),
+        ],
+        total_duration_weeks=4,
+        total_cost_eur=8000,
+    )
+
+
+def _structured(*, cache_hit: bool = False) -> StructuredEstimation:
+    return StructuredEstimation(
+        result=_result(),
+        model="gpt-4o-mini",
+        provider="openai",
+        input_tokens=123,
+        output_tokens=45,
+        cost_usd=0.0021,
+        fallback_used=True,
+        cache_hit=cache_hit,
+    )
 
 
 def test_estimate_success(
@@ -21,24 +58,16 @@ def test_estimate_success(
     description: str,
     monkeypatch,
 ) -> None:
-    def fake_generate_estimation(
+    def fake_generate_structured_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> StructuredEstimation:
         assert request.description == description
         assert request.output_format.value == "phases_table"
-        return EstimationResult(
-            estimation="## Estimación: Landing Page\n\n**Total: 150 horas**",
-            model="gpt-4o-mini",
-            provider="openai",
-            temperature=0.2,
-            input_tokens=123,
-            output_tokens=45,
-            cache_hit=True,
-            cost_usd=0.0021,
-            fallback_used=True,
-        )
+        return _structured(cache_hit=True)
 
-    monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
 
     response = client.post("/api/v1/estimate", json=estimation_payload)
 
@@ -47,46 +76,60 @@ def test_estimate_success(
     assert body["prompt_version"] == "v1"
     assert body["provider"] == "openai"
     assert body["model"] == "gpt-4o-mini"
-    assert body["temperature"] == 0.2
     assert body["input_tokens"] == 123
     assert body["output_tokens"] == 45
-    assert body["truncated"] is False
-    assert body["cache_hit"] is True
+    assert body["cached"] is True
     assert body["cost_usd"] == 0.0021
     assert body["fallback_used"] is True
-    assert "Estimación" in body["estimation"]
+    assert body["result"]["confidence_pct"] == 72
+    assert body["result"]["total_cost_eur"] == 8000
+    assert len(body["result"]["phases"]) == 2
+    assert body["result"]["phases"][0]["name"] == "Descubrimiento"
 
 
-def test_estimate_expone_truncado(
+def test_estimate_soporta_out_of_scope(
     client: TestClient, estimation_payload: dict[str, str], monkeypatch
 ) -> None:
-    def fake_generate_estimation(
+    def fake_generate_structured_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
-        return EstimationResult(
-            estimation="## Estimación incompleta",
-            model="gpt-4o-mini",
-            provider="openai",
-            truncated=True,
+    ) -> StructuredEstimation:
+        result = EstimationResult(
+            summary="Out of scope: falta información de alcance e integraciones.",
+            confidence_pct=10,
+            phases=[
+                Phase(
+                    name="Not estimated",
+                    duration_weeks=1,
+                    cost_eur=0,
+                    summary="Sin información suficiente para dimensionar.",
+                )
+            ],
+            total_duration_weeks=1,
+            total_cost_eur=0,
         )
+        return StructuredEstimation(result=result, model="gpt-4o-mini", provider="openai")
 
-    monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
 
     response = client.post("/api/v1/estimate", json=estimation_payload)
 
     assert response.status_code == 200
-    assert response.json()["truncated"] is True
+    assert response.json()["result"]["summary"].startswith("Out of scope:")
 
 
 def test_estimate_missing_api_key_returns_503(
     client: TestClient, estimation_payload: dict[str, str], monkeypatch
 ) -> None:
-    def fake_generate_estimation(
+    def fake_generate_structured_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> StructuredEstimation:
         raise LLMConfigurationError("OPEN_AI_KEY no está configurada.")
 
-    monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
 
     response = client.post("/api/v1/estimate", json=estimation_payload)
 
@@ -99,12 +142,14 @@ def test_estimate_provider_error_returns_502_sin_filtrar_detalle(
 ) -> None:
     detalle_interno = "sk-secreto-interno-no-debe-salir"
 
-    def fake_generate_estimation(
+    def fake_generate_structured_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> StructuredEstimation:
         raise LLMProviderError(detalle_interno)
 
-    monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
 
     response = client.post("/api/v1/estimate", json=estimation_payload)
 
@@ -115,12 +160,14 @@ def test_estimate_provider_error_returns_502_sin_filtrar_detalle(
 def test_estimate_input_error_del_servicio_returns_422(
     client: TestClient, estimation_payload: dict[str, str], monkeypatch
 ) -> None:
-    def fake_generate_estimation(
+    def fake_generate_structured_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> StructuredEstimation:
         raise LLMInputError("La descripción no cumple las restricciones.")
 
-    monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
 
     response = client.post("/api/v1/estimate", json=estimation_payload)
 
@@ -132,12 +179,14 @@ def test_estimate_unexpected_error_returns_500(
 ) -> None:
     from app.main import app
 
-    def fake_generate_estimation(
+    def fake_generate_structured_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> StructuredEstimation:
         raise RuntimeError("bug inesperado")
 
-    monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
 
     failing_client = TestClient(app, raise_server_exceptions=False)
     response = failing_client.post("/api/v1/estimate", json=estimation_payload)
@@ -146,10 +195,12 @@ def test_estimate_unexpected_error_returns_500(
 
 
 def test_estimate_rejects_short_description(client: TestClient, monkeypatch) -> None:
-    def no_deberia_llamarse(request: EstimationRequest, version: str = "v1") -> EstimationResult:
+    def no_deberia_llamarse(
+        request: EstimationRequest, version: str = "v1"
+    ) -> StructuredEstimation:
         raise AssertionError("El LLM no debe invocarse con entrada inválida")
 
-    monkeypatch.setattr(estimations, "generate_estimation", no_deberia_llamarse)
+    monkeypatch.setattr(estimations, "generate_structured_estimation", no_deberia_llamarse)
 
     payload = {
         "description": "corto",
@@ -165,10 +216,12 @@ def test_estimate_rejects_short_description(client: TestClient, monkeypatch) -> 
 def test_estimate_rejects_oversized_description(
     client: TestClient, estimation_payload: dict[str, str], monkeypatch
 ) -> None:
-    def no_deberia_llamarse(request: EstimationRequest, version: str = "v1") -> EstimationResult:
+    def no_deberia_llamarse(
+        request: EstimationRequest, version: str = "v1"
+    ) -> StructuredEstimation:
         raise AssertionError("El LLM no debe invocarse con entrada inválida")
 
-    monkeypatch.setattr(estimations, "generate_estimation", no_deberia_llamarse)
+    monkeypatch.setattr(estimations, "generate_structured_estimation", no_deberia_llamarse)
 
     oversized = {**estimation_payload, "description": "x" * (settings.description_max_length + 1)}
     response = client.post("/api/v1/estimate", json=oversized)
@@ -348,13 +401,15 @@ def test_estimate_accepts_reference_projects(
 ) -> None:
     seen: dict[str, object] = {}
 
-    def fake_generate_estimation(
+    def fake_generate_structured_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> StructuredEstimation:
         seen["refs"] = request.reference_projects
-        return EstimationResult(estimation="## x", model="gpt-4o-mini", provider="openai")
+        return _structured()
 
-    monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
 
     payload = {
         **estimation_payload,
@@ -388,13 +443,15 @@ def test_estimate_accepts_prompt_version_query_param(
 ) -> None:
     seen: dict[str, str] = {}
 
-    def fake_generate_estimation(
+    def fake_generate_structured_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> StructuredEstimation:
         seen["version"] = version
-        return EstimationResult(estimation="## v2", model="gpt-4o-mini", provider="openai")
+        return _structured()
 
-    monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
 
     response = client.post("/api/v1/estimate?prompt_version=v2", json=estimation_payload)
 
@@ -406,10 +463,12 @@ def test_estimate_accepts_prompt_version_query_param(
 def test_estimate_unknown_prompt_version_returns_404(
     client: TestClient, estimation_payload: dict[str, str], monkeypatch
 ) -> None:
-    def no_deberia_llamarse(request: EstimationRequest, version: str = "v1") -> EstimationResult:
+    def no_deberia_llamarse(
+        request: EstimationRequest, version: str = "v1"
+    ) -> StructuredEstimation:
         raise AssertionError("El LLM no debe invocarse con una versión desconocida")
 
-    monkeypatch.setattr(estimations, "generate_estimation", no_deberia_llamarse)
+    monkeypatch.setattr(estimations, "generate_structured_estimation", no_deberia_llamarse)
 
     response = client.post("/api/v1/estimate?prompt_version=v999", json=estimation_payload)
 
@@ -437,3 +496,45 @@ def test_context_unknown_prompt_version_returns_404(client: TestClient) -> None:
     response = client.get("/api/v1/context?prompt_version=v999")
 
     assert response.status_code == 404
+
+
+def test_estimate_guardrail_violation_returns_400(
+    client: TestClient, estimation_payload: dict[str, str], monkeypatch
+) -> None:
+    def fake_generate_structured_estimation(
+        request: EstimationRequest, version: str = "v1"
+    ) -> StructuredEstimation:
+        raise InputGuardrailViolation("Se detectó un email en la descripción.", reason="pii")
+
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
+
+    response = client.post("/api/v1/estimate", json=estimation_payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "reason": "pii",
+        "message": "Se detectó un email en la descripción.",
+    }
+
+
+def test_estimate_stream_guardrail_emits_error_event(
+    client: TestClient, estimation_payload: dict[str, str], monkeypatch
+) -> None:
+    def fake_stream_estimation(
+        request: EstimationRequest,
+        metrics: StreamMetrics | None = None,
+        version: str = "v1",
+    ) -> Iterator[str]:
+        raise InputGuardrailViolation("Se detectó un email en la descripción.", reason="pii")
+
+    monkeypatch.setattr(estimations, "stream_estimation", fake_stream_estimation)
+
+    response = client.post("/api/v1/estimate/stream", json=estimation_payload)
+
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    assert events[0][0] == "error"
+    assert events[0][1]["reason"] == "pii"
+    assert all(name != "done" for name, _ in events)

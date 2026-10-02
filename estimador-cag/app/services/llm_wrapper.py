@@ -21,11 +21,13 @@ import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
+import litellm
 import structlog
 from litellm.router import Router
 from openai import OpenAIError
+from pydantic import BaseModel, ValidationError
 
 from app.services.cache import ResponseCache, make_cache_key
 from app.services.errors import LLMProviderError
@@ -34,6 +36,8 @@ logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 Provider = Literal["openai", "anthropic", "custom"]
 RoutingMode = Literal["fallback", "balanced"]
+
+StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
 
 # En modo `fallback` cada deployment tiene su propio `model_name` y el Router
 # salta del primario al secundario solo si el primario falla. En modo `balanced`
@@ -114,6 +118,37 @@ def _extract_delta(chunk: Any) -> str:
     return content or ""
 
 
+def _response_format(mode: str, response_model: type[BaseModel]) -> dict[str, Any] | None:
+    """Traduce el modo de salida estructurada al `response_format` de LiteLLM."""
+    if mode == "json_schema":
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": response_model.__name__,
+                "schema": response_model.model_json_schema(),
+                "strict": True,
+            },
+        }
+    if mode == "json_object":
+        return {"type": "json_object"}
+    return None
+
+
+def _coerce_json_text(content: str) -> str:
+    """Extrae el objeto JSON de una respuesta que puede venir con fences o prosa."""
+    text = content.strip()
+    if text.startswith("```"):
+        parts = text.split("```")
+        if len(parts) >= 3:
+            text = parts[1]
+        text = text.removeprefix("json").strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start : end + 1]
+    return text
+
+
 class LLMWrapper:
     """Cliente LLM unificado con fallback, caché, coste y logging."""
 
@@ -136,8 +171,15 @@ class LLMWrapper:
         self.primary_model = primary_model
         self.primary_provider = primary_provider
         self.fallback_model = fallback_model
+        self.fallback_provider = fallback_provider
         self.routing_mode = routing_mode
         self.cache = cache
+        self.timeout = timeout
+        self.num_retries = num_retries
+        self.openai_api_key = openai_api_key
+        self.anthropic_api_key = anthropic_api_key
+        self.custom_base_url = custom_base_url
+        self.custom_api_key = custom_api_key
 
         if routing_mode == "balanced":
             primary_name = fallback_name = ROUTER_BALANCED_NAME
@@ -422,6 +464,214 @@ class LLMWrapper:
                     "fallback_used": fallback_used,
                 },
             )
+
+    def complete_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_message: str,
+        response_model: type[StructuredModel],
+        temperature: float | None,
+        max_tokens: int,
+        max_retries: int = 2,
+    ) -> tuple[StructuredModel, dict[str, Any]]:
+        """Llamada estructurada con JSON schema, validación Pydantic y reintento.
+
+        Usa el `response_format` nativo de LiteLLM (JSON schema) y, si el
+        proveedor no lo soporta, degrada a JSON mode y después a prompt libre. Ante
+        un `ValidationError` de Pydantic, re-promptea al modelo con el error hasta
+        `max_retries` veces. Respeta el fallback configurado (primario → secundario)
+        y devuelve `(modelo_validado, meta)` con métricas acumuladas de todos los
+        intentos.
+        """
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+
+        candidates: list[tuple[str, Provider]] = [(self.primary_model, self.primary_provider)]
+        if self.fallback_model and self.fallback_model != self.primary_model:
+            candidates.append(
+                (
+                    self.fallback_model,
+                    self.fallback_provider or provider_from_model(self.fallback_model),
+                )
+            )
+
+        last_error: Exception | None = None
+        for index, (model, provider) in enumerate(candidates):
+            try:
+                result, meta = self._structured_attempt(
+                    model=model,
+                    provider=provider,
+                    messages=messages,
+                    response_model=response_model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    max_retries=max_retries,
+                )
+            except LLMProviderError as exc:
+                last_error = exc
+                if index < len(candidates) - 1:
+                    logger.warning(
+                        "llm.structured.fallback",
+                        failed_model=model,
+                        fallback_model=candidates[index + 1][0],
+                    )
+                    continue
+                raise
+            meta["fallback_used"] = index > 0
+            return result, meta
+
+        raise last_error or LLMProviderError("No se pudo generar la estimación estructurada.")
+
+    def _structured_attempt(
+        self,
+        *,
+        model: str,
+        provider: Provider,
+        messages: list[dict[str, str]],
+        response_model: type[StructuredModel],
+        temperature: float | None,
+        max_tokens: int,
+        max_retries: int,
+    ) -> tuple[StructuredModel, dict[str, Any]]:
+        """Un proveedor: llama, valida y re-promptea ante errores de esquema."""
+        target = self._litellm_target(model, provider)
+        logger.info(
+            "llm.structured.start",
+            model=model,
+            provider=provider,
+            response_model=response_model.__name__,
+        )
+        started_at = time.perf_counter()
+        conversation = list(messages)
+        input_tokens = 0
+        output_tokens = 0
+        last_error: ValidationError | None = None
+
+        for attempt in range(max_retries + 1):
+            response = self._completion_with_schema(
+                target=target,
+                provider=provider,
+                messages=conversation,
+                response_model=response_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            usage = getattr(response, "usage", None)
+            input_tokens += getattr(usage, "prompt_tokens", 0) or 0
+            output_tokens += getattr(usage, "completion_tokens", 0) or 0
+            content = self._message_content(response)
+
+            try:
+                parsed = response_model.model_validate_json(_coerce_json_text(content))
+            except ValidationError as exc:
+                last_error = exc
+                if attempt >= max_retries:
+                    break
+                logger.info(
+                    "llm.structured.validation_retry",
+                    attempt=attempt + 1,
+                    error=str(exc)[:200],
+                )
+                conversation = [
+                    *conversation,
+                    {"role": "assistant", "content": content},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Tu respuesta no cumple el esquema requerido. Corrige estos "
+                            f"errores y devuelve únicamente el JSON válido:\n{exc}"
+                        ),
+                    },
+                ]
+                continue
+
+            latency_ms = _elapsed_ms(started_at)
+            model_name = _normalise_model_name(str(getattr(response, "model", "") or model))
+            meta: dict[str, Any] = {
+                "model": model_name,
+                "provider": provider_from_model(model_name),
+                "input_tokens": input_tokens or None,
+                "output_tokens": output_tokens or None,
+                "cost_usd": _estimate_cost(model_name, input_tokens, output_tokens),
+                "latency_ms": latency_ms,
+                "retries": attempt,
+            }
+            logger.info(
+                "llm.structured.end",
+                model=meta["model"],
+                provider=meta["provider"],
+                cost_usd=meta["cost_usd"],
+                retries=attempt,
+                latency_ms=latency_ms,
+            )
+            return parsed, meta
+
+        raise LLMProviderError(
+            f"El modelo no devolvió un JSON válido tras {max_retries + 1} intentos."
+        ) from last_error
+
+    def _completion_with_schema(
+        self,
+        *,
+        target: dict[str, Any],
+        provider: Provider,
+        messages: list[dict[str, str]],
+        response_model: type[StructuredModel],
+        temperature: float | None,
+        max_tokens: int,
+    ) -> Any:
+        """Intenta JSON schema → JSON mode → prompt libre según soporte del proveedor."""
+        kwargs: dict[str, Any] = {
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "timeout": self.timeout,
+            "num_retries": self.num_retries,
+        }
+        if temperature is not None and provider != "anthropic":
+            kwargs["temperature"] = temperature
+
+        last_exc: Exception | None = None
+        for mode in ("json_schema", "json_object", "none"):
+            try:
+                return litellm.completion(
+                    **target,
+                    **kwargs,
+                    response_format=_response_format(mode, response_model),
+                )
+            except Exception as exc:  # se degrada el modo de salida
+                last_exc = exc
+                if mode == "none":
+                    break
+                logger.warning(
+                    "llm.structured.format_retry",
+                    mode=mode,
+                    provider=provider,
+                    error_type=type(exc).__name__,
+                    error=str(exc)[:160],
+                )
+
+        raise LLMProviderError(f"Fallo del proveedor LLM '{provider}'.") from last_exc
+
+    def _litellm_target(self, model: str, provider: Provider) -> dict[str, Any]:
+        """Parámetros de llamada directa a LiteLLM para un modelo/proveedor."""
+        if provider == "openai":
+            return {"model": model, "api_key": self.openai_api_key}
+        if provider == "anthropic":
+            return {"model": model, "api_key": self.anthropic_api_key}
+        return {
+            "model": f"openai/{model}",
+            "api_key": self.custom_api_key,
+            "api_base": self.custom_base_url,
+        }
+
+    @staticmethod
+    def _message_content(response: Any) -> str:
+        choice = response.choices[0]
+        message = getattr(choice, "message", None)
+        return (getattr(message, "content", None) or "") if message is not None else ""
 
     def _normalise(self, response: Any, *, latency_ms: float) -> dict[str, Any]:
         choice = response.choices[0]

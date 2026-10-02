@@ -12,7 +12,13 @@ from typing import Any
 import httpx
 
 from frontend import config
-from frontend.models import ContextResponse, EstimateResponse, StreamMetrics
+from frontend.models import (
+    ContextResponse,
+    EstimationResult,
+    Phase,
+    StreamMetrics,
+    StructuredEstimateResponse,
+)
 
 
 class ApiError(RuntimeError):
@@ -33,6 +39,15 @@ class ApiConfigurationError(ApiError):
 
 class ApiProviderError(ApiError):
     """El proveedor LLM falló (502 o evento SSE `error`)."""
+
+
+class ApiGuardrailError(ApiError):
+    """La descripción fue rechazada por un guardrail de entrada (400)."""
+
+    def __init__(self, message: str, *, reason: str = "") -> None:
+        super().__init__(message)
+        self.message = message
+        self.reason = reason
 
 
 @contextmanager
@@ -61,9 +76,27 @@ def _detail(response: httpx.Response) -> str:
     return str(payload)
 
 
+def _guardrail_error(response: httpx.Response) -> ApiGuardrailError:
+    """Extrae `{reason, message}` del 400 de guardrail, sin romper si no es JSON."""
+    try:
+        response.read()
+        payload: Any = response.json()
+    except Exception:
+        return ApiGuardrailError(response.text or "Entrada rechazada por los guardrails.")
+    detail = payload.get("detail") if isinstance(payload, dict) else payload
+    if isinstance(detail, dict):
+        return ApiGuardrailError(
+            str(detail.get("message", "Entrada rechazada por los guardrails.")),
+            reason=str(detail.get("reason", "")),
+        )
+    return ApiGuardrailError(str(detail))
+
+
 def _raise_for_status(response: httpx.Response) -> None:
     if response.status_code < 400:
         return
+    if response.status_code == httpx.codes.BAD_REQUEST:
+        raise _guardrail_error(response)
     detail = _detail(response)
     if response.status_code == httpx.codes.UNPROCESSABLE_ENTITY:
         raise ApiInputError(detail)
@@ -105,8 +138,8 @@ def estimate(
     *,
     prompt_version: str | None = None,
     client: httpx.Client | None = None,
-) -> EstimateResponse:
-    """Envía un `EstimationRequest` tipado y devuelve la estimación."""
+) -> StructuredEstimateResponse:
+    """Envía un `EstimationRequest` tipado y devuelve la estimación estructurada."""
     with _acquire_client(client) as http:
         try:
             response = http.post(
@@ -121,16 +154,31 @@ def estimate(
         _raise_for_status(response)
         body = response.json()
 
-    return EstimateResponse(
-        estimation=body["estimation"],
+    result_payload = body["result"]
+    result = EstimationResult(
+        summary=result_payload["summary"],
+        confidence_pct=result_payload["confidence_pct"],
+        phases=[
+            Phase(
+                name=phase["name"],
+                duration_weeks=phase["duration_weeks"],
+                cost_eur=phase["cost_eur"],
+                summary=phase["summary"],
+            )
+            for phase in result_payload["phases"]
+        ],
+        total_duration_weeks=result_payload["total_duration_weeks"],
+        total_cost_eur=result_payload["total_cost_eur"],
+    )
+
+    return StructuredEstimateResponse(
+        result=result,
         prompt_version=body["prompt_version"],
+        cached=bool(body.get("cached", False)),
         model=body.get("model", ""),
         provider=body.get("provider", ""),
-        temperature=body.get("temperature"),
         input_tokens=body.get("input_tokens"),
         output_tokens=body.get("output_tokens"),
-        truncated=bool(body.get("truncated", False)),
-        cache_hit=bool(body.get("cache_hit", False)),
         cost_usd=body.get("cost_usd"),
         fallback_used=bool(body.get("fallback_used", False)),
     )
@@ -189,7 +237,11 @@ def stream_estimation(
                         active.cost_usd = data.get("cost_usd")
                         active.fallback_used = bool(data.get("fallback_used", False))
                     elif event_name == "error":
-                        raise ApiProviderError(str(data.get("detail", "Fallo del proveedor LLM.")))
+                        detail = str(data.get("detail", "Fallo del proveedor LLM."))
+                        reason = str(data.get("reason", ""))
+                        if reason:
+                            raise ApiGuardrailError(detail, reason=reason)
+                        raise ApiProviderError(detail)
         except httpx.HTTPError as exc:
             raise ApiUnavailableError(
                 f"Se interrumpió la conexión con la API ({config.get_api_base_url()})."

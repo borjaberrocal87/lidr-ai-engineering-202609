@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.config import settings
+from app.guardrails.input import InputGuardrailViolation
 from app.prompts.loader import (
     DEFAULT_ESTIMATION_PROMPT_VERSION,
     available_estimation_versions,
@@ -13,18 +14,18 @@ from app.prompts.loader import (
 from app.schemas.estimations import (
     ContextResponse,
     DetailLevel,
-    EstimateResponse,
     EstimationRequest,
     OutputFormat,
     ProjectType,
     StreamDoneEvent,
+    StructuredEstimateResponse,
 )
 from app.services.llm_service import (
     LLMConfigurationError,
     LLMInputError,
     LLMProviderError,
     StreamMetrics,
-    generate_estimation,
+    generate_structured_estimation,
     stream_estimation,
 )
 
@@ -70,15 +71,21 @@ def validated_prompt_version(prompt_version: str = PROMPT_VERSION) -> str:
 
 @router.post(
     "/estimate",
-    response_model=EstimateResponse,
-    summary="Genera una estimación de software a partir de un formulario tipado",
+    response_model=StructuredEstimateResponse,
+    summary="Genera una estimación estructurada a partir de un formulario tipado",
 )
 def estimate(
     payload: EstimationRequest,
     version: str = Depends(validated_prompt_version),
-) -> EstimateResponse:
+) -> StructuredEstimateResponse:
     try:
-        result = generate_estimation(payload, version=version)
+        outcome = generate_structured_estimation(payload, version=version)
+    except InputGuardrailViolation as exc:
+        logger.info("estimate.guardrail_blocked", reason=exc.reason, message=exc.message)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"reason": exc.reason, "message": exc.message},
+        ) from exc
     except LLMConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -96,9 +103,6 @@ def estimate(
             detail="No se pudo generar la estimación. Inténtalo de nuevo más tarde.",
         ) from exc
 
-    if result.truncated:
-        logger.warning("llm.response.truncated", model=result.model, provider=result.provider)
-
     logger.info(
         "estimate.request",
         prompt_version=version,
@@ -106,20 +110,20 @@ def estimate(
         detail_level=payload.detail_level.value,
         output_format=payload.output_format.value,
         description_chars=len(payload.description),
+        confidence_pct=outcome.result.confidence_pct,
+        cached=outcome.cache_hit,
     )
 
-    return EstimateResponse(
-        estimation=result.estimation,
+    return StructuredEstimateResponse(
+        result=outcome.result,
         prompt_version=version,
-        model=result.model,
-        provider=result.provider,
-        temperature=result.temperature,
-        input_tokens=result.input_tokens,
-        output_tokens=result.output_tokens,
-        truncated=result.truncated,
-        cache_hit=result.cache_hit,
-        cost_usd=result.cost_usd,
-        fallback_used=result.fallback_used,
+        cached=outcome.cache_hit,
+        model=outcome.model,
+        provider=outcome.provider,
+        input_tokens=outcome.input_tokens,
+        output_tokens=outcome.output_tokens,
+        cost_usd=outcome.cost_usd,
+        fallback_used=outcome.fallback_used,
     )
 
 
@@ -159,6 +163,9 @@ def _stream_estimation_events(
     metrics = StreamMetrics(model="", provider="")
     try:
         tokens = stream_estimation(payload, metrics, version=version)
+    except InputGuardrailViolation as exc:
+        yield ServerSentEvent(event="error", data={"detail": exc.message, "reason": exc.reason})
+        return
     except (LLMConfigurationError, LLMInputError) as exc:
         yield ServerSentEvent(event="error", data={"detail": str(exc)})
         return

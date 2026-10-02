@@ -24,22 +24,41 @@ class ContextResponse:
 
 
 @dataclass(frozen=True)
-class EstimateResponse:
-    """Respuesta de `POST /api/v1/estimate`.
+class Phase:
+    """Una fase del desglose devuelto por el backend."""
 
-    `estimation` es texto libre; `prompt_version` identifica el template que lo
-    produjo. El resto son métricas opcionales de la llamada.
-    """
+    name: str
+    duration_weeks: int
+    cost_eur: int
+    summary: str
 
-    estimation: str
+
+@dataclass(frozen=True)
+class EstimationResult:
+    """Estimación estructurada y validada (contrato de la sesión 4)."""
+
+    summary: str
+    confidence_pct: int
+    phases: list[Phase]
+    total_duration_weeks: int
+    total_cost_eur: int
+
+    @property
+    def out_of_scope(self) -> bool:
+        return self.confidence_pct < 30
+
+
+@dataclass(frozen=True)
+class StructuredEstimateResponse:
+    """Respuesta de `POST /api/v1/estimate` (contrato estructurado)."""
+
+    result: EstimationResult
     prompt_version: str
+    cached: bool = False
     model: str = ""
     provider: str = ""
-    temperature: float | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
-    truncated: bool = False
-    cache_hit: bool = False
     cost_usd: float | None = None
     fallback_used: bool = False
 

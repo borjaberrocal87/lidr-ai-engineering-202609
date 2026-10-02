@@ -1,11 +1,13 @@
 """Tests del wrapper de proveedores (LiteLLM Router mockeado, sin red)."""
 
+import json
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from openai import APIConnectionError
 
+from app.schemas.estimations import EstimationResult
 from app.services.cache import InMemoryCache
 from app.services.errors import LLMProviderError
 from app.services.llm_wrapper import (
@@ -359,3 +361,180 @@ def test_custom_provider_uses_openai_prefix_and_base_url() -> None:
     params = wrapper.router.model_list[0]["litellm_params"]
     assert params["model"] == "openai/llama3.1:8b"
     assert params["api_base"] == "http://localhost:11434/v1"
+
+
+# --- Salida estructurada (sesión 4) -----------------------------------------
+
+
+def _valid_result_json() -> str:
+    return json.dumps(
+        {
+            "summary": "Una landing page con CRM, blog y formulario de contacto.",
+            "confidence_pct": 70,
+            "phases": [
+                {
+                    "name": "Discovery",
+                    "duration_weeks": 1,
+                    "cost_eur": 2000,
+                    "summary": "Alcance, entrevistas y definición funcional.",
+                }
+            ],
+            "total_duration_weeks": 1,
+            "total_cost_eur": 2000,
+        }
+    )
+
+
+def _invalid_result_json() -> str:
+    data = json.loads(_valid_result_json())
+    data["total_cost_eur"] = 9999
+    return json.dumps(data)
+
+
+def test_complete_structured_parses_valid_json(monkeypatch) -> None:
+    wrapper = _wrapper()
+    monkeypatch.setattr(
+        "app.services.llm_wrapper.litellm.completion",
+        lambda **kwargs: _fake_completion(
+            "gpt-4o-mini", content=_valid_result_json(), input_tokens=100, output_tokens=50
+        ),
+    )
+
+    result, meta = wrapper.complete_structured(
+        system_prompt="sys",
+        user_message="usr",
+        response_model=EstimationResult,
+        temperature=0.2,
+        max_tokens=200,
+    )
+
+    assert isinstance(result, EstimationResult)
+    assert result.total_cost_eur == 2000
+    assert meta["model"] == "gpt-4o-mini"
+    assert meta["provider"] == "openai"
+    assert meta["input_tokens"] == 100
+    assert meta["output_tokens"] == 50
+    assert meta["retries"] == 0
+    assert meta["fallback_used"] is False
+
+
+def test_complete_structured_retries_on_validation_error(monkeypatch) -> None:
+    wrapper = _wrapper()
+    responses = iter([_invalid_result_json(), _valid_result_json()])
+    conversations: list[list[dict]] = []
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        conversations.append(kwargs["messages"])
+        return _fake_completion("gpt-4o-mini", content=next(responses))
+
+    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+
+    result, meta = wrapper.complete_structured(
+        system_prompt="sys",
+        user_message="usr",
+        response_model=EstimationResult,
+        temperature=0.2,
+        max_tokens=200,
+        max_retries=2,
+    )
+
+    assert len(conversations) == 2
+    assert meta["retries"] == 1
+    assert result.total_cost_eur == 2000
+    # El segundo intento incluye el error de validación como feedback.
+    assert "no cumple el esquema" in conversations[1][-1]["content"]
+
+
+def test_complete_structured_raises_after_max_retries(monkeypatch) -> None:
+    wrapper = _wrapper()
+    monkeypatch.setattr(
+        "app.services.llm_wrapper.litellm.completion",
+        lambda **kwargs: _fake_completion("gpt-4o-mini", content=_invalid_result_json()),
+    )
+
+    with pytest.raises(LLMProviderError):
+        wrapper.complete_structured(
+            system_prompt="sys",
+            user_message="usr",
+            response_model=EstimationResult,
+            temperature=0.2,
+            max_tokens=200,
+            max_retries=1,
+        )
+
+
+def test_complete_structured_falls_back_to_secondary_model(monkeypatch) -> None:
+    wrapper = _wrapper(fallback_model="claude-haiku-4-5", fallback_provider="anthropic")
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        if kwargs.get("model") == "gpt-4o-mini":
+            raise RuntimeError("primary down")
+        return _fake_completion("claude-haiku-4-5", content=_valid_result_json())
+
+    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+
+    result, meta = wrapper.complete_structured(
+        system_prompt="sys",
+        user_message="usr",
+        response_model=EstimationResult,
+        temperature=0.2,
+        max_tokens=200,
+    )
+
+    assert result.total_cost_eur == 2000
+    assert meta["fallback_used"] is True
+    assert meta["provider"] == "anthropic"
+
+
+def test_complete_structured_degrades_response_format(monkeypatch) -> None:
+    wrapper = _wrapper()
+    seen_modes: list[str] = []
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        response_format = kwargs.get("response_format") or {}
+        mode = response_format.get("type", "none")
+        seen_modes.append(mode)
+        if mode == "json_schema":
+            raise RuntimeError("json_schema unsupported")
+        return _fake_completion("gpt-4o-mini", content=_valid_result_json())
+
+    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+
+    result, _ = wrapper.complete_structured(
+        system_prompt="sys",
+        user_message="usr",
+        response_model=EstimationResult,
+        temperature=0.2,
+        max_tokens=200,
+    )
+
+    assert seen_modes == ["json_schema", "json_object"]
+    assert result.total_cost_eur == 2000
+
+
+def test_complete_structured_custom_provider_uses_base_url(monkeypatch) -> None:
+    wrapper = _wrapper(
+        primary_model="llama3.1:8b",
+        primary_provider="custom",
+        custom_base_url="http://localhost:11434/v1",
+        custom_api_key="custom-key",
+    )
+    seen: dict[str, Any] = {}
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        seen.update(kwargs)
+        return _fake_completion("llama3.1:8b", content=_valid_result_json())
+
+    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+
+    _, meta = wrapper.complete_structured(
+        system_prompt="sys",
+        user_message="usr",
+        response_model=EstimationResult,
+        temperature=0.2,
+        max_tokens=200,
+    )
+
+    assert seen["model"] == "openai/llama3.1:8b"
+    assert seen["api_base"] == "http://localhost:11434/v1"
+    assert meta["provider"] == "custom"

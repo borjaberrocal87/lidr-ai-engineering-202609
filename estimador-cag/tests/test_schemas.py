@@ -6,7 +6,9 @@ from pydantic import ValidationError
 from app.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
+    EstimationResult,
     OutputFormat,
+    Phase,
     ProjectType,
 )
 
@@ -101,3 +103,65 @@ def test_reference_projects_rejects_more_than_five() -> None:
         EstimationRequest(**payload)
 
     assert any(err["loc"] == ("reference_projects",) for err in exc_info.value.errors())
+
+
+def _valid_result(**overrides) -> dict:
+    base = {
+        "summary": "Una landing page con CRM, blog y formulario de contacto.",
+        "confidence_pct": 70,
+        "phases": [
+            {
+                "name": "Discovery",
+                "duration_weeks": 1,
+                "cost_eur": 2000,
+                "summary": "Alcance, entrevistas y definición funcional.",
+            }
+        ],
+        "total_duration_weeks": 1,
+        "total_cost_eur": 2000,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_estimation_result_accepts_valid_payload() -> None:
+    result = EstimationResult(**_valid_result())
+
+    assert result.total_cost_eur == 2000
+    assert result.phases[0].name == "Discovery"
+    assert result.out_of_scope is False
+
+
+def test_estimation_result_rejects_phases_sum_mismatch() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        EstimationResult(**_valid_result(total_cost_eur=9999))
+
+    assert "no coincide" in str(exc_info.value)
+
+
+def test_estimation_result_requires_out_of_scope_prefix_on_low_confidence() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        EstimationResult(**_valid_result(confidence_pct=10))
+
+    assert "Out of scope" in str(exc_info.value)
+
+
+def test_estimation_result_accepts_low_confidence_with_prefix() -> None:
+    result = EstimationResult(
+        **_valid_result(
+            confidence_pct=10,
+            summary="Out of scope: falta información de alcance e integraciones.",
+        )
+    )
+
+    assert result.out_of_scope is True
+
+
+def test_estimation_result_rejects_empty_phases() -> None:
+    with pytest.raises(ValidationError):
+        EstimationResult(**_valid_result(phases=[], total_cost_eur=0))
+
+
+def test_phase_rejects_out_of_range_values() -> None:
+    with pytest.raises(ValidationError):
+        Phase(name="X", duration_weeks=0, cost_eur=-1, summary="corta")

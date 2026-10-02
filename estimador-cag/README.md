@@ -1,8 +1,8 @@
 # estimador-cag
 
-API FastAPI que recibe una **descripción de proyecto tipada** (descripción libre + tipo, nivel de detalle y formato de salida) y devuelve una estimación de software generada por un LLM, usando **arquitectura CAG** (Context-Augmented Generation): el contexto estático (ejemplos de estimaciones previas) se inyecta directamente en el prompt en cada llamada. Sin base de datos, sin retrieval, sin persistencia.
+API FastAPI que recibe una **descripción de proyecto tipada** (descripción libre + tipo, nivel de detalle y formato de salida) y devuelve una estimación de software **estructurada y validada** (JSON) generada por un LLM, usando **arquitectura CAG** (Context-Augmented Generation): el contexto estático (ejemplos de estimaciones previas) se inyecta directamente en el prompt en cada llamada. Sin base de datos, sin retrieval, sin persistencia.
 
-El prompt no vive en el código: se compone con **plantillas Jinja2 versionadas** (`app/prompts/`), de modo que cambiar texto, ejemplos o reglas es cambiar un `.j2`, no refactorizar el servicio.
+El prompt no vive en el código: se compone con **plantillas Jinja2 versionadas** (`app/prompts/`), de modo que cambiar texto, ejemplos o reglas es cambiar un `.j2`, no refactorizar el servicio. La salida del modelo se fuerza a un **JSON schema**, se valida con **Pydantic** (con reintento ante errores) y pasa por **guardrails** de entrada y salida.
 
 ## Alcance
 
@@ -25,15 +25,23 @@ estimador-cag/
 │   ├── prompts/                 # Prompts versionados (Jinja2)
 │   │   ├── loader.py            # render_estimation_prompt(request, version)
 │   │   └── estimation/v1/       # system.j2, user.j2, examples.j2
+│   ├── guardrails/
+│   │   ├── input.py             # Moderación + prompt-injection + PII
+│   │   └── output.py            # Filtro enforce_scope_response (baja confianza)
 │   ├── services/
-│   │   ├── llm_service.py       # Orquesta: valida, renderiza prompts y llama al wrapper
-│   │   └── llm_wrapper.py       # Wrapper LiteLLM (fallback, caché, coste, logging)
+│   │   ├── llm_service.py       # Orquesta: guardrails, prompts, caché y wrapper
+│   │   └── llm_wrapper.py       # Wrapper LiteLLM (fallback, caché, coste, logging, JSON schema)
 ├── frontend/                    # Capa de presentación (no importa `app.*`)
 │   ├── config.py                # API_BASE_URL y timeouts
 │   ├── client.py                # Cliente HTTP (httpx) contra la API
 │   ├── models.py                # Modelos locales de respuesta
 │   ├── logging_config.py        # Logging del frontend
 │   └── streamlit_app.py         # Formulario tipado (Streamlit)
+├── cliente-web/                 # Cliente de negocio Node (Express + EJS + Tailwind + Postgres)
+│   ├── src/                     # server, app, cliente HTTP, repositorio y rutas
+│   ├── views/                   # EJS (formulario, listado, detalle)
+│   ├── test/                    # node:test + supertest
+│   └── Dockerfile
 ├── tests/                       # Tests con pytest (proveedores y API mockeados)
 │   └── prompts/                 # Tests de los templates (sin LLM)
 ├── examples/
@@ -96,14 +104,24 @@ Respuesta:
 
 ```json
 {
-  "estimation": "## Estimación: ...",
+  "result": {
+    "summary": "Landing page con CRM, blog y formulario, estimada en 4 semanas.",
+    "confidence_pct": 72,
+    "phases": [
+      {"name": "Discovery", "duration_weeks": 1, "cost_eur": 2000, "summary": "Alcance y entrevistas."},
+      {"name": "Implementación", "duration_weeks": 3, "cost_eur": 6000, "summary": "Maquetación, HubSpot y blog."}
+    ],
+    "total_duration_weeks": 4,
+    "total_cost_eur": 8000
+  },
   "prompt_version": "v1",
+  "cached": false,
   "model": "gpt-4o-mini",
   "provider": "openai",
-  "temperature": 0.2,
   "input_tokens": 1234,
   "output_tokens": 567,
-  "truncated": false
+  "cost_usd": 0.000525,
+  "fallback_used": false
 }
 ```
 
@@ -115,12 +133,14 @@ Los valores válidos de los enums son:
 
 Pydantic los valida en el borde: un valor desconocido devuelve **422**. `prompt_version` indica el template que produjo la estimación.
 
-`truncated: true` significa que el modelo agotó `LLM_MAX_TOKENS` antes de terminar y la estimación puede estar incompleta. En ese caso la API responde igualmente `200` (para no perder la respuesta parcial), pero lo indica de forma explícita y deja un warning en los logs.
+`cached: true` indica que la respuesta vino de la caché sin llamar al proveedor. El resultado nunca se cachea hasta haber pasado la validación y el guardrail de salida.
 
 Errores de `POST /api/v1/estimate`:
 
+- `400` — la descripción fue rechazada por un **guardrail de entrada** (moderación, prompt-injection o PII). El detalle es `{reason, message}`.
+- `422` — la entrada no cumple el contrato (longitudes, enums) o el servicio la rechaza.
 - `503` — falta la configuración del proveedor activo (p. ej. la API key). El mensaje nombra la variable de entorno.
-- `502` — el proveedor LLM falló (red, timeout, rate limit o estado). El detalle interno se registra en el servidor y **no** viaja al cliente.
+- `502` — el proveedor LLM falló (red, timeout, rate limit, estado) o no consiguió un JSON válido tras los reintentos. El detalle interno se registra en el servidor y **no** viaja al cliente.
 - `500` — error inesperado en el código.
 
 Estado del servicio:
@@ -131,9 +151,30 @@ curl http://localhost:8000/health
 
 `/health` responde siempre `200` (no depende del LLM) e incluye `llm_configured` para saber si el proveedor activo tiene credenciales.
 
+### Salida estructurada y validación
+
+Desde la sesión 4 el contrato de `/estimate` es **JSON estructurado**, no texto libre. `LLMWrapper.complete_structured` pide al proveedor un `response_format` JSON schema (con degradación a JSON mode y a prompt libre si el endpoint no lo soporta) y valida la respuesta con `EstimationResult`. Si un validador de negocio falla, se re-promptea al modelo con el error hasta `STRUCTURED_MAX_RETRIES` veces:
+
+- la suma de `cost_eur` de las fases debe ser exactamente `total_cost_eur`;
+- si `confidence_pct < 30`, el `summary` debe empezar por `Out of scope:`.
+
+El orden de campos del esquema es deliberado: `phases` va antes que los totales para que el modelo se comprometa con las cifras por fase y luego las sume.
+
+> **Nota de dependencias:** usamos el `response_format` nativo de LiteLLM en lugar de `instructor`. La última versión de `instructor` exige `jiter<0.15`, incompatible con nuestro `openai>=3.13`, que requiere `jiter>=0.16`. El enfoque nativo evita ese conflicto y, además, encaja mejor con el proveedor `custom` OpenAI-compatible (degradación JSON schema → JSON mode → prompt libre).
+
+### Guardrails
+
+Antes de llamar al LLM (y antes de tocar la caché) se ejecutan tres capas de **entrada**:
+
+1. **Moderación** vía API de OpenAI (solo si `OPEN_AI_KEY` está configurada y `GUARDRAIL_MODERATION_ENABLED=true`; un fallo de red es *fail-open*).
+2. **Prompt-injection**: heurísticas regex (inglés y español).
+3. **PII**: heurísticas regex de email, IBAN y teléfono.
+
+Cualquier violación devuelve **400** con `{reason, message}` y nunca llega al modelo. A la **salida**, `enforce_scope_response` es un *filtro* que reescribe el resultado de baja confianza sin prefijo en lugar de fallar. Todo se desactiva con `GUARDRAILS_ENABLED=false`.
+
 ### Estimación en streaming (SSE)
 
-Además del endpoint bloqueante, `POST /api/v1/estimate/stream` expone la generación token a token como **Server-Sent Events**. El formulario del frontend usa el endpoint no-streaming, pero cualquier cliente HTTP puede consumir el stream con el mismo body tipado:
+Además del endpoint bloqueante, `POST /api/v1/estimate/stream` mantiene la generación **en texto libre** token a token como **Server-Sent Events** (compatibilidad; el contrato principal desde la sesión 4 es el JSON estructurado). Comparte los guardrails de entrada y usa el mismo body tipado:
 
 ```bash
 curl -N -X POST http://localhost:8000/api/v1/estimate/stream \
@@ -194,6 +235,19 @@ Se abre en http://localhost:8501. El frontend apunta al backend por `API_BASE_UR
 
 Las claves LLM ya no las lee la UI: viven solo en el backend. Si el proveedor no está configurado, la UI lo avisa (`llm_configured`).
 
+## Cliente de negocio (Node)
+
+`cliente-web/` es un cliente de negocio en **Node/Express + EJS + Tailwind** que consume la misma API por HTTP, ofrece formulario, histórico y detalle, y **persiste** cada estimación en **Postgres**. Comparte el look & feel de LIDR (tema oscuro, Helvetica, amarillo `#F6DE82`). Nunca habla con el proveedor LLM: las claves viven solo en la API Python.
+
+```bash
+cd cliente-web
+npm install
+cp .env.example .env
+npm start          # http://localhost:3000
+```
+
+Los tests del cliente (`npm test`) usan `node:test` + `supertest` con repositorio en memoria y estimador falso, sin red ni base de datos. Detalles en `cliente-web/README.md`.
+
 ## Logging
 
 Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (integrado con `logging`) en la **API**, que es quien habla con el proveedor. El frontend solo registra su propia actividad con `logging` estándar. Cada llamada al LLM emite:
@@ -243,6 +297,18 @@ Con Redis (`CACHE_BACKEND=redis`) puedes inspeccionar las claves:
 ```bash
 docker compose exec redis redis-cli KEYS 'estimation:*'
 ```
+
+### Caché semántica (opcional)
+
+Además de la caché exact-match, la sesión 4 añade una **caché semántica** sobre `redisvl` + Redis Stack (RediSearch). Dos peticiones comparten entrada si su **bucket** (`prompt_version:project_type:detail_level:output_format`) coincide y la **similitud coseno** de sus descripciones supera `SEMANTIC_CACHE_THRESHOLD` (por defecto `0.85`).
+
+- Requiere `redis/redis-stack` (la imagen `redis:7-alpine` no trae RediSearch). En Docker Compose el servicio `redis` ya usa `redis/redis-stack:7.4.0-v0` y expone RedisInsight en `:8001`.
+- Los embeddings se piden a OpenAI (`EMBEDDING_MODEL`, por defecto `text-embedding-3-small`) o a un endpoint compatible (`EMBEDDING_BASE_URL` + `EMBEDDING_API_KEY`).
+- La **dimensión** del índice vectorial se deduce del propio modelo (no se configura): `qwen3-embedding` = 4096, `text-embedding-3-small` = 1536. El índice se nombra `estimations_<modelo>_<dims>`, así que cambiar de modelo usa un índice nuevo; el anterior se puede borrar con `redis-cli FT.DROPINDEX <nombre> DD`.
+- `SEMANTIC_CACHE_LOG_ONLY=true` registra los aciertos potenciales sin servirlos, para calibrar el umbral.
+- La capa se **desactiva sola** (con warning) si no hay embeddings o si RediSearch no está disponible; la generación continúa.
+
+El orden del pipeline es: guardrails de entrada → caché exacta → caché semántica → LLM → guardrail de salida → escritura en ambas cachés. Los guardrails van antes que cualquier caché para no servir una entrada maliciosa o con PII.
 
 ## Prompts versionados
 
@@ -312,13 +378,16 @@ uv run pytest
 Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 
 - el endpoint `/api/v1/estimate` y los schemas de entrada/salida (enums tipados, validación de longitud y que una entrada inválida **no** llega a invocar al LLM) (`tests/test_estimations.py`, `tests/test_schemas.py`);
+- el contrato estructurado: validadores de negocio (`phases` suma `total_cost_eur`, prefijo `Out of scope:` con baja confianza), el wrapper nativo de JSON schema (degradación de formato, reintento de validación, fallback y proveedor `custom`) y los guardrails de entrada/salida (`tests/test_llm_wrapper.py`, `tests/test_llm_service.py`, `tests/test_guardrails_input.py`, `tests/test_guardrails_output.py`);
 - el endpoint SSE `/api/v1/estimate/stream` (eventos `token`/`done`/`error` con `prompt_version`) y `GET /api/v1/context`;
 - los templates de prompt sin tocar el LLM: la descripción dentro de `<project_description>`, los condicionales de `output_format` y `detail_level`, la inclusión de ejemplos, los proyectos de referencia, `StrictUndefined` y el versionado v1/v2 (`tests/prompts/test_estimation_v1.py`, `tests/prompts/test_estimation_versions.py`);
 - el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas, `estimate()` y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
 - la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
-- la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
+- la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`), la caché semántica (bucket, umbral, `log_only` y degradación) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
 - el logging estructurado (eventos, coste, cache_hit y que las claves no se filtran) y la propagación de `X-Request-ID`;
 - la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`).
+
+El cliente de negocio tiene su propia batería (Node): `cd cliente-web && npm test` (rutas de Express y cliente HTTP con estimador falso).
 
 ## Calidad y CI
 
@@ -360,7 +429,8 @@ docker compose down
 
 - Swagger: http://localhost:8000/docs
 - Interfaz Streamlit: http://localhost:8501 (servicio `ui`, misma imagen que la API; habla con el servicio `api` por la red interna vía `API_BASE_URL=http://api:8000`)
-- Redis: servicio `redis` (caché persistente de respuestas; la API lo usa por la red interna con `CACHE_BACKEND=redis`)
+- Redis: servicio `redis` con `redis/redis-stack:7.4.0-v0` (caché exact-match persistente y caché semántica vía RediSearch; la API lo usa por la red interna con `CACHE_BACKEND=redis`)
+- Cliente de negocio: servicio `cliente-web` en http://localhost:3000 (Node/Express; habla con `api` y persiste en `postgres`). Puertos configurables con `WEB_PORT` y `POSTGRES_PORT`.
 - Puerto personalizado: `API_PORT=8123 docker compose up --build -d` (y `UI_PORT=8502` para Streamlit)
 - Arrancar solo la interfaz: `docker compose up --build ui`
 - Tests dentro de Docker:
@@ -386,9 +456,19 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `LLM_TIMEOUT_SECONDS`     | Timeout de la llamada al proveedor (segundos)     | `30`          |
 | `LLM_MAX_RETRIES`         | Reintentos del cliente del SDK                    | `2`           |
 | `LLM_MAX_TOKENS`          | Máximo de tokens de salida                        | `2048`        |
+| `STRUCTURED_MAX_RETRIES`  | Reintentos de validación del JSON estructurado    | `2`           |
+| `GUARDRAILS_ENABLED`      | Activa los guardrails de entrada/salida           | `true`        |
+| `GUARDRAIL_MODERATION_ENABLED` | Moderación vía API de OpenAI (requiere `OPEN_AI_KEY`) | `true`  |
 | `CACHE_BACKEND`           | Caché de respuestas: `memory`, `redis` o `none`   | `memory`      |
 | `CACHE_TTL`               | TTL de las entradas de caché (segundos)           | `86400`       |
 | `REDIS_URL`               | URL de Redis (cuando `CACHE_BACKEND=redis`)       | `redis://localhost:6379` |
+| `SEMANTIC_CACHE_ENABLED`  | Activa la caché semántica (requiere Redis Stack + embeddings) | `true` |
+| `SEMANTIC_CACHE_THRESHOLD` | Similitud coseno mínima para un acierto semántico | `0.85`     |
+| `SEMANTIC_CACHE_TTL`      | TTL de las entradas semánticas (segundos)         | `86400`       |
+| `SEMANTIC_CACHE_LOG_ONLY` | Registra aciertos semánticos sin servirlos        | `false`       |
+| `EMBEDDING_MODEL`         | Modelo de embeddings                              | `text-embedding-3-small` |
+| `EMBEDDING_BASE_URL`      | Endpoint OpenAI-compatible para embeddings (vacío = OpenAI) | —   |
+| `EMBEDDING_API_KEY`       | API key del endpoint de embeddings                | —             |
 | `DESCRIPTION_MIN_LENGTH`  | Longitud mínima de la descripción (caracteres)    | `20`          |
 | `DESCRIPTION_MAX_LENGTH`  | Longitud máxima de la descripción (caracteres)    | `50000`       |
 | `OPEN_AI_KEY`             | API key de OpenAI                                 | —             |
