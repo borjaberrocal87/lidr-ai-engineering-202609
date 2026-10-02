@@ -11,7 +11,7 @@ libre (JSON estructurado, guardrails y caché semántico llegan más adelante).
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.config import settings
 
@@ -79,6 +79,83 @@ class EstimationRequest(BaseModel):
         max_length=5,
         description="Proyectos similares para calibrar la estimación (opcional, máx. 5).",
     )
+
+
+# --- Salida estructurada (sesión 4) -----------------------------------------
+
+OUT_OF_SCOPE_PREFIX = "Out of scope:"
+LOW_CONFIDENCE_THRESHOLD = 30
+
+
+class Phase(BaseModel):
+    """Una fase del desglose de la estimación."""
+
+    name: str = Field(..., min_length=1, max_length=64, description="Nombre corto de la fase.")
+    duration_weeks: int = Field(..., ge=1, le=52, description="Duración de la fase en semanas.")
+    cost_eur: int = Field(..., ge=0, le=1_000_000, description="Coste de la fase en EUR.")
+    summary: str = Field(
+        ..., min_length=10, max_length=600, description="Qué ocurre en la fase, en una frase."
+    )
+
+
+class EstimationResult(BaseModel):
+    """Estimación estructurada y validada por reglas de negocio.
+
+    Los dos validadores son las reglas que el LLM no puede romper: cuando uno
+    falla, el wrapper re-promptea al modelo con el mensaje de error.
+
+    El orden de campos es deliberado: ``phases`` va **antes** que los totales
+    para que el modelo se comprometa primero con las cifras por fase (generación
+    autorregresiva) y solo después las sume. Al revés, tiende a elegir un total
+    redondo y a ajustar las fases a la fuerza, lo que hace mal.
+    """
+
+    summary: str = Field(..., min_length=10, max_length=1200, description="Resumen ejecutivo.")
+    confidence_pct: int = Field(..., ge=0, le=100, description="Confianza de la estimación (%).")
+    phases: list[Phase] = Field(..., min_length=1, max_length=8, description="Desglose por fases.")
+    total_duration_weeks: int = Field(..., ge=1, le=104, description="Duración total en semanas.")
+    total_cost_eur: int = Field(..., ge=0, le=2_000_000, description="Coste total en EUR.")
+
+    @model_validator(mode="after")
+    def phases_sum_matches_total(self) -> "EstimationResult":
+        phase_sum = sum(phase.cost_eur for phase in self.phases)
+        if phase_sum != self.total_cost_eur:
+            raise ValueError(
+                f"la suma de las fases ({phase_sum} EUR) no coincide con total_cost_eur "
+                f"({self.total_cost_eur} EUR); ajusta las fases o el total"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def low_confidence_requires_out_of_scope_prefix(self) -> "EstimationResult":
+        if self.confidence_pct < LOW_CONFIDENCE_THRESHOLD and not self.summary.startswith(
+            OUT_OF_SCOPE_PREFIX
+        ):
+            raise ValueError(
+                f"confidence_pct < {LOW_CONFIDENCE_THRESHOLD} exige que el summary empiece "
+                f"por {OUT_OF_SCOPE_PREFIX!r}; rechaza la estimación si la descripción es "
+                f"demasiado vaga para dimensionarla"
+            )
+        return self
+
+    @property
+    def out_of_scope(self) -> bool:
+        """True si el modelo declaró baja confianza (fuera de alcance)."""
+        return self.confidence_pct < LOW_CONFIDENCE_THRESHOLD
+
+
+class StructuredEstimateResponse(BaseModel):
+    """Respuesta de `POST /api/v1/estimate` a partir de la sesión 4."""
+
+    result: EstimationResult = Field(..., description="Estimación estructurada y validada.")
+    prompt_version: str = Field(..., description="Versión del template de prompt usada.")
+    cached: bool = Field(False, description="True si vino de la caché (exacta o semántica).")
+    model: str = Field("", description="Modelo LLM utilizado.")
+    provider: str = Field("", description="Proveedor LLM utilizado.")
+    input_tokens: int | None = Field(None, description="Tokens de entrada consumidos.")
+    output_tokens: int | None = Field(None, description="Tokens de salida generados.")
+    cost_usd: float | None = Field(None, description="Coste estimado de la llamada (USD).")
+    fallback_used: bool = Field(False, description="True si se usó el modelo de fallback.")
 
 
 class EstimateResponse(BaseModel):
