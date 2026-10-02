@@ -1,0 +1,56 @@
+<%- include('partials/head', { title: 'Estimaciones' }) %>
+<%- include('partials/header') %>
+
+<div class="max-w-4xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-8">
+    <h1 class="text-3xl font-bold tracking-tighter text-white">Estimaciones</h1>
+    <a href="/" class="btn-primary">Nueva estimación</a>
+  </div>
+
+  <% if (estimations.length === 0) { %>
+    <div class="p-6 rounded-md bg-ink/30 border border-white/10 text-white/70">
+      Aún no hay estimaciones. Crea la primera con
+      <a href="/" class="text-brand font-bold hover:text-brand-soft">Nueva estimación</a>.
+    </div>
+  <% } else { %>
+    <div class="rounded-md border border-white/10 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink/40 text-white/70">
+          <tr>
+            <th class="text-left p-3 font-bold tracking-tight">Fecha</th>
+            <th class="text-left p-3 font-bold tracking-tight">Tipo</th>
+            <th class="text-left p-3 font-bold tracking-tight">Descripción</th>
+            <th class="text-left p-3 font-bold tracking-tight">Prompt</th>
+            <th class="text-right p-3 font-bold tracking-tight"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-white/10">
+          <% estimations.forEach(function (estimation) { %>
+            <tr>
+              <td class="p-3 align-top text-white/70 tabular-nums whitespace-nowrap">
+                <%= formatDate(estimation.createdAt) %>
+              </td>
+              <td class="p-3 align-top text-white/90 whitespace-nowrap">
+                <%= humanize(estimation.projectType) %>
+              </td>
+              <td class="p-3 align-top text-white/90"><%= estimation.descriptionPreview %></td>
+              <td class="p-3 align-top whitespace-nowrap">
+                <span class="badge"><%= estimation.promptVersion %></span>
+                <% if (estimation.cached) { %>
+                  <span class="badge-success ml-1">cached</span>
+                <% } %>
+              </td>
+              <td class="p-3 align-top text-right whitespace-nowrap">
+                <a href="/estimations/<%= estimation.id %>" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+                  Ver →
+                </a>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,79 @@
+<%- include('partials/head', { title: 'Estimation' }) %>
+<%- include('partials/header') %>
+
+<% const result = estimation.result; const outOfScope = result.confidence_pct < 30; %>
+<div class="max-w-3xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-6">
+    <h1 class="text-3xl font-bold tracking-tighter text-white">Estimation</h1>
+    <div class="flex items-center gap-2">
+      <span class="badge">prompt <%= estimation.promptVersion %></span>
+      <% if (estimation.cached) { %><span class="badge-success">cached</span><% } %>
+    </div>
+  </div>
+
+  <% if (outOfScope) { %>
+    <div class="p-5 rounded-md bg-brand/15 border border-brand text-white mb-8">
+      <p class="font-bold text-brand mb-2">Out of scope</p>
+      <p class="text-sm text-white/90"><%= result.summary %></p>
+    </div>
+  <% } else { %>
+    <p class="text-white/90 leading-relaxed mb-8"><%= result.summary %></p>
+
+    <div class="grid grid-cols-3 gap-4 mb-8">
+      <div class="card">
+        <div class="text-xs uppercase tracking-tight text-white/50 font-bold">Duración</div>
+        <div class="text-2xl font-bold tracking-tighter text-white mt-1">
+          <%= result.total_duration_weeks %> sem
+        </div>
+      </div>
+      <div class="card">
+        <div class="text-xs uppercase tracking-tight text-white/50 font-bold">Coste</div>
+        <div class="text-2xl font-bold tracking-tighter text-white mt-1">
+          <%= result.total_cost_eur.toLocaleString("es-ES") %> €
+        </div>
+      </div>
+      <div class="card">
+        <div class="text-xs uppercase tracking-tight text-white/50 font-bold">Confianza</div>
+        <div class="text-2xl font-bold tracking-tighter text-white mt-1">
+          <%= result.confidence_pct %>%
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-md border border-white/10 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink/40 text-white/70">
+          <tr>
+            <th class="text-left p-3 font-bold tracking-tight">Fase</th>
+            <th class="text-right p-3 font-bold tracking-tight">Semanas</th>
+            <th class="text-right p-3 font-bold tracking-tight">Coste</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-white/10">
+          <% result.phases.forEach(function (phase) { %>
+            <tr>
+              <td class="p-3 align-top">
+                <div class="font-bold text-white"><%= phase.name %></div>
+                <div class="text-white/60 text-xs mt-0.5"><%= phase.summary %></div>
+              </td>
+              <td class="p-3 text-right align-top text-white/90 tabular-nums">
+                <%= phase.duration_weeks %>
+              </td>
+              <td class="p-3 text-right align-top text-white/90 tabular-nums">
+                <%= phase.cost_eur.toLocaleString("es-ES") %> €
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+
+  <div class="mt-10 pt-6 border-t border-white/10">
+    <a href="/" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+      ← Nueva estimación
+    </a>
+  </div>
+</div>
+
+<%- include('partials/footer') %>
