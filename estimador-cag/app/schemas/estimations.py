@@ -14,6 +14,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field, model_validator
 
 from app.config import settings
+from app.sessions.models import ProjectMetadata
 
 
 class ProjectType(StrEnum):
@@ -150,6 +151,27 @@ class StructuredEstimateResponse(BaseModel):
     result: EstimationResult = Field(..., description="Estimación estructurada y validada.")
     prompt_version: str = Field(..., description="Versión del template de prompt usada.")
     cached: bool = Field(False, description="True si vino de la caché (exacta o semántica).")
+    model: str = Field("", description="Modelo LLM utilizado.")
+    provider: str = Field("", description="Proveedor LLM utilizado.")
+    input_tokens: int | None = Field(None, description="Tokens de entrada consumidos.")
+    output_tokens: int | None = Field(None, description="Tokens de salida generados.")
+    cost_usd: float | None = Field(None, description="Coste estimado de la llamada (USD).")
+    fallback_used: bool = Field(False, description="True si se usó el modelo de fallback.")
+
+
+class SessionEstimateResponse(BaseModel):
+    """Respuesta de `POST /api/v1/sessions/{session_id}/estimate` (sesión 5).
+
+    Añade al resultado estructurado la metadata de la sesión (ya actualizada
+    con este turno) y el tamaño del historial, para que el cliente pueda pintar
+    el panel de memoria sin una segunda llamada.
+    """
+
+    session_id: str = Field(..., description="Sesión a la que pertenece el turno.")
+    result: EstimationResult = Field(..., description="Estimación estructurada y validada.")
+    prompt_version: str = Field(..., description="Versión del template de prompt usada.")
+    metadata: ProjectMetadata = Field(..., description="Hechos del proyecto tras el turno.")
+    history_messages: int = Field(..., description="Mensajes en el historial efectivo.")
     model: str = Field("", description="Modelo LLM utilizado.")
     provider: str = Field("", description="Proveedor LLM utilizado.")
     input_tokens: int | None = Field(None, description="Tokens de entrada consumidos.")
