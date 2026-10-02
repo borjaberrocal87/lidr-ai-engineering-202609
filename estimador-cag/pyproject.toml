@@ -59,4 +59,9 @@ strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 
+[[tool.mypy.overrides]]
+# redisvl no publica stubs (sin `py.typed`); tratamos sus símbolos como Any.
+module = ["redisvl", "redisvl.*"]
+ignore_missing_imports = true
+
 
