@@ -20,8 +20,8 @@ from app.services.errors import (
     LLMProviderError,
 )
 from app.services.llm_service import (
-    EstimationResult,
     StreamMetrics,
+    TextEstimationResult,
     generate_estimation,
     stream_estimation,
 )
@@ -129,7 +129,7 @@ def test_generate_estimation_maps_wrapper_result(monkeypatch) -> None:
 
     result = generate_estimation(_request())
 
-    assert result == EstimationResult(
+    assert result == TextEstimationResult(
         estimation="## Estimación OpenAI",
         model="gpt-4o-mini",
         provider="openai",

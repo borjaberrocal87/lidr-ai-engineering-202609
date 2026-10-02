@@ -7,11 +7,11 @@ from app.config import settings
 from app.routers import estimations
 from app.schemas.estimations import EstimationRequest
 from app.services.llm_service import (
-    EstimationResult,
     LLMConfigurationError,
     LLMInputError,
     LLMProviderError,
     StreamMetrics,
+    TextEstimationResult,
 )
 
 
@@ -23,10 +23,10 @@ def test_estimate_success(
 ) -> None:
     def fake_generate_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> TextEstimationResult:
         assert request.description == description
         assert request.output_format.value == "phases_table"
-        return EstimationResult(
+        return TextEstimationResult(
             estimation="## Estimación: Landing Page\n\n**Total: 150 horas**",
             model="gpt-4o-mini",
             provider="openai",
@@ -62,8 +62,8 @@ def test_estimate_expone_truncado(
 ) -> None:
     def fake_generate_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
-        return EstimationResult(
+    ) -> TextEstimationResult:
+        return TextEstimationResult(
             estimation="## Estimación incompleta",
             model="gpt-4o-mini",
             provider="openai",
@@ -83,7 +83,7 @@ def test_estimate_missing_api_key_returns_503(
 ) -> None:
     def fake_generate_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> TextEstimationResult:
         raise LLMConfigurationError("OPEN_AI_KEY no está configurada.")
 
     monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
@@ -101,7 +101,7 @@ def test_estimate_provider_error_returns_502_sin_filtrar_detalle(
 
     def fake_generate_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> TextEstimationResult:
         raise LLMProviderError(detalle_interno)
 
     monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
@@ -117,7 +117,7 @@ def test_estimate_input_error_del_servicio_returns_422(
 ) -> None:
     def fake_generate_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> TextEstimationResult:
         raise LLMInputError("La descripción no cumple las restricciones.")
 
     monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
@@ -134,7 +134,7 @@ def test_estimate_unexpected_error_returns_500(
 
     def fake_generate_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> TextEstimationResult:
         raise RuntimeError("bug inesperado")
 
     monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
@@ -146,7 +146,9 @@ def test_estimate_unexpected_error_returns_500(
 
 
 def test_estimate_rejects_short_description(client: TestClient, monkeypatch) -> None:
-    def no_deberia_llamarse(request: EstimationRequest, version: str = "v1") -> EstimationResult:
+    def no_deberia_llamarse(
+        request: EstimationRequest, version: str = "v1"
+    ) -> TextEstimationResult:
         raise AssertionError("El LLM no debe invocarse con entrada inválida")
 
     monkeypatch.setattr(estimations, "generate_estimation", no_deberia_llamarse)
@@ -165,7 +167,9 @@ def test_estimate_rejects_short_description(client: TestClient, monkeypatch) -> 
 def test_estimate_rejects_oversized_description(
     client: TestClient, estimation_payload: dict[str, str], monkeypatch
 ) -> None:
-    def no_deberia_llamarse(request: EstimationRequest, version: str = "v1") -> EstimationResult:
+    def no_deberia_llamarse(
+        request: EstimationRequest, version: str = "v1"
+    ) -> TextEstimationResult:
         raise AssertionError("El LLM no debe invocarse con entrada inválida")
 
     monkeypatch.setattr(estimations, "generate_estimation", no_deberia_llamarse)
@@ -350,9 +354,9 @@ def test_estimate_accepts_reference_projects(
 
     def fake_generate_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> TextEstimationResult:
         seen["refs"] = request.reference_projects
-        return EstimationResult(estimation="## x", model="gpt-4o-mini", provider="openai")
+        return TextEstimationResult(estimation="## x", model="gpt-4o-mini", provider="openai")
 
     monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
 
@@ -390,9 +394,9 @@ def test_estimate_accepts_prompt_version_query_param(
 
     def fake_generate_estimation(
         request: EstimationRequest, version: str = "v1"
-    ) -> EstimationResult:
+    ) -> TextEstimationResult:
         seen["version"] = version
-        return EstimationResult(estimation="## v2", model="gpt-4o-mini", provider="openai")
+        return TextEstimationResult(estimation="## v2", model="gpt-4o-mini", provider="openai")
 
     monkeypatch.setattr(estimations, "generate_estimation", fake_generate_estimation)
 
@@ -406,7 +410,9 @@ def test_estimate_accepts_prompt_version_query_param(
 def test_estimate_unknown_prompt_version_returns_404(
     client: TestClient, estimation_payload: dict[str, str], monkeypatch
 ) -> None:
-    def no_deberia_llamarse(request: EstimationRequest, version: str = "v1") -> EstimationResult:
+    def no_deberia_llamarse(
+        request: EstimationRequest, version: str = "v1"
+    ) -> TextEstimationResult:
         raise AssertionError("El LLM no debe invocarse con una versión desconocida")
 
     monkeypatch.setattr(estimations, "generate_estimation", no_deberia_llamarse)

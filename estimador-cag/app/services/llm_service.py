@@ -17,13 +17,14 @@ from dataclasses import dataclass
 import structlog
 
 from app.config import DEFAULT_TEMPERATURE, reveal_secret, settings
-from app.dependencies import get_llm_wrapper
+from app.dependencies import get_cache, get_llm_wrapper
 from app.prompts.loader import (
     DEFAULT_ESTIMATION_PROMPT_VERSION,
     prompt_fingerprint,
     render_estimation_prompt,
 )
-from app.schemas.estimations import EstimationRequest
+from app.schemas.estimations import EstimationRequest, EstimationResult
+from app.services.cache import make_cache_key
 from app.services.errors import (
     LLMConfigurationError as LLMConfigurationError,
 )
@@ -39,7 +40,9 @@ logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
 @dataclass
-class EstimationResult:
+class TextEstimationResult:
+    """Resultado de texto libre (legado de la sesión 3, se mantiene para `/stream`)."""
+
     estimation: str
     model: str
     provider: str
@@ -50,6 +53,20 @@ class EstimationResult:
     cache_hit: bool = False
     cost_usd: float | None = None
     fallback_used: bool = False
+
+
+@dataclass
+class StructuredEstimation:
+    """Resultado estructurado y validado (sesión 4)."""
+
+    result: EstimationResult
+    model: str
+    provider: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
+    fallback_used: bool = False
+    cache_hit: bool = False
 
 
 def _check_description(description: str) -> None:
@@ -145,8 +162,8 @@ def _cache_key_material(request: EstimationRequest, version: str) -> str:
 def generate_estimation(
     request: EstimationRequest,
     version: str = DEFAULT_ESTIMATION_PROMPT_VERSION,
-) -> EstimationResult:
-    """Genera una estimación a partir de un request tipado usando el proveedor configurado."""
+) -> TextEstimationResult:
+    """Genera una estimación de **texto libre** (legado) usando el proveedor configurado."""
     _check_description(request.description)
     _require_configuration()
     _warn_if_temperature_ignored()
@@ -166,7 +183,7 @@ def generate_estimation(
             f"El proveedor LLM '{result['provider']}' devolvió una respuesta vacía."
         )
 
-    return EstimationResult(
+    return TextEstimationResult(
         estimation=text,
         model=result["model"],
         provider=result["provider"],
@@ -177,6 +194,83 @@ def generate_estimation(
         cache_hit=bool(result.get("cache_hit", False)),
         cost_usd=result.get("cost_usd"),
         fallback_used=bool(result.get("fallback_used", False)),
+    )
+
+
+def generate_structured_estimation(
+    request: EstimationRequest,
+    version: str = DEFAULT_ESTIMATION_PROMPT_VERSION,
+) -> StructuredEstimation:
+    """Genera una estimación **estructurada** validada, con caché exact-match.
+
+    La clave de caché la construye el dominio (request + versión + huella del
+    prompt) y la capa de caché añade los knobs de generación. Solo se cachea el
+    resultado ya validado por Pydantic.
+    """
+    _check_description(request.description)
+    _require_configuration()
+    _warn_if_temperature_ignored()
+
+    system_prompt, user_message = render_estimation_prompt(request, version=version)
+    cache_key = make_cache_key(
+        cache_key=_cache_key_material(request, version),
+        model=settings.llm_model,
+        max_tokens=settings.llm_max_tokens,
+        temperature=settings.temperature,
+    )
+
+    cache = get_cache()
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return StructuredEstimation(
+            result=EstimationResult.model_validate(cached["result"]),
+            model=str(cached.get("model", "")),
+            provider=str(cached.get("provider", "")),
+            input_tokens=cached.get("input_tokens"),
+            output_tokens=cached.get("output_tokens"),
+            cost_usd=cached.get("cost_usd"),
+            fallback_used=bool(cached.get("fallback_used", False)),
+            cache_hit=True,
+        )
+
+    result, meta = get_llm_wrapper().complete_structured(
+        system_prompt=system_prompt,
+        user_message=user_message,
+        response_model=EstimationResult,
+        temperature=settings.temperature,
+        max_tokens=settings.llm_max_tokens,
+        max_retries=settings.structured_max_retries,
+    )
+
+    meta_model = str(meta.get("model", ""))
+    meta_provider = str(meta.get("provider", ""))
+    meta_input: int | None = meta.get("input_tokens")
+    meta_output: int | None = meta.get("output_tokens")
+    meta_cost: float | None = meta.get("cost_usd")
+    meta_fallback = bool(meta.get("fallback_used", False))
+
+    cache.set(
+        cache_key,
+        {
+            "result": result.model_dump(mode="json"),
+            "model": meta_model,
+            "provider": meta_provider,
+            "input_tokens": meta_input,
+            "output_tokens": meta_output,
+            "cost_usd": meta_cost,
+            "fallback_used": meta_fallback,
+        },
+    )
+
+    return StructuredEstimation(
+        result=result,
+        model=meta_model,
+        provider=meta_provider,
+        input_tokens=meta_input,
+        output_tokens=meta_output,
+        cost_usd=meta_cost,
+        fallback_used=meta_fallback,
+        cache_hit=False,
     )
 
 
