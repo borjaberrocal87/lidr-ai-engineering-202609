@@ -1,8 +1,8 @@
 # estimador-cag
 
-API FastAPI que recibe una **descripción de proyecto tipada** (descripción libre + tipo, nivel de detalle y formato de salida) y devuelve una estimación de software generada por un LLM, usando **arquitectura CAG** (Context-Augmented Generation): el contexto estático (ejemplos de estimaciones previas) se inyecta directamente en el prompt en cada llamada. Sin base de datos, sin retrieval, sin persistencia.
+API FastAPI que recibe una **descripción de proyecto tipada** (descripción libre + tipo, nivel de detalle y formato de salida) y devuelve una estimación de software **estructurada y validada** (JSON) generada por un LLM, usando **arquitectura CAG** (Context-Augmented Generation): el contexto estático (ejemplos de estimaciones previas) se inyecta directamente en el prompt en cada llamada. Sin base de datos, sin retrieval, sin persistencia.
 
-El prompt no vive en el código: se compone con **plantillas Jinja2 versionadas** (`app/prompts/`), de modo que cambiar texto, ejemplos o reglas es cambiar un `.j2`, no refactorizar el servicio.
+El prompt no vive en el código: se compone con **plantillas Jinja2 versionadas** (`app/prompts/`), de modo que cambiar texto, ejemplos o reglas es cambiar un `.j2`, no refactorizar el servicio. La salida del modelo se fuerza a un **JSON schema**, se valida con **Pydantic** (con reintento ante errores) y pasa por **guardrails** de entrada y salida.
 
 ## Alcance
 
@@ -25,9 +25,12 @@ estimador-cag/
 │   ├── prompts/                 # Prompts versionados (Jinja2)
 │   │   ├── loader.py            # render_estimation_prompt(request, version)
 │   │   └── estimation/v1/       # system.j2, user.j2, examples.j2
+│   ├── guardrails/
+│   │   ├── input.py             # Moderación + prompt-injection + PII
+│   │   └── output.py            # Filtro enforce_scope_response (baja confianza)
 │   ├── services/
-│   │   ├── llm_service.py       # Orquesta: valida, renderiza prompts y llama al wrapper
-│   │   └── llm_wrapper.py       # Wrapper LiteLLM (fallback, caché, coste, logging)
+│   │   ├── llm_service.py       # Orquesta: guardrails, prompts, caché y wrapper
+│   │   └── llm_wrapper.py       # Wrapper LiteLLM (fallback, caché, coste, logging, JSON schema)
 ├── frontend/                    # Capa de presentación (no importa `app.*`)
 │   ├── config.py                # API_BASE_URL y timeouts
 │   ├── client.py                # Cliente HTTP (httpx) contra la API
@@ -96,14 +99,24 @@ Respuesta:
 
 ```json
 {
-  "estimation": "## Estimación: ...",
+  "result": {
+    "summary": "Landing page con CRM, blog y formulario, estimada en 4 semanas.",
+    "confidence_pct": 72,
+    "phases": [
+      {"name": "Discovery", "duration_weeks": 1, "cost_eur": 2000, "summary": "Alcance y entrevistas."},
+      {"name": "Implementación", "duration_weeks": 3, "cost_eur": 6000, "summary": "Maquetación, HubSpot y blog."}
+    ],
+    "total_duration_weeks": 4,
+    "total_cost_eur": 8000
+  },
   "prompt_version": "v1",
+  "cached": false,
   "model": "gpt-4o-mini",
   "provider": "openai",
-  "temperature": 0.2,
   "input_tokens": 1234,
   "output_tokens": 567,
-  "truncated": false
+  "cost_usd": 0.000525,
+  "fallback_used": false
 }
 ```
 
@@ -115,12 +128,14 @@ Los valores válidos de los enums son:
 
 Pydantic los valida en el borde: un valor desconocido devuelve **422**. `prompt_version` indica el template que produjo la estimación.
 
-`truncated: true` significa que el modelo agotó `LLM_MAX_TOKENS` antes de terminar y la estimación puede estar incompleta. En ese caso la API responde igualmente `200` (para no perder la respuesta parcial), pero lo indica de forma explícita y deja un warning en los logs.
+`cached: true` indica que la respuesta vino de la caché sin llamar al proveedor. El resultado nunca se cachea hasta haber pasado la validación y el guardrail de salida.
 
 Errores de `POST /api/v1/estimate`:
 
+- `400` — la descripción fue rechazada por un **guardrail de entrada** (moderación, prompt-injection o PII). El detalle es `{reason, message}`.
+- `422` — la entrada no cumple el contrato (longitudes, enums) o el servicio la rechaza.
 - `503` — falta la configuración del proveedor activo (p. ej. la API key). El mensaje nombra la variable de entorno.
-- `502` — el proveedor LLM falló (red, timeout, rate limit o estado). El detalle interno se registra en el servidor y **no** viaja al cliente.
+- `502` — el proveedor LLM falló (red, timeout, rate limit, estado) o no consiguió un JSON válido tras los reintentos. El detalle interno se registra en el servidor y **no** viaja al cliente.
 - `500` — error inesperado en el código.
 
 Estado del servicio:
@@ -131,9 +146,28 @@ curl http://localhost:8000/health
 
 `/health` responde siempre `200` (no depende del LLM) e incluye `llm_configured` para saber si el proveedor activo tiene credenciales.
 
+### Salida estructurada y validación
+
+Desde la sesión 4 el contrato de `/estimate` es **JSON estructurado**, no texto libre. `LLMWrapper.complete_structured` pide al proveedor un `response_format` JSON schema (con degradación a JSON mode y a prompt libre si el endpoint no lo soporta) y valida la respuesta con `EstimationResult`. Si un validador de negocio falla, se re-promptea al modelo con el error hasta `STRUCTURED_MAX_RETRIES` veces:
+
+- la suma de `cost_eur` de las fases debe ser exactamente `total_cost_eur`;
+- si `confidence_pct < 30`, el `summary` debe empezar por `Out of scope:`.
+
+El orden de campos del esquema es deliberado: `phases` va antes que los totales para que el modelo se comprometa con las cifras por fase y luego las sume.
+
+### Guardrails
+
+Antes de llamar al LLM (y antes de tocar la caché) se ejecutan tres capas de **entrada**:
+
+1. **Moderación** vía API de OpenAI (solo si `OPEN_AI_KEY` está configurada y `GUARDRAIL_MODERATION_ENABLED=true`; un fallo de red es *fail-open*).
+2. **Prompt-injection**: heurísticas regex (inglés y español).
+3. **PII**: heurísticas regex de email, IBAN y teléfono.
+
+Cualquier violación devuelve **400** con `{reason, message}` y nunca llega al modelo. A la **salida**, `enforce_scope_response` es un *filtro* que reescribe el resultado de baja confianza sin prefijo en lugar de fallar. Todo se desactiva con `GUARDRAILS_ENABLED=false`.
+
 ### Estimación en streaming (SSE)
 
-Además del endpoint bloqueante, `POST /api/v1/estimate/stream` expone la generación token a token como **Server-Sent Events**. El formulario del frontend usa el endpoint no-streaming, pero cualquier cliente HTTP puede consumir el stream con el mismo body tipado:
+Además del endpoint bloqueante, `POST /api/v1/estimate/stream` mantiene la generación **en texto libre** token a token como **Server-Sent Events** (compatibilidad; el contrato principal desde la sesión 4 es el JSON estructurado). Comparte los guardrails de entrada y usa el mismo body tipado:
 
 ```bash
 curl -N -X POST http://localhost:8000/api/v1/estimate/stream \
@@ -312,6 +346,7 @@ uv run pytest
 Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 
 - el endpoint `/api/v1/estimate` y los schemas de entrada/salida (enums tipados, validación de longitud y que una entrada inválida **no** llega a invocar al LLM) (`tests/test_estimations.py`, `tests/test_schemas.py`);
+- el contrato estructurado: validadores de negocio (`phases` suma `total_cost_eur`, prefijo `Out of scope:` con baja confianza), el wrapper nativo de JSON schema (degradación de formato, reintento de validación, fallback y proveedor `custom`) y los guardrails de entrada/salida (`tests/test_llm_wrapper.py`, `tests/test_llm_service.py`, `tests/test_guardrails_input.py`, `tests/test_guardrails_output.py`);
 - el endpoint SSE `/api/v1/estimate/stream` (eventos `token`/`done`/`error` con `prompt_version`) y `GET /api/v1/context`;
 - los templates de prompt sin tocar el LLM: la descripción dentro de `<project_description>`, los condicionales de `output_format` y `detail_level`, la inclusión de ejemplos, los proyectos de referencia, `StrictUndefined` y el versionado v1/v2 (`tests/prompts/test_estimation_v1.py`, `tests/prompts/test_estimation_versions.py`);
 - el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas, `estimate()` y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
@@ -386,6 +421,9 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `LLM_TIMEOUT_SECONDS`     | Timeout de la llamada al proveedor (segundos)     | `30`          |
 | `LLM_MAX_RETRIES`         | Reintentos del cliente del SDK                    | `2`           |
 | `LLM_MAX_TOKENS`          | Máximo de tokens de salida                        | `2048`        |
+| `STRUCTURED_MAX_RETRIES`  | Reintentos de validación del JSON estructurado    | `2`           |
+| `GUARDRAILS_ENABLED`      | Activa los guardrails de entrada/salida           | `true`        |
+| `GUARDRAIL_MODERATION_ENABLED` | Moderación vía API de OpenAI (requiere `OPEN_AI_KEY`) | `true`  |
 | `CACHE_BACKEND`           | Caché de respuestas: `memory`, `redis` o `none`   | `memory`      |
 | `CACHE_TTL`               | TTL de las entradas de caché (segundos)           | `86400`       |
 | `REDIS_URL`               | URL de Redis (cuando `CACHE_BACKEND=redis`)       | `redis://localhost:6379` |
