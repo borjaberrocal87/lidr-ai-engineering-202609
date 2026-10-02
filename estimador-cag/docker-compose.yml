@@ -92,3 +92,44 @@ services:
     image: estimador-cag:test
     env_file:
       - .env
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: estimador-cag-postgres
+    environment:
+      POSTGRES_USER: estimator
+      POSTGRES_PASSWORD: estimator
+      POSTGRES_DB: estimator_web
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U estimator -d estimator_web"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  cliente-web:
+    # Cliente de negocio (Node/Express+EJS) que consume la API y persiste en Postgres.
+    build:
+      context: ./cliente-web
+    image: estimador-cliente-web:latest
+    container_name: estimador-cag-cliente-web
+    environment:
+      ESTIMATOR_API_BASE_URL: http://api:8000
+      DATABASE_URL: postgres://estimator:estimator@postgres:5432/estimator_web
+      NODE_ENV: production
+    depends_on:
+      api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
