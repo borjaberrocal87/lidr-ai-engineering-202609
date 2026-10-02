@@ -160,6 +160,8 @@ Desde la sesión 4 el contrato de `/estimate` es **JSON estructurado**, no texto
 
 El orden de campos del esquema es deliberado: `phases` va antes que los totales para que el modelo se comprometa con las cifras por fase y luego las sume.
 
+> **Nota de dependencias:** usamos el `response_format` nativo de LiteLLM en lugar de `instructor`. La última versión de `instructor` exige `jiter<0.15`, incompatible con nuestro `openai>=3.13`, que requiere `jiter>=0.16`. El enfoque nativo evita ese conflicto y, además, encaja mejor con el proveedor `custom` OpenAI-compatible (degradación JSON schema → JSON mode → prompt libre).
+
 ### Guardrails
 
 Antes de llamar al LLM (y antes de tocar la caché) se ejecutan tres capas de **entrada**:
