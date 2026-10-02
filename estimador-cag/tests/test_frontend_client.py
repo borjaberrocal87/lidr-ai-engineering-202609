@@ -10,6 +10,7 @@ from frontend import client
 from frontend.client import (
     ApiConfigurationError,
     ApiError,
+    ApiGuardrailError,
     ApiInputError,
     ApiProviderError,
     ApiUnavailableError,
@@ -252,3 +253,32 @@ def test_stream_estimation_unavailable_raises() -> None:
 
     with pytest.raises(ApiUnavailableError):
         list(client.stream_estimation(PAYLOAD, client=_client(handler)))
+
+
+def test_estimate_maps_guardrail_400() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"detail": {"reason": "pii", "message": "Se detectó un email."}},
+        )
+
+    with pytest.raises(ApiGuardrailError) as exc_info:
+        client.estimate(PAYLOAD, client=_client(handler))
+
+    assert exc_info.value.reason == "pii"
+    assert "email" in exc_info.value.message
+
+
+def test_stream_guardrail_error_event_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_sse(("error", {"detail": "Se detectó un email.", "reason": "pii"})),
+        )
+
+    stream = client.stream_estimation(PAYLOAD, client=_client(handler))
+    with pytest.raises(ApiGuardrailError) as exc_info:
+        next(stream)
+
+    assert exc_info.value.reason == "pii"

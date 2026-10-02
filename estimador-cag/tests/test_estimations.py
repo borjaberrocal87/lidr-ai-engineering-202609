@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from starlette.testclient import TestClient
 
 from app.config import settings
+from app.guardrails.input import InputGuardrailViolation
 from app.routers import estimations
 from app.schemas.estimations import EstimationRequest, EstimationResult, Phase
 from app.services.llm_service import (
@@ -495,3 +496,45 @@ def test_context_unknown_prompt_version_returns_404(client: TestClient) -> None:
     response = client.get("/api/v1/context?prompt_version=v999")
 
     assert response.status_code == 404
+
+
+def test_estimate_guardrail_violation_returns_400(
+    client: TestClient, estimation_payload: dict[str, str], monkeypatch
+) -> None:
+    def fake_generate_structured_estimation(
+        request: EstimationRequest, version: str = "v1"
+    ) -> StructuredEstimation:
+        raise InputGuardrailViolation("Se detectó un email en la descripción.", reason="pii")
+
+    monkeypatch.setattr(
+        estimations, "generate_structured_estimation", fake_generate_structured_estimation
+    )
+
+    response = client.post("/api/v1/estimate", json=estimation_payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "reason": "pii",
+        "message": "Se detectó un email en la descripción.",
+    }
+
+
+def test_estimate_stream_guardrail_emits_error_event(
+    client: TestClient, estimation_payload: dict[str, str], monkeypatch
+) -> None:
+    def fake_stream_estimation(
+        request: EstimationRequest,
+        metrics: StreamMetrics | None = None,
+        version: str = "v1",
+    ) -> Iterator[str]:
+        raise InputGuardrailViolation("Se detectó un email en la descripción.", reason="pii")
+
+    monkeypatch.setattr(estimations, "stream_estimation", fake_stream_estimation)
+
+    response = client.post("/api/v1/estimate/stream", json=estimation_payload)
+
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    assert events[0][0] == "error"
+    assert events[0][1]["reason"] == "pii"
+    assert all(name != "done" for name, _ in events)
