@@ -19,13 +19,15 @@ from pathlib import Path
 import structlog
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from app.schemas.estimations import EstimationRequest
+from app.schemas.estimations import EstimationRequest, EstimationResult
+from app.sessions.models import ProjectMetadata
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _BASE_DIR = Path(__file__).resolve().parent
 
 ESTIMATION_USE_CASE = "estimation"
+METADATA_EXTRACTION_USE_CASE = "metadata_extraction"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
 
@@ -42,12 +44,15 @@ _env = Environment(
 def render_estimation_prompt(
     request: EstimationRequest,
     version: str = DEFAULT_ESTIMATION_PROMPT_VERSION,
+    metadata: ProjectMetadata | None = None,
 ) -> tuple[str, str]:
     """Renderiza el par ``(system_prompt, user_prompt)`` del caso de estimación.
 
     Devuelve dos strings listos para enviar al modelo como mensajes separados
     ``role: "system"`` y ``role: "user"``. Cambiar de versión no obliga a tocar
-    el llamante: basta con pasar ``version="v2"``.
+    el llamante: basta con pasar ``version="v2"``. `metadata` alimenta el bloque
+    `<project_metadata>` del system prompt; si es `None` o está vacía, el bloque
+    no se renderiza.
     """
     context = {
         "description": request.description,
@@ -57,6 +62,8 @@ def render_estimation_prompt(
         "reference_projects": [
             project.model_dump() for project in (request.reference_projects or [])
         ],
+        "metadata": metadata,
+        "metadata_is_empty": metadata is None or metadata.is_empty(),
     }
     system = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/system.j2").render(**context)
     user = _env.get_template(f"{ESTIMATION_USE_CASE}/{version}/user.j2").render(**context)
@@ -69,8 +76,35 @@ def render_estimation_prompt(
         system_hash=_content_hash(system),
         user_hash=_content_hash(user),
         prompt_fingerprint=prompt_fingerprint(version),
-        reference_projects=len(context["reference_projects"]),
+        reference_projects=len(request.reference_projects or []),
     )
+    return system, user
+
+
+def render_metadata_extraction_prompt(
+    *,
+    transcript: str,
+    result: EstimationResult,
+    previous: ProjectMetadata,
+    version: str = "v1",
+) -> tuple[str, str]:
+    """Renderiza los prompts del extractor de `ProjectMetadata` (sesión 5).
+
+    Es una segunda llamada LLM por turno: lee la última transcripción, la
+    estimación producida y la metadata acumulada, y devuelve un
+    `ProjectMetadata` parcial (validado por el wrapper estructurado).
+    """
+    context = {
+        "transcript": transcript,
+        "result": result,
+        "phases": result.phases,
+        "previous": previous,
+        "previous_is_empty": previous.is_empty(),
+    }
+    system = _env.get_template(f"{METADATA_EXTRACTION_USE_CASE}/{version}/system.j2").render(
+        **context
+    )
+    user = _env.get_template(f"{METADATA_EXTRACTION_USE_CASE}/{version}/user.j2").render(**context)
     return system, user
 
 
