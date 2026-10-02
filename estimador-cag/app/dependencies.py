@@ -90,6 +90,8 @@ def get_semantic_cache() -> EstimationSemanticCache | None:
         return EstimationSemanticCache(
             redis_client=redis_client,
             vectorizer=vectorizer,
+            dims=vectorizer.dims,
+            model=settings.embedding_model,
             threshold=settings.semantic_cache_threshold,
             ttl=settings.semantic_cache_ttl,
             log_only=settings.semantic_cache_log_only,

@@ -19,6 +19,7 @@ RediSearch y ``SearchIndex.create()`` fallaría al arrancar.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import numpy as np
@@ -34,26 +35,44 @@ def _to_bytes(vector: list[float]) -> bytes:
     return np.array(vector, dtype=np.float32).tobytes()
 
 
-_INDEX_SCHEMA: dict[str, Any] = {
-    "index": {
-        "name": "estimations",
-        "prefix": "estimation:semantic",
-        "storage_type": "hash",
-    },
-    "fields": [
-        {"name": "bucket", "type": "tag"},
-        {"name": "result_json", "type": "text"},
-        {
-            "name": "embedding",
-            "type": "vector",
-            "attrs": {
-                "dims": 1536,  # text-embedding-3-small
-                "distance_metric": "cosine",
-                "algorithm": "flat",
-            },
+def _slug(value: str) -> str:
+    """Slug seguro para el nombre del índice (p. ej. `Qwen/Qwen3-Embedding-8B`)."""
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def _index_name(model: str, dims: int) -> str:
+    """Nombre de índice atado a modelo + dimensión (evita colisiones)."""
+    return f"estimations_{_slug(model)}_{dims}"
+
+
+def _index_schema(*, index_name: str, dims: int) -> dict[str, Any]:
+    """Schema RediSearch con la **dimensión real** del modelo de embeddings.
+
+    La dimensión la dicta el vectorizer (``vectorizer.dims``), no una constante:
+    ``qwen3-embedding`` devuelve 4096 y ``text-embedding-3-small`` 1536. El
+    índice y el prefijo se derivan del modelo + dimensión para que un cambio de
+    modelo no reutilice un índice incompatible.
+    """
+    return {
+        "index": {
+            "name": index_name,
+            "prefix": f"{index_name}:",
+            "storage_type": "hash",
         },
-    ],
-}
+        "fields": [
+            {"name": "bucket", "type": "tag"},
+            {"name": "result_json", "type": "text"},
+            {
+                "name": "embedding",
+                "type": "vector",
+                "attrs": {
+                    "dims": dims,
+                    "distance_metric": "cosine",
+                    "algorithm": "flat",
+                },
+            },
+        ],
+    }
 
 
 class EstimationSemanticCache:
@@ -64,20 +83,25 @@ class EstimationSemanticCache:
         *,
         redis_client: Any,
         vectorizer: Any,
+        dims: int,
+        model: str,
         threshold: float = 0.85,
         ttl: int = 86_400,
         log_only: bool = False,
-        index_name: str = "estimations",
+        index_name: str | None = None,
     ) -> None:
         from redisvl.index import SearchIndex
 
         self.redis_client = redis_client
         self.vectorizer = vectorizer
+        self.dims = dims
+        self.model = model
         self.threshold = threshold
         self.ttl = ttl
         self.log_only = log_only
+        self.index_name = index_name or _index_name(model, dims)
 
-        schema = {**_INDEX_SCHEMA, "index": {**_INDEX_SCHEMA["index"], "name": index_name}}
+        schema = _index_schema(index_name=self.index_name, dims=dims)
         self.index = SearchIndex.from_dict(schema)
         self.index.set_client(redis_client)
         try:
@@ -95,20 +119,32 @@ class EstimationSemanticCache:
         )
 
     def lookup(self, request: EstimationRequest, prompt_version: str) -> EstimationResult | None:
-        from redisvl.query import VectorQuery
-        from redisvl.query.filter import Tag
-
         bucket = self.bucket_for(request, prompt_version)
-        embedding = self.vectorizer.embed(request.description)
-        query = VectorQuery(
-            vector=_to_bytes(embedding),
-            vector_field_name="embedding",
-            return_fields=["result_json", "bucket"],
-            num_results=1,
-            return_score=True,
-            filter_expression=Tag("bucket") == bucket,
-        )
-        results = self.index.query(query)
+        try:
+            from redisvl.query import VectorQuery
+            from redisvl.query.filter import Tag
+
+            embedding = self.vectorizer.embed(request.description)
+            query = VectorQuery(
+                vector=_to_bytes(embedding),
+                vector_field_name="embedding",
+                return_fields=["result_json", "bucket"],
+                num_results=1,
+                return_score=True,
+                filter_expression=Tag("bucket") == bucket,
+            )
+            results = self.index.query(query)
+        except Exception as exc:
+            # Una caché rota (índice desalineado, endpoint de embeddings caído…)
+            # nunca debe tumbar la generación: como mucho se pierde el acierto.
+            logger.warning(
+                "semantic_cache_lookup_failed",
+                bucket=bucket,
+                error_type=type(exc).__name__,
+                error=str(exc)[:200],
+            )
+            return None
+
         if not results:
             logger.info("semantic_cache_miss", bucket=bucket, reason="empty_index")
             return None
@@ -144,15 +180,15 @@ class EstimationSemanticCache:
         prompt_version: str,
     ) -> None:
         bucket = self.bucket_for(request, prompt_version)
-        embedding = self.vectorizer.embed(request.description)
-        payload = [
-            {
-                "bucket": bucket,
-                "result_json": result.model_dump_json(),
-                "embedding": _to_bytes(embedding),
-            }
-        ]
         try:
+            embedding = self.vectorizer.embed(request.description)
+            payload = [
+                {
+                    "bucket": bucket,
+                    "result_json": result.model_dump_json(),
+                    "embedding": _to_bytes(embedding),
+                }
+            ]
             self.index.load(payload, ttl=self.ttl)
             logger.info("semantic_cache_stored", bucket=bucket, ttl=self.ttl)
         except Exception as exc:
