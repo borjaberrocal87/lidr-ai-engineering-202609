@@ -278,6 +278,17 @@ Con Redis (`CACHE_BACKEND=redis`) puedes inspeccionar las claves:
 docker compose exec redis redis-cli KEYS 'estimation:*'
 ```
 
+### Caché semántica (opcional)
+
+Además de la caché exact-match, la sesión 4 añade una **caché semántica** sobre `redisvl` + Redis Stack (RediSearch). Dos peticiones comparten entrada si su **bucket** (`prompt_version:project_type:detail_level:output_format`) coincide y la **similitud coseno** de sus descripciones supera `SEMANTIC_CACHE_THRESHOLD` (por defecto `0.85`).
+
+- Requiere `redis/redis-stack` (la imagen `redis:7-alpine` no trae RediSearch). En Docker Compose el servicio `redis` ya usa `redis/redis-stack:7.4.0-v0` y expone RedisInsight en `:8001`.
+- Los embeddings se piden a OpenAI (`EMBEDDING_MODEL`, por defecto `text-embedding-3-small`) o a un endpoint compatible (`EMBEDDING_BASE_URL` + `EMBEDDING_API_KEY`).
+- `SEMANTIC_CACHE_LOG_ONLY=true` registra los aciertos potenciales sin servirlos, para calibrar el umbral.
+- La capa se **desactiva sola** (con warning) si no hay embeddings o si RediSearch no está disponible; la generación continúa.
+
+El orden del pipeline es: guardrails de entrada → caché exacta → caché semántica → LLM → guardrail de salida → escritura en ambas cachés. Los guardrails van antes que cualquier caché para no servir una entrada maliciosa o con PII.
+
 ## Prompts versionados
 
 El prompt ya no es un `f-string` en el código. Vive en plantillas Jinja2 con versiones en disco:
@@ -351,7 +362,7 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 - los templates de prompt sin tocar el LLM: la descripción dentro de `<project_description>`, los condicionales de `output_format` y `detail_level`, la inclusión de ejemplos, los proyectos de referencia, `StrictUndefined` y el versionado v1/v2 (`tests/prompts/test_estimation_v1.py`, `tests/prompts/test_estimation_versions.py`);
 - el cliente HTTP del frontend con `httpx.MockTransport` (parseo SSE, métricas, `estimate()` y mapeo de errores) y que `frontend/` no importa `app.*` (`tests/test_frontend_client.py`, `tests/test_frontend_decoupling.py`);
 - la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
-- la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
+- la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`), la caché semántica (bucket, umbral, `log_only` y degradación) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
 - el logging estructurado (eventos, coste, cache_hit y que las claves no se filtran) y la propagación de `X-Request-ID`;
 - la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`).
 
@@ -395,7 +406,7 @@ docker compose down
 
 - Swagger: http://localhost:8000/docs
 - Interfaz Streamlit: http://localhost:8501 (servicio `ui`, misma imagen que la API; habla con el servicio `api` por la red interna vía `API_BASE_URL=http://api:8000`)
-- Redis: servicio `redis` (caché persistente de respuestas; la API lo usa por la red interna con `CACHE_BACKEND=redis`)
+- Redis: servicio `redis` con `redis/redis-stack:7.4.0-v0` (caché exact-match persistente y caché semántica vía RediSearch; la API lo usa por la red interna con `CACHE_BACKEND=redis`)
 - Puerto personalizado: `API_PORT=8123 docker compose up --build -d` (y `UI_PORT=8502` para Streamlit)
 - Arrancar solo la interfaz: `docker compose up --build ui`
 - Tests dentro de Docker:
@@ -427,6 +438,13 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `CACHE_BACKEND`           | Caché de respuestas: `memory`, `redis` o `none`   | `memory`      |
 | `CACHE_TTL`               | TTL de las entradas de caché (segundos)           | `86400`       |
 | `REDIS_URL`               | URL de Redis (cuando `CACHE_BACKEND=redis`)       | `redis://localhost:6379` |
+| `SEMANTIC_CACHE_ENABLED`  | Activa la caché semántica (requiere Redis Stack + embeddings) | `true` |
+| `SEMANTIC_CACHE_THRESHOLD` | Similitud coseno mínima para un acierto semántico | `0.85`     |
+| `SEMANTIC_CACHE_TTL`      | TTL de las entradas semánticas (segundos)         | `86400`       |
+| `SEMANTIC_CACHE_LOG_ONLY` | Registra aciertos semánticos sin servirlos        | `false`       |
+| `EMBEDDING_MODEL`         | Modelo de embeddings                              | `text-embedding-3-small` |
+| `EMBEDDING_BASE_URL`      | Endpoint OpenAI-compatible para embeddings (vacío = OpenAI) | —   |
+| `EMBEDDING_API_KEY`       | API key del endpoint de embeddings                | —             |
 | `DESCRIPTION_MIN_LENGTH`  | Longitud mínima de la descripción (caracteres)    | `20`          |
 | `DESCRIPTION_MAX_LENGTH`  | Longitud máxima de la descripción (caracteres)    | `50000`       |
 | `OPEN_AI_KEY`             | API key de OpenAI                                 | —             |
