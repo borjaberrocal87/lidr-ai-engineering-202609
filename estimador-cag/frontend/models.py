@@ -63,6 +63,43 @@ class StructuredEstimateResponse:
     fallback_used: bool = False
 
 
+@dataclass(frozen=True)
+class ProjectMetadata:
+    """Hechos del proyecto que el backend preserva entre turnos (sesión 5)."""
+
+    project_name: str | None = None
+    assumed_team_size: int | None = None
+    mentioned_technologies: list[str] = field(default_factory=list)
+    agreed_scope: str | None = None
+
+
+@dataclass(frozen=True)
+class SessionInfo:
+    """Respuesta de `GET /api/v1/sessions/{session_id}`."""
+
+    session_id: str
+    message_count: int
+    max_turns: int
+    metadata: ProjectMetadata
+
+
+@dataclass(frozen=True)
+class SessionEstimateResponse:
+    """Respuesta de `POST /api/v1/sessions/{session_id}/estimate` (sesión 5)."""
+
+    session_id: str
+    result: EstimationResult
+    prompt_version: str
+    metadata: ProjectMetadata
+    history_messages: int
+    model: str = ""
+    provider: str = ""
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
+    fallback_used: bool = False
+
+
 @dataclass
 class StreamMetrics:
     """Métricas de la última generación en streaming (evento `done`)."""

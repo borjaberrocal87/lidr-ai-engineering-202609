@@ -474,23 +474,53 @@ class LLMWrapper:
         temperature: float | None,
         max_tokens: int,
         max_retries: int = 2,
+        model_override: str | None = None,
     ) -> tuple[StructuredModel, dict[str, Any]]:
-        """Llamada estructurada con JSON schema, validación Pydantic y reintento.
+        """Llamada estructurada a partir de un system + user prompt.
 
-        Usa el `response_format` nativo de LiteLLM (JSON schema) y, si el
-        proveedor no lo soporta, degrada a JSON mode y después a prompt libre. Ante
-        un `ValidationError` de Pydantic, re-promptea al modelo con el error hasta
-        `max_retries` veces. Respeta el fallback configurado (primario → secundario)
-        y devuelve `(modelo_validado, meta)` con métricas acumuladas de todos los
-        intentos.
+        Envuelve `complete_structured_messages` para no duplicar la lógica de
+        esquema/reintento/fallback. `model_override` permite usar un modelo
+        distinto del principal (p. ej. el extractor de metadata).
         """
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ]
+        return self.complete_structured_messages(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            response_model=response_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_retries=max_retries,
+            model_override=model_override,
+        )
 
-        candidates: list[tuple[str, Provider]] = [(self.primary_model, self.primary_provider)]
-        if self.fallback_model and self.fallback_model != self.primary_model:
+    def complete_structured_messages(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        response_model: type[StructuredModel],
+        temperature: float | None,
+        max_tokens: int,
+        max_retries: int = 2,
+        model_override: str | None = None,
+    ) -> tuple[StructuredModel, dict[str, Any]]:
+        """Llamada estructurada con un array `messages` completo (sesión 5).
+
+        Necesaria para la estimación conversacional: system + historial + turno
+        actual. Usa el `response_format` nativo de LiteLLM (JSON schema) y, si el
+        proveedor no lo soporta, degrada a JSON mode y después a prompt libre.
+        Ante un `ValidationError` de Pydantic, re-promptea al modelo con el error
+        hasta `max_retries` veces. Respeta el fallback configurado (primario →
+        secundario) y devuelve `(modelo_validado, meta)` con métricas acumuladas.
+        """
+        primary_model = model_override or self.primary_model
+        if model_override is None or model_override == self.primary_model:
+            primary_provider = self.primary_provider
+        else:
+            primary_provider = provider_from_model(model_override)
+
+        candidates: list[tuple[str, Provider]] = [(primary_model, primary_provider)]
+        if self.fallback_model and self.fallback_model != primary_model:
             candidates.append(
                 (
                     self.fallback_model,

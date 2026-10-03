@@ -16,6 +16,9 @@ from frontend.models import (
     ContextResponse,
     EstimationResult,
     Phase,
+    ProjectMetadata,
+    SessionEstimateResponse,
+    SessionInfo,
     StreamMetrics,
     StructuredEstimateResponse,
 )
@@ -48,6 +51,10 @@ class ApiGuardrailError(ApiError):
         super().__init__(message)
         self.message = message
         self.reason = reason
+
+
+class ApiNotFoundError(ApiError):
+    """El recurso no existe (404), p. ej. una sesión caducada tras reiniciar la API."""
 
 
 @contextmanager
@@ -104,6 +111,8 @@ def _raise_for_status(response: httpx.Response) -> None:
         raise ApiConfigurationError(detail)
     if response.status_code == httpx.codes.BAD_GATEWAY:
         raise ApiProviderError(detail)
+    if response.status_code == httpx.codes.NOT_FOUND:
+        raise ApiNotFoundError(detail)
     raise ApiError(f"Error {response.status_code} de la API: {detail}")
 
 
@@ -154,10 +163,25 @@ def estimate(
         _raise_for_status(response)
         body = response.json()
 
-    result_payload = body["result"]
-    result = EstimationResult(
-        summary=result_payload["summary"],
-        confidence_pct=result_payload["confidence_pct"],
+    result = _parse_estimation_result(body["result"])
+
+    return StructuredEstimateResponse(
+        result=result,
+        prompt_version=body["prompt_version"],
+        cached=bool(body.get("cached", False)),
+        model=body.get("model", ""),
+        provider=body.get("provider", ""),
+        input_tokens=body.get("input_tokens"),
+        output_tokens=body.get("output_tokens"),
+        cost_usd=body.get("cost_usd"),
+        fallback_used=bool(body.get("fallback_used", False)),
+    )
+
+
+def _parse_estimation_result(payload: dict[str, Any]) -> EstimationResult:
+    return EstimationResult(
+        summary=payload["summary"],
+        confidence_pct=payload["confidence_pct"],
         phases=[
             Phase(
                 name=phase["name"],
@@ -165,16 +189,95 @@ def estimate(
                 cost_eur=phase["cost_eur"],
                 summary=phase["summary"],
             )
-            for phase in result_payload["phases"]
+            for phase in payload["phases"]
         ],
-        total_duration_weeks=result_payload["total_duration_weeks"],
-        total_cost_eur=result_payload["total_cost_eur"],
+        total_duration_weeks=payload["total_duration_weeks"],
+        total_cost_eur=payload["total_cost_eur"],
     )
 
-    return StructuredEstimateResponse(
-        result=result,
+
+def _parse_project_metadata(payload: dict[str, Any]) -> ProjectMetadata:
+    return ProjectMetadata(
+        project_name=payload.get("project_name"),
+        assumed_team_size=payload.get("assumed_team_size"),
+        mentioned_technologies=list(payload.get("mentioned_technologies", [])),
+        agreed_scope=payload.get("agreed_scope"),
+    )
+
+
+def create_session(*, client: httpx.Client | None = None) -> str:
+    """Crea una sesión conversacional y devuelve su `session_id`."""
+    with _acquire_client(client) as http:
+        try:
+            response = http.post(_url("/api/v1/sessions"))
+        except httpx.HTTPError as exc:
+            raise ApiUnavailableError(
+                f"No se pudo contactar con la API en {config.get_api_base_url()}."
+            ) from exc
+        _raise_for_status(response)
+        return str(response.json()["session_id"])
+
+
+def get_session(session_id: str, *, client: httpx.Client | None = None) -> SessionInfo:
+    """Recupera la metadata y el tamaño del historial de una sesión."""
+    with _acquire_client(client) as http:
+        try:
+            response = http.get(_url(f"/api/v1/sessions/{session_id}"))
+        except httpx.HTTPError as exc:
+            raise ApiUnavailableError(
+                f"No se pudo contactar con la API en {config.get_api_base_url()}."
+            ) from exc
+        _raise_for_status(response)
+        body = response.json()
+
+    return SessionInfo(
+        session_id=body["session_id"],
+        message_count=body["message_count"],
+        max_turns=body["max_turns"],
+        metadata=_parse_project_metadata(body["metadata"]),
+    )
+
+
+def estimate_in_session(
+    session_id: str,
+    *,
+    transcript: str,
+    project_type: str,
+    detail_level: str,
+    output_format: str,
+    attachments: list[tuple[str, bytes, str]] | None = None,
+    prompt_version: str | None = None,
+    client: httpx.Client | None = None,
+) -> SessionEstimateResponse:
+    """Envía un turno (multipart/form-data) y devuelve la estimación + metadata."""
+    data = {
+        "transcript": transcript,
+        "project_type": project_type,
+        "detail_level": detail_level,
+        "output_format": output_format,
+    }
+    files = [("attachments", (name, content, mime)) for name, content, mime in (attachments or [])]
+    with _acquire_client(client) as http:
+        try:
+            response = http.post(
+                _url(f"/api/v1/sessions/{session_id}/estimate"),
+                data=data,
+                files=files or None,
+                params=_version_params(prompt_version),
+            )
+        except httpx.HTTPError as exc:
+            raise ApiUnavailableError(
+                f"No se pudo contactar con la API en {config.get_api_base_url()}."
+            ) from exc
+        _raise_for_status(response)
+        body = response.json()
+
+    return SessionEstimateResponse(
+        session_id=body["session_id"],
+        result=_parse_estimation_result(body["result"]),
         prompt_version=body["prompt_version"],
-        cached=bool(body.get("cached", False)),
+        metadata=_parse_project_metadata(body["metadata"]),
+        history_messages=body["history_messages"],
         model=body.get("model", ""),
         provider=body.get("provider", ""),
         input_tokens=body.get("input_tokens"),

@@ -23,9 +23,16 @@ from app.guardrails.output import enforce_scope_response
 from app.prompts.loader import (
     DEFAULT_ESTIMATION_PROMPT_VERSION,
     prompt_fingerprint,
+    render_conversational_prompt,
     render_estimation_prompt,
 )
-from app.schemas.estimations import EstimationRequest, EstimationResult
+from app.schemas.estimations import (
+    DetailLevel,
+    EstimationRequest,
+    EstimationResult,
+    OutputFormat,
+    ProjectType,
+)
 from app.services.cache import make_cache_key
 from app.services.errors import (
     LLMConfigurationError as LLMConfigurationError,
@@ -37,6 +44,8 @@ from app.services.errors import (
     LLMProviderError as LLMProviderError,
 )
 from app.services.llm_wrapper import StreamMetrics as StreamMetrics
+from app.sessions.metadata_extractor import update_metadata
+from app.sessions.models import Session
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -69,6 +78,19 @@ class StructuredEstimation:
     cost_usd: float | None = None
     fallback_used: bool = False
     cache_hit: bool = False
+
+
+@dataclass
+class SessionEstimation:
+    """Resultado de un turno conversacional (sesión 5). Nunca viene de caché."""
+
+    result: EstimationResult
+    model: str = ""
+    provider: str = ""
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
+    fallback_used: bool = False
 
 
 def _check_description(description: str) -> None:
@@ -299,6 +321,73 @@ def generate_structured_estimation(
         cost_usd=meta_cost,
         fallback_used=meta_fallback,
         cache_hit=False,
+    )
+
+
+def generate_session_estimation(
+    *,
+    session: Session,
+    transcript: str,
+    project_type: ProjectType,
+    detail_level: DetailLevel,
+    output_format: OutputFormat,
+    version: str = DEFAULT_ESTIMATION_PROMPT_VERSION,
+) -> SessionEstimation:
+    """Turno de estimación conversacional (sesión 5).
+
+    Diferencias con `generate_structured_estimation`:
+    - **Sin caché**: cada turno depende del historial y de la metadata, así que
+      dos transcripciones idénticas en sesiones distintas no son la misma llamada.
+    - El system prompt se regenera con el bloque `<project_metadata>` actual y el
+      modelo recibe además la ventana de historial como array `messages`.
+    - Tras validar, el turno se añade al historial y una segunda llamada
+      refresca `ProjectMetadata` de forma tolerante a fallos.
+    """
+    _require_configuration()
+    _warn_if_temperature_ignored()
+    if settings.guardrails_enabled:
+        client = get_openai_client() if settings.has_moderation else None
+        check_input(transcript, openai_client=client)
+
+    system_prompt, user_message = render_conversational_prompt(
+        description=transcript,
+        project_type=project_type,
+        detail_level=detail_level,
+        output_format=output_format,
+        metadata=session.metadata,
+        version=version,
+    )
+    messages = session.history.to_messages_list(system_prompt)
+    messages.append({"role": "user", "content": user_message})
+
+    wrapper = get_llm_wrapper()
+    result, meta = wrapper.complete_structured_messages(
+        messages=messages,
+        response_model=EstimationResult,
+        temperature=settings.temperature,
+        max_tokens=settings.llm_max_tokens,
+        max_retries=settings.structured_max_retries,
+    )
+    if settings.guardrails_enabled:
+        result = enforce_scope_response(result)
+
+    session.history.append(user=user_message, assistant=result.model_dump_json())
+    session.metadata = update_metadata(
+        previous=session.metadata,
+        transcript=transcript,
+        result=result,
+        llm_wrapper=wrapper,
+        model=settings.metadata_extractor_model,
+    )
+
+    return SessionEstimation(
+        result=result,
+        model=str(meta.get("model", "")),
+        provider=str(meta.get("provider", "")),
+        input_tokens=meta.get("input_tokens"),
+        output_tokens=meta.get("output_tokens"),
+        cost_usd=meta.get("cost_usd"),
+        fallback_used=bool(meta.get("fallback_used", False)),
     )
 
 

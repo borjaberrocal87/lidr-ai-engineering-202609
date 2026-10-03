@@ -15,6 +15,7 @@ from app.cache.semantic import EstimationSemanticCache
 from app.config import get_settings, reveal_secret
 from app.services.cache import InMemoryCache, NullCache, RedisCache, ResponseCache
 from app.services.llm_wrapper import LLMWrapper, provider_from_model
+from app.sessions.store import SessionStore
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -47,6 +48,17 @@ def get_llm_wrapper() -> LLMWrapper:
         custom_base_url=settings.custom_llm_base_url,
         custom_api_key=reveal_secret(settings.custom_llm_api_key),
     )
+
+
+@lru_cache
+def get_session_store() -> SessionStore:
+    """Store de sesiones en memoria, uno por worker.
+
+    `lru_cache` lo hace singleton durante la vida del proceso; los tests pueden
+    sustituirlo con `app.dependency_overrides[get_session_store]`.
+    """
+    settings = get_settings()
+    return SessionStore(max_turns=settings.max_conversation_turns)
 
 
 @lru_cache

@@ -12,6 +12,7 @@ from frontend.client import (
     ApiError,
     ApiGuardrailError,
     ApiInputError,
+    ApiNotFoundError,
     ApiProviderError,
     ApiUnavailableError,
 )
@@ -253,6 +254,98 @@ def test_stream_estimation_unavailable_raises() -> None:
 
     with pytest.raises(ApiUnavailableError):
         list(client.stream_estimation(PAYLOAD, client=_client(handler)))
+
+
+def test_create_session_returns_id() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/sessions"
+        assert request.method == "POST"
+        return httpx.Response(201, json={"session_id": "abc-123"})
+
+    assert client.create_session(client=_client(handler)) == "abc-123"
+
+
+def test_get_session_parses_metadata() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/sessions/abc-123"
+        return httpx.Response(
+            200,
+            json={
+                "session_id": "abc-123",
+                "message_count": 4,
+                "max_turns": 6,
+                "metadata": {
+                    "project_name": "Nimbus",
+                    "assumed_team_size": 3,
+                    "mentioned_technologies": ["React"],
+                    "agreed_scope": "Fase 1",
+                },
+            },
+        )
+
+    info = client.get_session("abc-123", client=_client(handler))
+
+    assert info.message_count == 4
+    assert info.max_turns == 6
+    assert info.metadata.project_name == "Nimbus"
+    assert info.metadata.mentioned_technologies == ["React"]
+
+
+def test_get_session_not_found_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": "session_not_found"})
+
+    with pytest.raises(ApiNotFoundError):
+        client.get_session("nope", client=_client(handler))
+
+
+def test_estimate_in_session_sends_multipart_and_parses() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/v1/sessions/abc-123/estimate"
+        assert request.headers["content-type"].startswith("multipart/form-data")
+        assert b"spec.docx" in request.content
+        assert b"We want a CRM" in request.content
+        return httpx.Response(
+            200,
+            json={
+                "session_id": "abc-123",
+                "result": {
+                    "summary": "Un CRM de tamaño medio.",
+                    "confidence_pct": 70,
+                    "phases": [
+                        {
+                            "name": "D",
+                            "duration_weeks": 1,
+                            "cost_eur": 1000,
+                            "summary": "Una fase de ejemplo.",
+                        }
+                    ],
+                    "total_duration_weeks": 1,
+                    "total_cost_eur": 1000,
+                },
+                "prompt_version": "v1",
+                "metadata": {"project_name": "Nimbus", "mentioned_technologies": ["React"]},
+                "history_messages": 2,
+                "model": "gpt-4o-mini",
+                "provider": "openai",
+            },
+        )
+
+    response = client.estimate_in_session(
+        "abc-123",
+        transcript="We want a CRM called Nimbus.",
+        project_type="web_saas",
+        detail_level="medium",
+        output_format="phases_table",
+        attachments=[("spec.docx", b"docx-bytes", "application/octet-stream")],
+        client=_client(handler),
+    )
+
+    assert response.session_id == "abc-123"
+    assert response.prompt_version == "v1"
+    assert response.result.total_cost_eur == 1000
+    assert response.metadata.project_name == "Nimbus"
+    assert response.history_messages == 2
 
 
 def test_estimate_maps_guardrail_400() -> None:
