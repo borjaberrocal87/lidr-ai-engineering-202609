@@ -202,6 +202,66 @@ La campaña completa llama al proveedor de verdad (~1 llamada de estimación + 1
 metadata por turno) y, con un modelo lento, puede tardar horas. Empieza por el
 smoke.
 
+## Cómo ejecutarlo con Docker
+
+El runner vive en `evals/` y usa `fpdf2` (dependencia **dev**): la imagen
+`runtime` (servicio `api`) **no** los incluye. Por eso el runner corre en la
+imagen `test`, y `api` solo se usa en el modo `--http`. `.env` está en
+`.dockerignore`, pero Compose lo inyecta vía `env_file`, así que las claves llegan
+a los contenedores.
+
+```bash
+cd estimador-cag
+
+# 1. Imagen test (dev deps + evals)
+docker compose --profile test build test
+
+# 2. Tests nuevos sin LLM
+docker compose --profile test run --rm test \
+  uv run --no-sync pytest tests/test_stress_metrics.py tests/test_stress_runner.py -q
+
+# 3a. Campaña in-process (TestClient, no necesita api).
+#     El volumen saca el CSV del contenedor efímero.
+docker compose --profile test run --rm \
+  -v "$PWD/evals/stress:/app/evals/stress" \
+  test uv run --no-sync python -m evals.stress.run \
+    --scenarios growing --attachment-sizes 0 --repeats 1 --growing-turns 2 \
+    --output evals/stress/results.csv
+
+# 3b. Campaña contra api por HTTP (api se resuelve por nombre de servicio)
+docker compose up -d api
+docker compose --profile test run --rm \
+  -v "$PWD/evals/stress:/app/evals/stress" \
+  test uv run --no-sync python -m evals.stress.run \
+    --http http://api:8000 \
+    --scenarios growing,pivot,contradiction \
+    --attachment-sizes 0,5,20,50,100 --repeats 1 \
+    --output evals/stress/results.csv
+```
+
+Comprobar el endpoint de debug y el evento `turn_observed` en la API dockerizada:
+
+```bash
+docker compose up -d api
+SID=$(curl -s -X POST localhost:8000/api/v1/sessions | jq -r .session_id)
+curl -s -X POST "localhost:8000/api/v1/sessions/$SID/estimate" \
+  -F transcript="Queremos un CRM llamado Nimbus." \
+  -F project_type=web_saas -F detail_level=medium -F output_format=phases_table \
+  | jq '.result.summary'
+curl -s "localhost:8000/api/v1/sessions/$SID" | jq .last_turn
+docker compose logs -f api | grep turn_observed
+```
+
+Notas:
+
+- **No** ejecutes el runner en `docker compose run api …`: esa imagen no trae
+  `evals/` ni `fpdf2` (fallará con `ModuleNotFoundError`).
+- El path conversacional no usa caché, así que `CACHE_BACKEND=redis` no bloquea la
+  campaña aunque Redis no esté sano.
+- Sin el `-v` del `run`, `results.csv` se queda dentro del contenedor y se pierde
+  con `--rm`.
+- Cierra con `docker compose down` (añade `-v` para borrar el volumen de Postgres).
+
 ## Cómo se prueba
 
 - `tests/test_stress_metrics.py` — las tres métricas con casos que pasan, fallan y
