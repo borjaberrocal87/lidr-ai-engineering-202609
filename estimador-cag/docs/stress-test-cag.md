@@ -155,8 +155,8 @@ formato tabla y **dos párrafos de lectura**:
 
 En la campaña de referencia (`deepseek-v4-flash`, 1 repetición) los titulares son:
 
-- **La latencia rompe primero**: 0/33 turnos cumplen el SLA de 4 s (P95 55–62 s).
-- **El coste por turno crece ×5,2** del turno 1 al 10 en `growing` (tokens ×9,4).
+- **La latencia rompe primero**: 0/33 turnos cumplen el SLA de 4 s (P95 45–76 s).
+- **El coste por turno crece ×3,0** del turno 1 al 10 en `growing` (tokens ×4,8).
 - **Cachés 0 %**: el path conversacional no cachea.
 - **El `project_name` sobrevive** (recall 1,00) vía `ProjectMetadata`, pero el
   hecho de presupuesto da 0,00 por un fallo silencioso (formato/anclas en inglés).
