@@ -5,6 +5,8 @@ de Redis durante toda la vida del proceso. Los tests pueden sustituir
 `get_llm_wrapper` con un doble.
 """
 
+from __future__ import annotations
+
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -65,7 +67,7 @@ def get_session_store() -> SessionStore:
     return SessionStore(max_turns=settings.max_conversation_turns)
 
 
-def get_estimation_service() -> "EstimationService":
+def get_estimation_service() -> EstimationService:
     """Orquestador de estimación (structured + conversacional + ACB).
 
     No se cachea: ``EstimationService`` no tiene estado y lee su configuración

@@ -120,3 +120,7 @@ class Session(BaseModel):
     history: ConversationHistory = Field(default_factory=ConversationHistory)
     metadata: ProjectMetadata = Field(default_factory=ProjectMetadata)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # Caché del último tier resuelto, para que el panel lateral pueda mostrarlo
+    # sin re-ejecutar el resolver (patrón Actor-Critic-Boss / tier dinámico).
+    last_resolved_tier: str | None = None
+    last_tier_rule: str | None = None

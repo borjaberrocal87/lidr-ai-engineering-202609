@@ -41,7 +41,9 @@ from app.prompts.loader import (
     render_conversational_prompt,
     render_estimation_prompt,
 )
+from app.schemas.critic import CriticFeedback
 from app.schemas.estimations import (
+    ACBResponse,
     DetailLevel,
     EstimationRequest,
     EstimationResult,
@@ -60,6 +62,7 @@ from app.services.errors import (
 )
 from app.sessions.metadata_extractor import update_metadata
 from app.sessions.models import Session
+from app.sessions.tier_resolver import Tier, resolve_tier
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -208,12 +211,24 @@ class EstimationService:
         self,
         *,
         prompt_version: str = DEFAULT_ESTIMATION_PROMPT_VERSION,
-        conversational_prompt_version: str = DEFAULT_CONVERSATIONAL_PROMPT_VERSION,
+        conversational_prompt_version: str | None = None,
         metadata_extractor_model: str | None = None,
+        critic_model: str | None = None,
+        boss_max_iterations: int | None = None,
     ) -> None:
         self.prompt_version = prompt_version
         self.conversational_prompt_version = conversational_prompt_version
         self.metadata_extractor_model = metadata_extractor_model
+        self.critic_model = critic_model
+        self.boss_max_iterations = boss_max_iterations
+
+    def _conversational_version(self, version: str | None) -> str:
+        return (
+            version
+            or self.conversational_prompt_version
+            or settings.conversational_prompt_version
+            or DEFAULT_CONVERSATIONAL_PROMPT_VERSION
+        )
 
     # -- Estimación estructurada (sesión 4) ----------------------------------
 
@@ -333,7 +348,7 @@ class EstimationService:
         - Tras validar, el turno se añade al historial y una segunda llamada
           refresca `ProjectMetadata` de forma tolerante a fallos.
         """
-        active_version = version or self.conversational_prompt_version
+        active_version = self._conversational_version(version)
         require_configuration()
         warn_if_temperature_ignored()
         run_input_guardrails(transcript)
@@ -377,4 +392,152 @@ class EstimationService:
             output_tokens=meta.get("output_tokens"),
             cost_usd=meta.get("cost_usd"),
             fallback_used=bool(meta.get("fallback_used", False)),
+        )
+
+    # -- Estimación Actor-Critic-Boss (sesión 5, directo) --------------------
+
+    def estimate_with_acb(
+        self,
+        *,
+        session: Session,
+        transcript: str,
+        project_type: ProjectType,
+        detail_level: DetailLevel,
+        output_format: OutputFormat,
+        tier: Tier | None = None,
+        version: str | None = None,
+    ) -> ACBResponse:
+        """Variante Actor-Critic-Boss de la pipeline conversacional.
+
+        La sesión se actualiza **solo** con el resultado final aprobado (o
+        sintetizado) por el Boss — los borradores intermedios del actor se
+        descartan. Así el estado de la conversación se mantiene coherente: desde
+        el punto de vista del usuario, el turno produjo exactamente un mensaje
+        del asistente.
+        """
+        from app.services.boss import Boss
+        from app.services.critic import Critic
+
+        active_version = self._conversational_version(version)
+
+        # 1. Guardrail de entrada.
+        require_configuration()
+        warn_if_temperature_ignored()
+        run_input_guardrails(transcript)
+
+        # 2. Resolver tier (igual que el camino del actor).
+        resolved_tier, rule = resolve_tier(
+            transcript=transcript,
+            metadata=session.metadata,
+            override=tier,
+        )
+        session.last_resolved_tier = resolved_tier.value
+        session.last_tier_rule = rule
+
+        logger.info(
+            "estimation_acb_request",
+            session_id=session.session_id,
+            tier=resolved_tier.value,
+            tier_rule=rule,
+            transcript_chars=len(transcript),
+        )
+
+        wrapper = get_llm_wrapper()
+
+        # 3. Construir el callable del actor. Re-renderiza el prompt en cada
+        #    iteración para entretejer el feedback del critic (si lo hay). El
+        #    guardrail de salida corre en cada borrador; si el Boss acaba
+        #    aceptando un borrador, ese mismo resultado (ya guardrailizado) es el
+        #    que se persiste en la sesión más abajo.
+        def _actor(critic_feedback: CriticFeedback | None) -> EstimationResult:
+            system_prompt, user_message = render_conversational_prompt(
+                description=transcript,
+                project_type=project_type,
+                detail_level=detail_level,
+                output_format=output_format,
+                metadata=session.metadata,
+                version=active_version,
+                tier=resolved_tier,
+                critic_feedback=critic_feedback,
+            )
+            messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+            messages.extend(
+                {"role": message.role, "content": message.content}
+                for message in session.history.messages
+            )
+            messages.append({"role": "user", "content": user_message})
+
+            draft, meta = wrapper.complete_structured_messages(
+                messages=messages,
+                response_model=EstimationResult,
+                temperature=settings.temperature,
+                max_tokens=settings.llm_max_tokens,
+                max_retries=settings.structured_max_retries,
+            )
+            logger.info(
+                "acb_actor_draft",
+                with_critic_feedback=critic_feedback is not None,
+                issues_in_feedback=(
+                    len(critic_feedback.issues) if critic_feedback is not None else 0
+                ),
+                confidence_pct=draft.confidence_pct,
+                total_cost_eur=draft.total_cost_eur,
+                **meta,
+            )
+            return enforce_scope_response(draft) if settings.guardrails_enabled else draft
+
+        # 4. Construir el callable del critic.
+        critic = Critic(
+            llm_wrapper=wrapper,
+            model=self.critic_model or settings.critic_model or settings.llm_model,
+        )
+
+        def _critic(draft: EstimationResult) -> CriticFeedback:
+            return critic.review(
+                transcript=transcript,
+                metadata=session.metadata,
+                tier=resolved_tier,
+                result=draft,
+            )
+
+        # 5. El Boss orquesta.
+        boss = Boss(
+            max_iterations=self.boss_max_iterations or settings.boss_max_iterations,
+        )
+        final_result, trace = boss.run(actor=_actor, critic=_critic)
+
+        # 6. Persistir el resultado final en la sesión (un único turno).
+        turn_user_message = render_conversational_prompt(
+            description=transcript,
+            project_type=project_type,
+            detail_level=detail_level,
+            output_format=output_format,
+            metadata=session.metadata,
+            version=active_version,
+            tier=resolved_tier,
+        )[1]
+        session.history.append(user=turn_user_message, assistant=final_result.model_dump_json())
+
+        # 7. Refrescar metadata desde el resultado final.
+        session.metadata = update_metadata(
+            previous=session.metadata,
+            transcript=transcript,
+            result=final_result,
+            llm_wrapper=wrapper,
+            model=self.metadata_extractor_model or settings.metadata_extractor_model,
+        )
+
+        return ACBResponse(
+            session_id=session.session_id,
+            result=final_result,
+            prompt_version=active_version,
+            acb=trace,
+            metadata=session.metadata,
+            history_messages=len(session.history.messages),
+            model=settings.llm_model,
+            provider=settings.llm_provider,
+            input_tokens=None,
+            output_tokens=None,
+            cost_usd=None,
+            fallback_used=False,
         )

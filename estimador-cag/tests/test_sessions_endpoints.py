@@ -12,6 +12,7 @@ import pytest
 from app.config import settings
 from app.dependencies import get_session_store
 from app.main import app
+from app.schemas.critic import CriticFeedback
 from app.schemas.estimations import EstimationResult
 from app.services import estimation
 from app.sessions.models import ProjectMetadata
@@ -79,6 +80,8 @@ class FakeConversationalWrapper:
         response_model: type,
         **kwargs: Any,
     ) -> tuple[EstimationResult, dict[str, Any]]:
+        if response_model is CriticFeedback:
+            return CriticFeedback(verdict="accept", issues=[], confidence_in_review=90), _meta()
         self.estimation_calls.append(messages)
         index = min(len(self.estimation_calls) - 1, len(self.estimations) - 1)
         return self.estimations[index], _meta()
@@ -233,3 +236,15 @@ async def test_create_session_returns_unique_ids(client: httpx.AsyncClient) -> N
     first = await _create_session(client)
     second = await _create_session(client)
     assert first != second
+
+
+async def test_acb_endpoint_returns_audit_trail(client: httpx.AsyncClient) -> None:
+    session_id = await _create_session(client)
+    response = await client.post(f"/api/v1/sessions/{session_id}/estimate-acb", data=VALID_FORM)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["acb"]["final_decision"] == "accept"
+    assert body["acb"]["iterations_run"] == 1
+    assert body["result"]["total_cost_eur"] == 25_000
+    assert body["session_id"] == session_id

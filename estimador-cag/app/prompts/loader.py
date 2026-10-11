@@ -34,6 +34,7 @@ _BASE_DIR = Path(__file__).resolve().parent
 
 ESTIMATION_USE_CASE = "estimation"
 METADATA_EXTRACTION_USE_CASE = "metadata_extraction"
+CRITIC_USE_CASE = "critic"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
 # Versión por defecto del prompt conversacional (sesión 5). Se elevará a "v3"
@@ -110,6 +111,8 @@ def render_conversational_prompt(
     output_format: OutputFormat,
     metadata: ProjectMetadata,
     version: str = DEFAULT_ESTIMATION_PROMPT_VERSION,
+    tier: object | None = None,
+    critic_feedback: object | None = None,
 ) -> tuple[str, str]:
     """Renderiza el prompt de un turno conversacional (sesión 5).
 
@@ -118,6 +121,10 @@ def render_conversational_prompt(
     formulario, así que evitamos construir un `EstimationRequest` que fallaría
     en la validación. La `metadata` siempre se inyecta (vacía en el primer
     turno), lo que activa además las reglas conversacionales del system prompt.
+
+    `tier` y `critic_feedback` solo los consume la versión ``v3`` (bloque
+    ``<audience>`` y feedback del Critic en el bucle ACB); las versiones
+    anteriores los ignoran.
     """
     context: dict[str, object] = {
         "description": description,
@@ -127,6 +134,8 @@ def render_conversational_prompt(
         "reference_projects": [],
         "metadata": metadata,
         "metadata_is_empty": metadata.is_empty(),
+        "tier": _enum_value(tier),
+        "critic_feedback": critic_feedback,
     }
     return _render_estimation_templates(version, context, reference_projects_count=0)
 
@@ -161,6 +170,46 @@ def render_metadata_extraction_prompt(
 def _content_hash(text: str) -> str:
     """Hash corto del contenido, para trazar el render sin registrar su texto."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def _enum_value(value: object | None) -> object | None:
+    """Devuelve el ``.value`` de un Enum (str) o el propio valor si no lo es."""
+    return getattr(value, "value", value)
+
+
+def render_critic_prompt(
+    *,
+    transcript: str,
+    metadata: ProjectMetadata,
+    tier: object,
+    result: EstimationResult,
+    version: str = "v1",
+) -> tuple[str, str]:
+    """Renderiza los prompts del Critic (patrón Actor-Critic-Boss, sesión 5).
+
+    El Critic audita una estimación ya producida: recibe la transcripción, la
+    metadata acumulada, el tier resuelto y el resultado bajo revisión, y devuelve
+    un `CriticFeedback` estructurado.
+    """
+    context: dict[str, object] = {
+        "transcript": transcript,
+        "metadata": metadata,
+        "tier": _enum_value(tier),
+        "result": result,
+        "phases": result.phases,
+    }
+    system = _env.get_template(f"{CRITIC_USE_CASE}/{version}/system.j2").render(**context)
+    user = _env.get_template(f"{CRITIC_USE_CASE}/{version}/user.j2").render(**context)
+    logger.info(
+        "prompt.rendered",
+        use_case=CRITIC_USE_CASE,
+        version=version,
+        system_chars=len(system),
+        user_chars=len(user),
+        system_hash=_content_hash(system),
+        user_hash=_content_hash(user),
+    )
+    return system, user
 
 
 def available_estimation_versions() -> list[str]:

@@ -81,6 +81,19 @@ class Settings(BaseSettings):
     max_attachment_chars: int = 60_000
     # Vacío => usa el modelo principal del servicio para extraer metadata.
     metadata_extractor_model: str = ""
+    # Versión del prompt conversacional. Vacío => default del loader ("v3" tras
+    # la sesión 5 del directo).
+    conversational_prompt_version: str = ""
+
+    # Sesión 5 (directo) — patrón Actor-Critic-Boss.
+    # Vacío => usa el modelo principal del servicio como Critic.
+    critic_model: str = ""
+    boss_max_iterations: int = 2
+
+    # Sesión 5 (directo) — compresión de memoria con anclas.
+    # Vacío => usa el modelo principal del servicio para resumir/decidir anclas.
+    compression_model: str = ""
+    anchor_detection_mode: Literal["heuristic", "llm"] = "heuristic"
 
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
