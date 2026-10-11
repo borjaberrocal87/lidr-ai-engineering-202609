@@ -87,6 +87,8 @@ REQUIRED_PATHS = (
     "evals/metrics.py",
     "evals/run.py",
     "evals/golden_dataset.json",
+    "docs/patron-actor-critic-boss.md",
+    "docs/evals-golden-dataset.md",
     "pyproject.toml",
     "README.md",
     ".env.example",
