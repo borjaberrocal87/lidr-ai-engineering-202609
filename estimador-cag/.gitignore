@@ -22,3 +22,7 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Sesión 6 — stress test (artefactos regenerables por el runner)
+evals/stress/fixtures/*.pdf
+evals/stress/results.csv

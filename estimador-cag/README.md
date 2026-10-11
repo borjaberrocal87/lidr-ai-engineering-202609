@@ -54,6 +54,8 @@ estimador-cag/
 │   └── Dockerfile
 ├── tests/                       # Tests con pytest (proveedores y API mockeados)
 │   └── prompts/                 # Tests de los templates (sin LLM)
+├── evals/                       # Framework de evals del estimador
+│   └── stress/                  # Baseline de estrés del CAG (sesión 6): escenarios, fixtures y métricas
 ├── examples/
 │   └── transcripcion.md         # Transcripción de reunión de ejemplo (input del formulario)
 ├── specs/
@@ -61,6 +63,7 @@ estimador-cag/
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
 │   ├── sesion-4-formulario-tipado-prompt-jinja2.md  # Spec del formulario y prompts (sesión 4)
 │   ├── sesion-5-memoria-conversacional-adjuntos.md  # Spec de memoria y adjuntos (sesión 5)
+│   ├── sesion-6-stress-test-cag.md  # Spec del baseline de estrés del CAG (sesión 6)
 │   └── proveedor-openai-compatible.md  # Spec del proveedor custom (OpenAI-compatible)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
 ├── docker-compose.yml       # Servicios api, ui y test
@@ -300,6 +303,27 @@ Sobre la memoria conversacional de la sesión 5 construimos tres piezas que vive
 - **Tier dinámico de audiencia** — `executive` / `pm` / `developer` / `default` se derivan de la transcripción y la metadata (o se fuerzan con el campo `tier`), y el prompt conversacional **v3** adapta el encuadre con un bloque `<audiencia>`.
 - **Compresión de memoria con anclas** — detector heurístico o LLM (`ANCHOR_DETECTION_MODE`) + resumidor acumulativo (`COMPRESSION_MODEL`).
 - **Evals / golden dataset** — `evals/` lanza el dataset dorado contra la app y puntúa adherencia al esquema, cotas de coste y recall de contenido. → **[docs/evals-golden-dataset.md](docs/evals-golden-dataset.md)**
+- **Baseline de estrés del CAG (sesión 6)** — `evals/stress/` somete el sistema a conversaciones largas, adjuntos grandes y contradicciones para medir dónde empieza a romperse el CAG. → **[docs/stress-test-cag.md](docs/stress-test-cag.md)**
+
+### Baseline de estrés del CAG (sesión 6)
+
+Antes de introducir RAG en el directo, `evals/stress/` cuantifica las limitaciones del CAG con nuestros propios datos. El endpoint conversacional emite ahora un evento `turn_observed` por turno (13 campos) que `GET /api/v1/sessions/{id}` expone como `last_turn` junto al texto de `summary`/`anchors`.
+
+```bash
+uv run python -m evals.stress.run --http http://localhost:8000 \
+  --scenarios growing,pivot,contradiction \
+  --attachment-sizes 0,5,20,50,100 \
+  --repeats 3 \
+  --output evals/stress/results.csv
+```
+
+- `evals/stress/scenarios.py` — tres perfiles (`growing`, `pivot`, `contradiction`) con un `fact-tracker` por turno.
+- `evals/stress/fixtures/build_pdfs.py` — PDFs deterministas de 5/20/50/100 KB (regenerados por el runner, no commitados).
+- `evals/stress/metrics.py` — `LatencyBudgetMetric`, `CostBudgetMetric`, `MemoryDriftMetric` sobre `MetricResult`, sin LLM.
+- `evals/stress/run.py` — runner CLI (in-process o `--http`) que vuelca un CSV incremental.
+- `evals/stress/REPORT.md` — el deliverable: tabla resumen, tres curvas y dos párrafos de lectura.
+
+El runner escribe `results.csv` fila a fila: una campaña larga se puede seguir en vivo y no se pierde lo medido si se interrumpe.
 
 ## Cliente de negocio (Node)
 
@@ -322,6 +346,7 @@ Las llamadas al LLM se registran con [structlog](https://www.structlog.org/) (in
 - `llm.call.end` / `llm.stream.end` — tokens de entrada/salida, coste estimado (`cost_usd`), si se usó el fallback (`fallback_used`) y latencia en milisegundos.
 - `prompt.rendered` (en el loader) — `use_case`, `version`, tamaños y hashes del system/user, huella de la versión y número de proyectos de referencia. Nunca el texto del prompt ni de la descripción.
 - `cache.hit` / `cache.miss` / `cache.stored` — resultado de la caché de respuestas.
+- `turn_observed` — foto agregada de cada turno conversacional (sesión 6): índice de turno, tamaños de transcript/adjuntos, ventana, anclas, resumen, tokens, coste, latencia, `cache_hit_kind` y tier. Alimenta el baseline de estrés.
 - `llm.call.error` / `llm.stream.error` — error con traceback y latencia.
 - `llm.response.truncated` (en el router) — warning cuando el modelo agotó `LLM_MAX_TOKENS`.
 
@@ -455,7 +480,8 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 - la detección de truncamiento, de respuesta vacía y de errores del proveedor (incluido que el detalle interno no se filtra al cliente);
 - la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`), la caché semántica (bucket, umbral, `log_only` y degradación) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
 - el logging estructurado (eventos, coste, cache_hit y que las claves no se filtran) y la propagación de `X-Request-ID`;
-- la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`).
+- la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`);
+- el baseline de estrés: métricas de presupuesto y drift (`tests/test_stress_metrics.py`) y el runner de campaña end-to-end con wrapper falso (`tests/test_stress_runner.py`).
 
 El cliente de negocio tiene su propia batería (Node): `cd cliente-web && npm test` (rutas de Express y cliente HTTP con estimador falso).
 

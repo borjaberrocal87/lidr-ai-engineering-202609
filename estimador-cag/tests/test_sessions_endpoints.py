@@ -256,3 +256,61 @@ async def test_acb_endpoint_returns_audit_trail(client: httpx.AsyncClient) -> No
     assert body["acb"]["iterations_run"] == 1
     assert body["result"]["total_cost_eur"] == 25_000
     assert body["session_id"] == session_id
+
+
+async def test_turn_observed_is_exposed_in_session_info(
+    client: httpx.AsyncClient, fake_wrapper: FakeConversationalWrapper
+) -> None:
+    session_id = await _create_session(client)
+
+    first = await client.post(f"/api/v1/sessions/{session_id}/estimate", data=VALID_FORM)
+    assert first.status_code == 200, first.text
+
+    info = (await client.get(f"/api/v1/sessions/{session_id}")).json()
+    observation = info["last_turn"]
+    assert observation["turn_index"] == 1
+    assert observation["session_id"] == session_id
+    assert observation["enriched_transcript_chars"] == len(VALID_FORM["transcript"])
+    assert observation["attachments_total_chars"] == 0
+    assert observation["messages_in_window"] == 2
+    assert observation["cache_hit_kind"] == "none"
+    assert observation["cost_usd"] == 0.001
+
+    follow_up = {**VALID_FORM, "transcript": "Now add Stripe-based billing on top of it."}
+    await client.post(f"/api/v1/sessions/{session_id}/estimate", data=follow_up)
+
+    info_after = (await client.get(f"/api/v1/sessions/{session_id}")).json()
+    assert info_after["last_turn"]["turn_index"] == 2
+
+
+async def test_turn_observed_counts_attachment_chars(
+    client: httpx.AsyncClient, fake_wrapper: FakeConversationalWrapper
+) -> None:
+    from docx import Document
+
+    document = Document()
+    document.add_paragraph("Anexo técnico del proyecto Nimbus con requisitos detallados.")
+    buffer = io.BytesIO()
+    document.save(buffer)
+
+    session_id = await _create_session(client)
+    response = await client.post(
+        f"/api/v1/sessions/{session_id}/estimate",
+        data=VALID_FORM,
+        files=[
+            (
+                "attachments",
+                (
+                    "spec.docx",
+                    buffer.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ),
+            )
+        ],
+    )
+    assert response.status_code == 200, response.text
+
+    info = (await client.get(f"/api/v1/sessions/{session_id}")).json()
+    observation = info["last_turn"]
+    assert observation["attachments_total_chars"] > 0
+    assert observation["enriched_transcript_chars"] > observation["attachments_total_chars"]

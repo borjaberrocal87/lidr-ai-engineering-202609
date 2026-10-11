@@ -19,6 +19,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.schemas.observability import TurnObservation
+
 Role = Literal["user", "assistant"]
 
 
@@ -159,3 +161,9 @@ class Session(BaseModel):
     # sin re-ejecutar el resolver (patrón Actor-Critic-Boss / tier dinámico).
     last_resolved_tier: str | None = None
     last_tier_rule: str | None = None
+    # Sesión 6 — observabilidad y stress test. `turn_count` es un contador
+    # monótono (no derivable de `len(history.messages)` porque la compresión
+    # desaloja pares) y `last_observation` guarda la foto del último turno para
+    # que `GET /sessions/{id}` la exponga sin parsear logs.
+    turn_count: int = 0
+    last_observation: TurnObservation | None = None
