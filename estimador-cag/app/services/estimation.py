@@ -50,6 +50,7 @@ from app.schemas.estimations import (
     OutputFormat,
     ProjectType,
 )
+from app.schemas.observability import TurnObservation
 from app.services.cache import make_cache_key
 from app.services.errors import (
     LLMConfigurationError as LLMConfigurationError,
@@ -342,6 +343,7 @@ class EstimationService:
         output_format: OutputFormat,
         tier: Tier | None = None,
         version: str | None = None,
+        attachment_chars: int = 0,
     ) -> SessionEstimation:
         """Turno de estimación conversacional (sesión 5).
 
@@ -352,11 +354,21 @@ class EstimationService:
           modelo recibe además la ventana de historial como array `messages`.
         - Tras validar, el turno se añade al historial y una segunda llamada
           refresca `ProjectMetadata` de forma tolerante a fallos.
+
+        Desde la sesión 6 emite además un único evento ``turn_observed`` (bloque 1
+        del stress test) y lo persiste en la sesión para que ``GET /sessions/{id}``
+        lo exponga sin parsear logs. ``attachment_chars`` es el tamaño del texto
+        extraído de los adjuntos: lo conoce el router, no este servicio.
         """
         active_version = self._conversational_version(version)
         require_configuration()
         warn_if_temperature_ignored()
         run_input_guardrails(transcript)
+
+        # Contador monótono: la compresión desaloja pares de `history.messages`,
+        # así que el índice no es derivable de la longitud del historial.
+        session.turn_count += 1
+        turn_index = session.turn_count
 
         # Resolver el tier de audiencia (override explícito o cadena de reglas).
         resolved_tier, rule = resolve_tier(
@@ -404,6 +416,26 @@ class EstimationService:
             llm_wrapper=wrapper,
             model=self.metadata_extractor_model or settings.metadata_extractor_model,
         )
+
+        # Bloque 1 (sesión 6): una sola línea agregada por turno, con el estado
+        # real de la memoria tras la compresión y el consumo del LLM.
+        observation = TurnObservation(
+            turn_index=turn_index,
+            session_id=session.session_id,
+            enriched_transcript_chars=len(transcript),
+            attachments_total_chars=attachment_chars,
+            messages_in_window=len(session.history.messages),
+            anchors_count=len(session.history.anchors),
+            summary_chars=len(session.history.summary or ""),
+            tokens_in=meta.get("input_tokens"),
+            tokens_out=meta.get("output_tokens"),
+            cost_usd=meta.get("cost_usd"),
+            latency_ms=meta.get("latency_ms"),
+            cache_hit_kind="none",
+            last_resolved_tier=resolved_tier.value,
+        )
+        session.last_observation = observation
+        logger.info("turn_observed", **observation.to_event())
 
         return SessionEstimation(
             result=result,

@@ -30,6 +30,7 @@ from app.schemas.estimations import (
     ProjectType,
     SessionEstimateResponse,
 )
+from app.schemas.observability import TurnObservation
 from app.services.errors import LLMConfigurationError, LLMProviderError
 from app.services.estimation import EstimationService
 from app.sessions.models import ProjectMetadata, Session
@@ -54,6 +55,7 @@ class SessionInfoResponse(BaseModel):
     summary_chars: int = 0
     last_resolved_tier: str | None = None
     last_tier_rule: str | None = None
+    last_turn: TurnObservation | None = None
 
 
 @router.post("", response_model=CreateSessionResponse, status_code=201)
@@ -83,6 +85,7 @@ def get_session(
         summary_chars=len(session.history.summary or ""),
         last_resolved_tier=session.last_resolved_tier,
         last_tier_rule=session.last_tier_rule,
+        last_turn=session.last_observation,
     )
 
 
@@ -105,7 +108,9 @@ async def estimate_in_session(
     tier: Annotated[Tier | None, Form()] = None,
     attachments: Annotated[list[UploadFile] | None, File()] = None,
 ) -> SessionEstimateResponse:
-    session, enriched = await _load_session_and_enrich(session_id, transcript, attachments, store)
+    session, enriched, attachment_chars = await _load_session_and_enrich(
+        session_id, transcript, attachments, store
+    )
     try:
         outcome = service.estimate_conversational(
             session=session,
@@ -115,6 +120,7 @@ async def estimate_in_session(
             output_format=output_format,
             tier=tier,
             version=version,
+            attachment_chars=attachment_chars,
         )
     except Exception as exc:
         raise _map_pipeline_errors(exc) from exc
@@ -159,7 +165,9 @@ async def estimate_in_session_acb(
     de iteraciones (veredicto, confianza e issues por ronda) para que el cliente
     pueda mostrar la auditoría en su UI.
     """
-    session, enriched = await _load_session_and_enrich(session_id, transcript, attachments, store)
+    session, enriched, _ = await _load_session_and_enrich(
+        session_id, transcript, attachments, store
+    )
     try:
         return service.estimate_with_acb(
             session=session,
@@ -179,11 +187,12 @@ async def _load_session_and_enrich(
     transcript: str,
     attachments: list[UploadFile] | None,
     store: SessionStore,
-) -> tuple[Session, str]:
+) -> tuple[Session, str, int]:
     """Preludio compartido por `/estimate` y `/estimate-acb`.
 
-    Devuelve ``(session, transcript_enriquecido)``. Lanza ``HTTPException`` para
-    problemas de sesión o adjuntos; el error del LLM lo mapea el llamante.
+    Devuelve ``(session, transcript_enriquecido, attachment_chars)``. Lanza
+    ``HTTPException`` para problemas de sesión o adjuntos; el error del LLM lo
+    mapea el llamante. ``attachment_chars`` alimenta el evento ``turn_observed``.
     """
     try:
         session = store.get_or_404(session_id)
@@ -219,6 +228,7 @@ async def _load_session_and_enrich(
             extracted.append((upload.filename, text))
 
     enriched = enrich_transcript(transcript=transcript, attachments=extracted)
+    attachment_chars = sum(len(text) for _, text in extracted)
     logger.info(
         "session.estimate_received",
         session_id=session_id,
@@ -226,7 +236,7 @@ async def _load_session_and_enrich(
         enriched_chars=len(enriched),
         attachment_count=len(extracted),
     )
-    return session, enriched
+    return session, enriched, attachment_chars
 
 
 def _map_pipeline_errors(exc: Exception) -> HTTPException:
