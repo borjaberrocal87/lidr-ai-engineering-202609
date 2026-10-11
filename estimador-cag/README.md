@@ -61,6 +61,7 @@ estimador-cag/
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
 │   ├── sesion-4-formulario-tipado-prompt-jinja2.md  # Spec del formulario y prompts (sesión 4)
 │   ├── sesion-5-memoria-conversacional-adjuntos.md  # Spec de memoria y adjuntos (sesión 5)
+│   ├── sesion-6-stress-test-cag.md  # Spec del baseline de estrés del CAG (sesión 6)
 │   └── proveedor-openai-compatible.md  # Spec del proveedor custom (OpenAI-compatible)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
 ├── docker-compose.yml       # Servicios api, ui y test
