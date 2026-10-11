@@ -51,31 +51,31 @@ class Scenario:
 # --- Perfil 1: proyecto que crece -------------------------------------------
 
 _GROWING_STEPS: tuple[tuple[str, str], ...] = (
-    ("Súmale autenticación con SSO para el equipo de ventas.", "requirement: sso"),
+    ("Súmale autenticación con SSO para el equipo de ventas.", "SSO"),
     (
         "Necesita ser multi-tenant con aislamiento de datos por cliente.",
-        "requirement: multi-tenant",
+        "multi-tenant",
     ),
-    ("Añade un audit log de todas las acciones de los usuarios.", "requirement: audit log"),
-    ("Queremos exportar los pedidos a CSV para el área financiera.", "requirement: csv export"),
-    ("Hace falta gestión de roles y permisos granulares.", "requirement: role management"),
+    ("Añade un audit log de todas las acciones de los usuarios.", "audit log"),
+    ("Queremos exportar los pedidos a CSV para el área financiera.", "CSV"),
+    ("Hace falta gestión de roles y permisos granulares.", "roles"),
     (
         "Envía notificaciones por email cuando cambie el estado de un pedido.",
-        "requirement: email notifications",
+        "notificaciones por email",
     ),
-    ("Expón una API REST documentada para integraciones externas.", "requirement: rest api"),
-    ("Suma un panel de informes con métricas de actividad.", "requirement: reporting dashboard"),
-    ("Integra facturación con Stripe para las suscripciones.", "requirement: billing"),
-    ("La interfaz debe ser responsive para usarla desde móvil.", "requirement: mobile responsive"),
-    ("Necesitamos modo offline con sincronización posterior.", "requirement: offline mode"),
-    ("Cifra los datos sensibles en reposo.", "requirement: data encryption"),
-    ("Aplica rate limiting en la API pública.", "requirement: rate limiting"),
-    ("Queremos webhooks para avisar a sistemas externos.", "requirement: webhooks"),
-    ("Añade búsqueda de texto completo sobre clientes y pedidos.", "requirement: search"),
-    ("La app debe estar en español e inglés.", "requirement: i18n"),
-    ("Suma analítica de uso por funcionalidad.", "requirement: analytics"),
-    ("Queremos monitorización con alertas de SLA.", "requirement: sla monitoring"),
-    ("Define una política de retención y borrado de datos.", "requirement: data retention"),
+    ("Expón una API REST documentada para integraciones externas.", "API REST"),
+    ("Suma un panel de informes con métricas de actividad.", "informes"),
+    ("Integra facturación con Stripe para las suscripciones.", "Stripe"),
+    ("La interfaz debe ser responsive para usarla desde móvil.", "responsive"),
+    ("Necesitamos modo offline con sincronización posterior.", "offline"),
+    ("Necesitamos cifrado de los datos sensibles en reposo.", "cifrado"),
+    ("Aplica rate limiting en la API pública.", "rate limiting"),
+    ("Queremos webhooks para avisar a sistemas externos.", "webhooks"),
+    ("Añade búsqueda de texto completo sobre clientes y pedidos.", "búsqueda"),
+    ("La app debe estar en español e inglés.", "español"),
+    ("Suma analítica de uso por funcionalidad.", "analítica"),
+    ("Queremos monitorización con alertas de SLA.", "SLA"),
+    ("Define una política de retención y borrado de datos.", "retención"),
 )
 
 
@@ -91,7 +91,7 @@ def build_growing(n: int = 20) -> Scenario:
         Turn(
             1,
             "Queremos estimar un CRM llamado Nimbus para el equipo de ventas.",
-            "project name: Nimbus",
+            "Nimbus",
         )
     ]
     for index in range(1, n):
@@ -100,7 +100,7 @@ def build_growing(n: int = 20) -> Scenario:
     return Scenario(
         name="growing",
         turns=tuple(turns),
-        anchor_fact="project name: Nimbus",
+        anchor_fact="Nimbus",
         anchor_turn=1,
         project_type="web_saas",
         description="Proyecto que crece: el nombre declarado en el turno 1 debe sobrevivir.",
@@ -110,11 +110,11 @@ def build_growing(n: int = 20) -> Scenario:
 # --- Perfil 2: proyecto que pivota ------------------------------------------
 
 _PIVOT_TURNS: tuple[Turn, ...] = (
-    Turn(1, "App de campo en React para inspectores de obra.", "stack includes React"),
+    Turn(1, "App de campo en React para inspectores de obra.", "React"),
     Turn(2, "Los inspectores la usarán desde el móvil en obra.", None),
     Turn(3, "Necesita fotos geolocalizadas por inspección.", None),
     Turn(4, "Suma firma digital del inspector al cerrar el parte.", None),
-    Turn(5, "Cambiamos de idea: finalmente lo haremos en Flutter.", "stack includes Flutter"),
+    Turn(5, "Cambiamos de idea: finalmente lo haremos en Flutter.", "Flutter"),
     Turn(6, "Añade sincronización con el backend corporativo.", None),
     Turn(7, "Soporta funcionamiento sin conexión en sótanos.", None),
     Turn(8, "Genera un informe PDF de cada inspección.", None),
@@ -126,7 +126,7 @@ def build_pivot() -> Scenario:
     return Scenario(
         name="pivot",
         turns=_PIVOT_TURNS,
-        anchor_fact="stack includes Flutter",
+        anchor_fact="Flutter",
         anchor_turn=5,
         project_type="mobile_app",
         description="Proyecto que pivota: React (turno 1) → Flutter (turno 5).",
@@ -137,19 +137,19 @@ def build_pivot() -> Scenario:
 
 _CONTRADICTION_TURNS: tuple[Turn, ...] = (
     Turn(1, "Portal interno de gestión documental para 40 empleados.", None),
-    Turn(2, "Debe integrarse con el directorio corporativo (LDAP).", None),
-    Turn(3, "El presupuesto está locked at 30000 EUR.", "budget locked: 30000 EUR"),
+    Turn(2, "Debe integrarse con el directorio corporativo (LDAP).", "LDAP"),
+    Turn(3, "El presupuesto está locked at 30000 EUR.", "30000 EUR"),
     Turn(4, "Necesita permisos por departamento.", None),
-    Turn(5, "Suma un buscador de documentos con OCR.", None),
+    Turn(5, "Suma un buscador de documentos con OCR.", "OCR"),
     Turn(6, "Los documentos deben quedar firmados digitalmente.", None),
     Turn(7, "Queremos un panel de auditoría de accesos.", None),
     Turn(
         8,
         "Lo hemos ampliado: el presupuesto está locked at 80000 EUR.",
-        "budget locked: 80000 EUR",
+        "80000 EUR",
     ),
-    Turn(9, "Con ese margen, añade integración con DocuSign.", None),
-    Turn(10, "Hace falta exportación masiva a PDF/A.", None),
+    Turn(9, "Con ese margen, añade integración con DocuSign.", "DocuSign"),
+    Turn(10, "Hace falta exportación masiva a PDF/A.", "PDF/A"),
 )
 
 
@@ -162,7 +162,7 @@ def build_contradiction() -> Scenario:
     return Scenario(
         name="contradiction",
         turns=_CONTRADICTION_TURNS,
-        anchor_fact="budget locked: 30000 EUR",
+        anchor_fact="30000 EUR",
         anchor_turn=3,
         project_type="internal_tool",
         description="Proyecto que se contradice: presupuesto 30k (turno 3) vs 80k (turno 8).",

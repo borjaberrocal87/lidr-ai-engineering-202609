@@ -33,7 +33,7 @@ from app.schemas.estimations import (
 from app.schemas.observability import TurnObservation
 from app.services.errors import LLMConfigurationError, LLMProviderError
 from app.services.estimation import EstimationService
-from app.sessions.models import ProjectMetadata, Session
+from app.sessions.models import Message, ProjectMetadata, Session
 from app.sessions.store import SessionNotFoundError, SessionStore
 from app.sessions.tier_resolver import Tier
 
@@ -56,6 +56,10 @@ class SessionInfoResponse(BaseModel):
     last_resolved_tier: str | None = None
     last_tier_rule: str | None = None
     last_turn: TurnObservation | None = None
+    # Texto de la memoria (no solo los contadores): alimenta a MemoryDriftMetric,
+    # que busca hechos en summary/anchors/metadata turno a turno.
+    summary: str | None = None
+    anchors: list[Message] = Field(default_factory=list)
 
 
 @router.post("", response_model=CreateSessionResponse, status_code=201)
@@ -86,6 +90,8 @@ def get_session(
         last_resolved_tier=session.last_resolved_tier,
         last_tier_rule=session.last_tier_rule,
         last_turn=session.last_observation,
+        summary=session.history.summary,
+        anchors=session.history.anchors,
     )
 
 

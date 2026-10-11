@@ -12,6 +12,19 @@ Piezas:
 - ``run``: CLI que orquesta la campaña y vuelca el CSV.
 """
 
+from evals.stress.metrics import (
+    CostBudgetMetric,
+    LatencyBudgetMetric,
+    MemoryDriftMetric,
+)
 from evals.stress.scenarios import Scenario, Turn, all_scenarios, select_scenarios
 
-__all__ = ["Scenario", "Turn", "all_scenarios", "select_scenarios"]
+__all__ = [
+    "CostBudgetMetric",
+    "LatencyBudgetMetric",
+    "MemoryDriftMetric",
+    "Scenario",
+    "Turn",
+    "all_scenarios",
+    "select_scenarios",
+]

@@ -138,7 +138,7 @@ class SessionInfoResponse(BaseModel):
 
 ### Paso 2 — Diseñar los tres perfiles multi-turno
 
-Crea `evals/stress/scenarios.py`. Cada perfil es una lista de tuplas `(turn_index, transcript, fact_to_remember)`, y el `fact_to_remember` es el hecho que **MemoryDriftMetric** buscará en snapshots de turnos posteriores. Los facts son strings cortos y de match exacto (case-insensitive): `"project name: Nimbus"`, `"stack includes Flutter"`, `"budget locked: 30000 EUR"`.
+Crea `evals/stress/scenarios.py`. Cada perfil es una lista de tuplas `(turn_index, transcript, fact_to_remember)`, y el `fact_to_remember` es el hecho que **MemoryDriftMetric** buscará en snapshots de turnos posteriores. Los facts son **strings cortos y literales** de match exacto (case-insensitive) sobre el texto del snapshot: `"Nimbus"`, `"Flutter"`, `"30000 EUR"`.
 
 ```python
 from dataclasses import dataclass
@@ -168,21 +168,21 @@ Fragmento de cada perfil (los tres diseñados para forzar un comportamiento conc
 ```python
 # growing — turno a turno se añaden requisitos coherentes. El project_name
 # ("Nimbus") se declara en el turno 1 y debe sobrevivir hasta el 20.
-Turn(1, "Queremos estimar un CRM llamado Nimbus para el equipo de ventas.", "project name: Nimbus"),
-Turn(2, "Súmale autenticación con SSO y roles por tenant.", "requirement: sso"),
-Turn(3, "Necesita multi-tenant con aislamiento de datos.", "requirement: multi-tenant"),
-Turn(4, "Añade un audit log de todas las acciones.", "requirement: audit log"),
+Turn(1, "Queremos estimar un CRM llamado Nimbus para el equipo de ventas.", "Nimbus"),
+Turn(2, "Súmale autenticación con SSO y roles por tenant.", "SSO"),
+Turn(3, "Necesita multi-tenant con aislamiento de datos.", "multi-tenant"),
+Turn(4, "Añade un audit log de todas las acciones.", "audit log"),
 # ... hasta el turno 20 (exporte CSV, integración de facturación, informes…)
 
 # pivot — el turno 5 cambia el stack (React -> Flutter). El pivote debe
 # actualizar la metadata sin acumular ambos en mentioned_technologies.
-Turn(1, "App de campo en React para inspectores.", "stack includes React"),
-Turn(5, "Cambiamos de idea: lo haremos en Flutter.", "stack includes Flutter"),
+Turn(1, "App de campo en React para inspectores.", "React"),
+Turn(5, "Cambiamos de idea: lo haremos en Flutter.", "Flutter"),
 
 # contradiction — presupuesto 30k en el turno 3, 80k en el turno 8. Mide qué
 # valor se preserva, cuál se promueve a ancla y cuál acaba en el summary.
-Turn(3, "El presupuesto está locked at 30000 EUR.", "budget locked: 30000 EUR"),
-Turn(8, "Lo hemos ampliado: el presupuesto está locked at 80000 EUR.", "budget locked: 80000 EUR"),
+Turn(3, "El presupuesto está locked at 30000 EUR.", "30000 EUR"),
+Turn(8, "Lo hemos ampliado: el presupuesto está locked at 80000 EUR.", "80000 EUR"),
 ```
 
 > **Por qué tuplas inmutables.** El runner consume el mismo `Scenario` en cada repetición; que sea inmutable evita que una mutación accidental contamine las 3 pasadas. El `fact-tracker` vive en los propios `Turn` (`fact_to_remember`), no en una estructura paralela: un solo sitio que mantener.
