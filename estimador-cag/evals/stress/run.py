@@ -128,9 +128,7 @@ class _InProcessClient:
         return dict(response.json())
 
     async def get_session(self, session_id: str) -> dict[str, Any]:
-        response = await asyncio.to_thread(
-            self._client.get, f"{API_PREFIX}/sessions/{session_id}"
-        )
+        response = await asyncio.to_thread(self._client.get, f"{API_PREFIX}/sessions/{session_id}")
         response.raise_for_status()
         return dict(response.json())
 

@@ -81,9 +81,7 @@ def build_pdf(*, path: Path, target_kb: int) -> Path:
 def build_all(out_dir: Path | None = None, sizes: tuple[int, ...] = SIZES_KB) -> dict[int, Path]:
     """Genera todos los tamaños y devuelve ``{kb: ruta}`` (excluye el 0 KB)."""
     directory = out_dir or DEFAULT_OUT_DIR
-    return {
-        kb: build_pdf(path=directory / f"attach_{kb}kb.pdf", target_kb=kb) for kb in sizes
-    }
+    return {kb: build_pdf(path=directory / f"attach_{kb}kb.pdf", target_kb=kb) for kb in sizes}
 
 
 def main() -> int:

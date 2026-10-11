@@ -71,11 +71,11 @@ Hoy el sistema emite logs sueltos a lo largo de cada estimación: `session.estim
 class TurnObservation(BaseModel):
     """Foto agregada de un turno conversacional (bloque 1)."""
 
-    turn_index: int                  # 1-based, contado dentro de la sesión
+    turn_index: int  # 1-based, contado dentro de la sesión
     session_id: str
-    enriched_transcript_chars: int   # transcript + adjuntos concatenados
-    attachments_total_chars: int     # 0 si no hay adjuntos
-    messages_in_window: int          # len(history.messages) tras compresión
+    enriched_transcript_chars: int  # transcript + adjuntos concatenados
+    attachments_total_chars: int  # 0 si no hay adjuntos
+    messages_in_window: int  # len(history.messages) tras compresión
     anchors_count: int
     summary_chars: int
     tokens_in: int | None = None
@@ -94,9 +94,16 @@ class TurnObservation(BaseModel):
 
 ```python
 def estimate_conversational(
-    self, *, session, transcript, project_type, detail_level,
-    output_format, tier=None, version=None,
-    attachment_chars: int = 0,          # NUEVO — el router ya lo conoce
+    self,
+    *,
+    session,
+    transcript,
+    project_type,
+    detail_level,
+    output_format,
+    tier=None,
+    version=None,
+    attachment_chars: int = 0,  # NUEVO — el router ya lo conoce
 ) -> SessionEstimation: ...
 ```
 
@@ -104,7 +111,7 @@ def estimate_conversational(
 # ... tras apply_compression(...) y update_metadata(...)
 
 observation = TurnObservation(
-    turn_index=len(session.history.messages) // 2,   # (ver nota)
+    turn_index=len(session.history.messages) // 2,  # (ver nota)
     session_id=session.session_id,
     enriched_transcript_chars=len(transcript),
     attachments_total_chars=attachment_chars,
@@ -115,7 +122,7 @@ observation = TurnObservation(
     tokens_out=meta.get("output_tokens"),
     cost_usd=meta.get("cost_usd"),
     latency_ms=meta.get("latency_ms"),
-    cache_hit_kind="none",              # el path conversacional no cachea
+    cache_hit_kind="none",  # el path conversacional no cachea
     last_resolved_tier=resolved_tier.value,
 )
 session.last_observation = observation
@@ -143,19 +150,22 @@ Crea `evals/stress/scenarios.py`. Cada perfil es una lista de tuplas `(turn_inde
 ```python
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class Turn:
     turn_index: int
     transcript: str
-    fact_to_remember: str | None = None   # None = turno sin hecho durable
+    fact_to_remember: str | None = None  # None = turno sin hecho durable
+
 
 @dataclass(frozen=True)
 class Scenario:
-    name: str                              # "growing" | "pivot" | "contradiction"
+    name: str  # "growing" | "pivot" | "contradiction"
     turns: tuple[Turn, ...]
     project_type: str = "web_saas"
     detail_level: str = "medium"
     output_format: str = "phases_table"
+
 
 def build_growing(n: int = 20) -> Scenario: ...
 def build_pivot() -> Scenario: ...
@@ -168,21 +178,21 @@ Fragmento de cada perfil (los tres diseñados para forzar un comportamiento conc
 ```python
 # growing — turno a turno se añaden requisitos coherentes. El project_name
 # ("Nimbus") se declara en el turno 1 y debe sobrevivir hasta el 20.
-Turn(1, "Queremos estimar un CRM llamado Nimbus para el equipo de ventas.", "Nimbus"),
-Turn(2, "Súmale autenticación con SSO y roles por tenant.", "SSO"),
-Turn(3, "Necesita multi-tenant con aislamiento de datos.", "multi-tenant"),
-Turn(4, "Añade un audit log de todas las acciones.", "audit log"),
+(Turn(1, "Queremos estimar un CRM llamado Nimbus para el equipo de ventas.", "Nimbus"),)
+(Turn(2, "Súmale autenticación con SSO y roles por tenant.", "SSO"),)
+(Turn(3, "Necesita multi-tenant con aislamiento de datos.", "multi-tenant"),)
+(Turn(4, "Añade un audit log de todas las acciones.", "audit log"),)
 # ... hasta el turno 20 (exporte CSV, integración de facturación, informes…)
 
 # pivot — el turno 5 cambia el stack (React -> Flutter). El pivote debe
 # actualizar la metadata sin acumular ambos en mentioned_technologies.
-Turn(1, "App de campo en React para inspectores.", "React"),
-Turn(5, "Cambiamos de idea: lo haremos en Flutter.", "Flutter"),
+(Turn(1, "App de campo en React para inspectores.", "React"),)
+(Turn(5, "Cambiamos de idea: lo haremos en Flutter.", "Flutter"),)
 
 # contradiction — presupuesto 30k en el turno 3, 80k en el turno 8. Mide qué
 # valor se preserva, cuál se promueve a ancla y cuál acaba en el summary.
-Turn(3, "El presupuesto está locked at 30000 EUR.", "30000 EUR"),
-Turn(8, "Lo hemos ampliado: el presupuesto está locked at 80000 EUR.", "80000 EUR"),
+(Turn(3, "El presupuesto está locked at 30000 EUR.", "30000 EUR"),)
+(Turn(8, "Lo hemos ampliado: el presupuesto está locked at 80000 EUR.", "80000 EUR"),)
 ```
 
 > **Por qué tuplas inmutables.** El runner consume el mismo `Scenario` en cada repetición; que sea inmutable evita que una mutación accidental contamine las 3 pasadas. El `fact-tracker` vive en los propios `Turn` (`fact_to_remember`), no en una estructura paralela: un solo sitio que mantener.
@@ -194,8 +204,10 @@ Turn(8, "Lo hemos ampliado: el presupuesto está locked at 80000 EUR.", "80000 E
 ```python
 SIZES_KB: tuple[int, ...] = (5, 20, 50, 100)
 
+
 def build_pdf(*, path: Path, target_kb: int, seed: int = 0) -> Path:
     """Genera un PDF determinista de ~target_kb KB de texto plano."""
+
 
 def build_all(out_dir: Path) -> dict[int, Path]:
     """Genera attach_5kb.pdf … attach_100kb.pdf y devuelve {kb: ruta}."""
@@ -264,7 +276,7 @@ Esqueleto:
 ```python
 async def main() -> int:
     args = _parse_args()
-    _ensure_fixtures(args.attachment_sizes)          # build_pdfs.build_all
+    _ensure_fixtures(args.attachment_sizes)  # build_pdfs.build_all
     scenarios = _select_scenarios(args.scenarios)
     rows: list[dict[str, Any]] = []
     for scenario in scenarios:
@@ -278,7 +290,7 @@ async def main() -> int:
                         project_type=scenario.project_type,
                         detail_level=scenario.detail_level,
                         output_format=scenario.output_format,
-                        attachment=_attachment_for(size_kb),   # None si 0
+                        attachment=_attachment_for(size_kb),  # None si 0
                     )
                     snapshot = await client.get_session(session_id)  # trae last_turn
                     observation = snapshot["last_turn"]
@@ -286,7 +298,8 @@ async def main() -> int:
                         LatencyBudgetMetric(args.latency_budget_ms).evaluate(observation),
                         CostBudgetMetric(args.cost_budget_usd).evaluate(observation),
                         MemoryDriftMetric(turn.fact_to_remember).evaluate(snapshot)
-                        if turn.fact_to_remember else None,
+                        if turn.fact_to_remember
+                        else None,
                     ]
                     rows.append(_row(scenario.name, size_kb, repeat, observation, metrics))
     _write_csv(args.output, rows)
