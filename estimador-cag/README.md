@@ -318,7 +318,7 @@ uv run python -m evals.stress.run --http http://localhost:8000 \
 ```
 
 - `evals/stress/scenarios.py` — tres perfiles (`growing`, `pivot`, `contradiction`) con un `fact-tracker` por turno.
-- `evals/stress/fixtures/build_pdfs.py` — PDFs deterministas de 5/20/50/100 KB (regenerados por el runner, no commitados).
+- `evals/stress/fixtures/build_pdfs.py` — PDFs deterministas de 5/20/50/100 KB (versionados; el runner los regenera si faltan).
 - `evals/stress/metrics.py` — `LatencyBudgetMetric`, `CostBudgetMetric`, `MemoryDriftMetric` sobre `MetricResult`, sin LLM.
 - `evals/stress/run.py` — runner CLI (in-process o `--http`) que vuelca un CSV incremental.
 - `evals/stress/REPORT.md` — el deliverable: tabla resumen, tres curvas y dos párrafos de lectura.

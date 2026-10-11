@@ -76,7 +76,7 @@ evals/stress/
 ├── run.py                      # CLI de la campaña (python -m evals.stress.run)
 ├── REPORT.md                   # el deliverable: tabla + curvas + lectura
 └── fixtures/
-    └── build_pdfs.py           # PDFs sintéticos deterministas (no commitados)
+    └── build_pdfs.py           # PDFs sintéticos deterministas (versionados)
 ```
 
 ## Los tres escenarios
@@ -103,8 +103,9 @@ contenido sea medible por match literal.
 - **Determinismo**: fpdf2 estampa fecha de creación por defecto; la fijamos y
   calibramos el relleno con una búsqueda binaria. Dos ejecuciones producen bytes
   idénticos.
-- **No se commitean**: se commitea el script y el runner los regenera
-  (`.gitignore`: `evals/stress/fixtures/*.pdf`, `evals/stress/results.csv`).
+- **Versionados**: los PDFs generados se commitean en `evals/stress/fixtures/`
+  junto a `results.csv` como evidencia del baseline; el runner los regenera si
+  faltan.
 - La utilidad es el **tamaño calibrado**: a partir de ~20 KB el texto extraído
   roza el tope `MAX_ATTACHMENT_CHARS=60.000`, así que el truncado se ve en acción.
 
@@ -154,8 +155,8 @@ formato tabla y **dos párrafos de lectura**:
 
 En la campaña de referencia (`deepseek-v4-flash`, 1 repetición) los titulares son:
 
-- **La latencia rompe primero**: 0/33 turnos cumplen el SLA de 4 s (P95 55–62 s).
-- **El coste por turno crece ×5,2** del turno 1 al 10 en `growing` (tokens ×9,4).
+- **La latencia rompe primero**: 0/33 turnos cumplen el SLA de 4 s (P95 45–76 s).
+- **El coste por turno crece ×3,0** del turno 1 al 10 en `growing` (tokens ×4,8).
 - **Cachés 0 %**: el path conversacional no cachea.
 - **El `project_name` sobrevive** (recall 1,00) vía `ProjectMetadata`, pero el
   hecho de presupuesto da 0,00 por un fallo silencioso (formato/anclas en inglés).
@@ -281,8 +282,9 @@ Notas:
   acoplarse al renderer de structlog.
 - **Métricas en `evals/stress/`**: dependen del shape de `turn_observed`/snapshot;
   se reutiliza el *tipo* `MetricResult`, no la firma del golden dataset.
-- **PDFs no commitados**: son regenerables y deterministas; commitearlos solo
-  inflaría el repo.
+- **Fixtures y `results.csv` versionados**: son deterministas y valen como
+  evidencia del baseline; el runner los regenera (sobrescribe) al repetir la
+  campaña.
 - **Un único proveedor**: las curvas solo son comparables si el modelo no cambia.
 
 Límites conocidos de la campaña de referencia: `--repeats 1` (P95 sobre 8–10

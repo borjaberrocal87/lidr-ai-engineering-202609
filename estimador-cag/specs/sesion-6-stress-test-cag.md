@@ -41,7 +41,7 @@ Piezas relevantes que se reutilizan o extienden (todas ya en `main`):
 
 - Proyecto de la sesión 05 en verde (`uv run pytest`, `uv run ruff check .`, `uv run mypy app frontend`).
 - Dependencia nueva **solo para generar fixtures** (dev): `fpdf2`. No entra en runtime.
-- Los PDFs sintéticos **no se commitean**: se commitea el script `evals/stress/fixtures/build_pdfs.py` y el runner los regenera (son deterministas).
+- Los PDFs sintéticos son deterministas; este repo **versiona** los generados en `evals/stress/fixtures/` como evidencia del baseline. El runner los regenera si faltan.
 - API key configurada para poder medir de verdad. Los tests de métricas `tests/test_stress_metrics.py` no tocan el LLM.
 - Un **único proveedor/modelo** durante toda la campaña: las curvas solo son comparables si el modelo no cambia.
 
@@ -49,13 +49,7 @@ Piezas relevantes que se reutilizan o extienden (todas ya en `main`):
 uv add --dev fpdf2
 ```
 
-Añade además a `.gitignore` (los artefactos se regeneran):
-
-```gitignore
-# Sesión 6 — fixtures y resultados del stress test (regenerables)
-evals/stress/fixtures/*.pdf
-evals/stress/results.csv
-```
+Los artefactos de la campaña (`evals/stress/fixtures/*.pdf` y `evals/stress/results.csv`) se versionan; se regeneran con el runner cuando se repite la campaña.
 
 ## ✍ Ejercicio
 
@@ -199,7 +193,7 @@ Fragmento de cada perfil (los tres diseñados para forzar un comportamiento conc
 
 ### Paso 3 — Generar el corpus de adjuntos sintéticos
 
-`evals/stress/fixtures/build_pdfs.py`, con `fpdf2`. Cinco puntos de calibración: `0 KB` es ausencia de adjunto (baseline, no fichero), y `5/20/50/100 KB` son PDFs reales. El runner los regenera; no se commitean.
+`evals/stress/fixtures/build_pdfs.py`, con `fpdf2`. Cinco puntos de calibración: `0 KB` es ausencia de adjunto (baseline, no fichero), y `5/20/50/100 KB` son PDFs reales. El runner los regenera si faltan y este repo versiona los generados.
 
 ```python
 SIZES_KB: tuple[int, ...] = (5, 20, 50, 100)
@@ -336,7 +330,7 @@ El ejercicio está completo cuando:
 - [ ] `uv run python -m evals.stress.run --http http://localhost:8000` corre end-to-end sin errores y deja `evals/stress/results.csv` con ≥ 50 filas (3 escenarios × 5 tamaños × ≥ 3 repeticiones × N turnos).
 - [ ] `evals/stress/metrics.py` expone `LatencyBudgetMetric`, `CostBudgetMetric`, `MemoryDriftMetric`, con tests unitarios verdes.
 - [ ] `evals/stress/REPORT.md` contiene la tabla resumen, las tres curvas (en tabla) y los dos párrafos de lectura, con al menos una afirmación cuantitativa concreta.
-- [ ] Todo está en el repo (los PDFs y `results.csv` se regeneran, no se commitean). El reporte es el deliverable.
+- [ ] Todo está en el repo, **incluidos** los fixtures PDF (`evals/stress/fixtures/*.pdf`) y `evals/stress/results.csv`. El reporte es el deliverable.
 
 ## Checklist de verificación
 
@@ -349,7 +343,7 @@ El ejercicio está completo cuando:
 - [ ] `evals/stress/metrics.py` reutiliza `MetricResult` y hace match exacto case-insensitive (sin embeddings ni LLM).
 - [ ] `tests/test_stress_metrics.py` cubre una métrica que pasa, una que falla y un caso límite.
 - [ ] `evals/stress/run.py` soporta `--http` / in-process y vuelca el CSV con las columnas acordadas.
-- [ ] `.gitignore` excluye `evals/stress/fixtures/*.pdf` y `evals/stress/results.csv`.
+- [ ] `evals/stress/fixtures/*.pdf` y `evals/stress/results.csv` están versionados (`.gitignore` no los excluye).
 - [ ] `uv run pytest`, `uv run ruff check .` y `uv run mypy app frontend` pasan.
 
 ## Documentación de referencia

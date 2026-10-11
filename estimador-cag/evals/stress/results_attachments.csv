@@ -1,0 +1,6 @@
+scenario,attachment_kb,repeat,turn_index,session_id,enriched_transcript_chars,attachments_total_chars,messages_in_window,anchors_count,summary_chars,tokens_in,tokens_out,cost_usd,latency_ms,cache_hit_kind,last_resolved_tier,latency_budget,cost_budget,memory_drift,attachment_recall
+growing,0,0,1,2bbc1579-dd15-4a1b-b265-0f000b25aa45,64,0,2,0,0,5567,2929,0.004951,27906.14,none,default,0.0,1.0,1.0,
+growing,5,0,1,5063282f-1ded-4173-bd3e-62bb66890b74,19601,19477,2,0,0,15986,3566,0.00879,31261.12,none,default,0.0,1.0,1.0,1.0
+growing,20,0,1,3aa7540d-2ca2-44c5-8bfe-bbd91be745de,60125,60000,2,0,0,37625,5175,0.017084,46748.04,none,default,0.0,1.0,1.0,0.0
+growing,50,0,1,298802ea-d999-4424-a327-092528557256,60125,60000,2,0,0,37578,3818,0.01555,37042.82,none,default,0.0,1.0,1.0,0.0
+growing,100,0,1,6df53771-1de0-4fcb-aadc-38d419d8a3a8,60126,60000,2,0,0,37449,3249,0.014874,33364.16,none,default,0.0,1.0,1.0,1.0
