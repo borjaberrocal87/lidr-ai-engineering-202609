@@ -303,7 +303,7 @@ Sobre la memoria conversacional de la sesión 5 construimos tres piezas que vive
 - **Tier dinámico de audiencia** — `executive` / `pm` / `developer` / `default` se derivan de la transcripción y la metadata (o se fuerzan con el campo `tier`), y el prompt conversacional **v3** adapta el encuadre con un bloque `<audiencia>`.
 - **Compresión de memoria con anclas** — detector heurístico o LLM (`ANCHOR_DETECTION_MODE`) + resumidor acumulativo (`COMPRESSION_MODEL`).
 - **Evals / golden dataset** — `evals/` lanza el dataset dorado contra la app y puntúa adherencia al esquema, cotas de coste y recall de contenido. → **[docs/evals-golden-dataset.md](docs/evals-golden-dataset.md)**
-- **Baseline de estrés del CAG (sesión 6)** — `evals/stress/` somete el sistema a conversaciones largas, adjuntos grandes y contradicciones para medir dónde empieza a romperse el CAG. Ver la sección siguiente.
+- **Baseline de estrés del CAG (sesión 6)** — `evals/stress/` somete el sistema a conversaciones largas, adjuntos grandes y contradicciones para medir dónde empieza a romperse el CAG. → **[docs/stress-test-cag.md](docs/stress-test-cag.md)**
 
 ### Baseline de estrés del CAG (sesión 6)
 
