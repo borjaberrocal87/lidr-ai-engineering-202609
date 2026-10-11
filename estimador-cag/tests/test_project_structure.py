@@ -26,7 +26,8 @@ REQUIRED_PATHS = (
     "app/attachments/__init__.py",
     "app/attachments/extractor.py",
     "app/services/__init__.py",
-    "app/services/llm_service.py",
+    "app/services/estimation.py",
+    "app/services/streaming.py",
     "app/services/llm_wrapper.py",
     "app/services/cache.py",
     "app/services/errors.py",
@@ -75,16 +76,14 @@ def test_app_exposes_expected_entrypoints() -> None:
     from app.config import settings
     from app.main import app
     from app.routers import estimations, sessions
-    from app.services.llm_service import (
-        LLMConfigurationError,
-        generate_estimation,
-        generate_session_estimation,
-    )
+    from app.services.errors import LLMConfigurationError
+    from app.services.estimation import EstimationService
+    from app.services.streaming import generate_estimation
 
     assert app.title
     assert settings.llm_provider in {"openai", "anthropic", "custom"}
     assert callable(generate_estimation)
-    assert callable(generate_session_estimation)
+    assert callable(EstimationService.estimate_conversational)
     assert issubclass(LLMConfigurationError, RuntimeError)
     assert estimations.router is not None
     assert sessions.router is not None

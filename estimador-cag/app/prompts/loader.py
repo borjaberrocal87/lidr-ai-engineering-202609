@@ -36,6 +36,9 @@ ESTIMATION_USE_CASE = "estimation"
 METADATA_EXTRACTION_USE_CASE = "metadata_extraction"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
+# Versión por defecto del prompt conversacional (sesión 5). Se elevará a "v3"
+# cuando el prompt con bloque <audience> entre en juego (Fase C del directo).
+DEFAULT_CONVERSATIONAL_PROMPT_VERSION = "v1"
 
 _env = Environment(
     loader=FileSystemLoader(_BASE_DIR),

@@ -195,11 +195,11 @@ def test_to_bytes_returns_float32_bytes() -> None:
 
 
 def test_service_uses_semantic_cache(monkeypatch) -> None:
-    from app.services import llm_service
+    from app.services import estimation
     from tests.conftest import FakeWrapper
 
     fake_wrapper = FakeWrapper()
-    monkeypatch.setattr(llm_service, "get_llm_wrapper", lambda: fake_wrapper)
+    monkeypatch.setattr(estimation, "get_llm_wrapper", lambda: fake_wrapper)
 
     expected = _result()
 
@@ -210,9 +210,9 @@ def test_service_uses_semantic_cache(monkeypatch) -> None:
         def store(self, *args: Any, **kwargs: Any) -> None:
             raise AssertionError("no debe almacenar en un acierto de caché")
 
-    monkeypatch.setattr(llm_service, "get_semantic_cache", lambda: _FakeSemantic())
+    monkeypatch.setattr(estimation, "get_semantic_cache", lambda: _FakeSemantic())
 
-    outcome = llm_service.generate_structured_estimation(_request())
+    outcome = estimation.EstimationService().estimate(_request())
 
     assert outcome.cache_hit is True
     assert outcome.result == expected

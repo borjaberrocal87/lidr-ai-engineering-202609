@@ -70,10 +70,12 @@ def _forbid_real_llm(monkeypatch):
     def _forbidden():
         raise RuntimeError(
             "Llamada al LLM real bloqueada en tests. Mockea "
-            "app.services.llm_service.get_llm_wrapper."
+            "app.services.estimation.get_llm_wrapper o "
+            "app.services.streaming.get_llm_wrapper."
         )
 
-    monkeypatch.setattr("app.services.llm_service.get_llm_wrapper", _forbidden)
+    monkeypatch.setattr("app.services.estimation.get_llm_wrapper", _forbidden)
+    monkeypatch.setattr("app.services.streaming.get_llm_wrapper", _forbidden)
 
 
 @pytest.fixture

@@ -20,7 +20,7 @@ from app.attachments.extractor import (
     extract_text,
 )
 from app.config import settings
-from app.dependencies import get_session_store
+from app.dependencies import get_estimation_service, get_session_store
 from app.guardrails.input import InputGuardrailViolation
 from app.routers.estimations import validated_prompt_version
 from app.schemas.estimations import (
@@ -29,11 +29,8 @@ from app.schemas.estimations import (
     ProjectType,
     SessionEstimateResponse,
 )
-from app.services.llm_service import (
-    LLMConfigurationError,
-    LLMProviderError,
-    generate_session_estimation,
-)
+from app.services.errors import LLMConfigurationError, LLMProviderError
+from app.services.estimation import EstimationService
 from app.sessions.models import ProjectMetadata
 from app.sessions.store import SessionNotFoundError, SessionStore
 
@@ -94,6 +91,7 @@ async def estimate_in_session(
     output_format: Annotated[OutputFormat, Form()],
     version: Annotated[str, Depends(validated_prompt_version)],
     store: Annotated[SessionStore, Depends(get_session_store)],
+    service: Annotated[EstimationService, Depends(get_estimation_service)],
     attachments: Annotated[list[UploadFile] | None, File()] = None,
 ) -> SessionEstimateResponse:
     try:
@@ -139,7 +137,7 @@ async def estimate_in_session(
     )
 
     try:
-        outcome = generate_session_estimation(
+        outcome = service.estimate_conversational(
             session=session,
             transcript=enriched,
             project_type=project_type,

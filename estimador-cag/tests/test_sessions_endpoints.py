@@ -13,7 +13,7 @@ from app.config import settings
 from app.dependencies import get_session_store
 from app.main import app
 from app.schemas.estimations import EstimationResult
-from app.services import llm_service
+from app.services import estimation
 from app.sessions.models import ProjectMetadata
 from app.sessions.store import SessionStore
 
@@ -111,7 +111,7 @@ async def client(
     store: SessionStore, fake_wrapper: FakeConversationalWrapper, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[httpx.AsyncClient]:
     app.dependency_overrides[get_session_store] = lambda: store
-    monkeypatch.setattr(llm_service, "get_llm_wrapper", lambda: fake_wrapper)
+    monkeypatch.setattr(estimation, "get_llm_wrapper", lambda: fake_wrapper)
     monkeypatch.setattr(settings, "guardrails_enabled", False)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
