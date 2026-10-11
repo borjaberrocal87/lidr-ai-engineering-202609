@@ -255,8 +255,9 @@ A partir de la sesión 5 el estimator mantiene **memoria dentro de una sesión**
 | Método | Ruta | Descripción |
 | --- | --- | --- |
 | `POST` | `/sessions` | Crea una sesión vacía y devuelve `{ "session_id": "<uuid>" }`. |
-| `GET` | `/sessions/{session_id}` | Vista de debug: `metadata`, tamaño del historial y `max_turns`. |
+| `GET` | `/sessions/{session_id}` | Vista de debug: `metadata`, historial, anclas, resumen y último tier resuelto. |
 | `POST` | `/sessions/{session_id}/estimate` | Turno multi-turno (`multipart/form-data`) con transcripción + adjuntos. |
+| `POST` | `/sessions/{session_id}/estimate-acb` | Igual, pero con el patrón **Actor-Critic-Boss**: devuelve además `acb` (traza de auditoría). |
 
 ```bash
 # 1) Crear sesión
@@ -271,19 +272,34 @@ curl -s -X POST "localhost:8000/api/v1/sessions/$SESSION/estimate" \
   -F 'attachments=@docs/spec.docx' \
   | jq '{prompt_version, metadata, history_messages, result}'
 
+# 2b) Variante Actor-Critic-Boss (tier opcional: executive|pm|developer|default)
+curl -s -X POST "localhost:8000/api/v1/sessions/$SESSION/estimate-acb" \
+  -F 'transcript=Necesitamos un CRM para el equipo de ventas.' \
+  -F 'project_type=web_saas' -F 'detail_level=medium' -F 'output_format=phases_table' \
+  | jq '{acb, result}'
+
 # 3) Ver la memoria acumulada
-curl -s "localhost:8000/api/v1/sessions/$SESSION" | jq .metadata
+curl -s "localhost:8000/api/v1/sessions/$SESSION" | jq '{metadata, anchors_count, summary_chars, last_resolved_tier}'
 ```
 
 ### Historial vs memoria
 
-- **Historial**: el array `messages` que viaja al modelo. Se conserva una **ventana deslizante** por sesión (`MAX_CONVERSATION_TURNS`, por defecto 6 pares user+assistant); al superarla se descartan los pares más antiguos. El **system prompt no se almacena**: se regenera en cada turno desde la metadata actual.
+- **Historial**: el array `messages` que viaja al modelo. Se conserva una **ventana deslizante** por sesión (`MAX_CONVERSATION_TURNS`, por defecto 6 pares user+assistant). Al superarla, la **compresión de memoria** (`CompressionPolicy`) promueve a `anchors` los turnos con compromisos durables (NDA, alcance congelado, compliance, presupuesto bloqueado) y **resume** el resto en un `summary` acumulativo. El **system prompt no se almacena**: se regenera en cada turno desde la metadata actual. El array final que ve el LLM es `[resumen?] + anclas + ventana reciente`.
 - **Memoria**: `project_metadata` (`project_name`, `assumed_team_size`, `mentioned_technologies`, `agreed_scope`). Se inyecta en un bloque `<project_metadata>` del system prompt. La extracción es una **segunda llamada LLM por turno** con salida estructurada (`METADATA_EXTRACTOR_MODEL`); si falla, se conserva la metadata anterior. El merge sobrescribe escalares con valores no nulos y une las tecnologías sin distinguir mayúsculas.
 - El endpoint conversacional **no usa caché**: cada turno depende del historial y de la metadata, así que dos transcripciones idénticas en sesiones distintas no son la misma llamada.
 
 ### Adjuntos: Camino B (extracción local)
 
 Elegimos extraer el texto en el servicio con **`pypdf`** (PDF) y **`python-docx`** (Word) y concatenarlo a la transcripción delimitado por fences (`--- attachment: <fichero> ---` / `--- end attachment ---`). Ventajas: es independiente del proveedor, se puede testear sin red y deja el texto preparado para el chunking de RAG. El precio es que se pierde la comprensión multimodal de diagramas. Cada adjunto se trunca a `MAX_ATTACHMENT_CHARS`. Una extensión no soportada devuelve **415**; un fichero corrupto, **422**.
+
+### Arquitectura y patrones (sesión 5, directo)
+
+Sobre la memoria conversacional de la sesión 5 construimos tres piezas que viven en `app/services` y `app/sessions`:
+
+- **Patrón Actor-Critic-Boss (ACB)** — el endpoint `/estimate-acb` genera un borrador (Actor), lo audita un revisor independiente (Critic) y un orquestador sin LLM (Boss) decide aceptar, iterar con feedback o sintetizar un fallback anotado. La respuesta incluye `acb` con la traza de cada ronda. → **[docs/patron-actor-critic-boss.md](docs/patron-actor-critic-boss.md)**
+- **Tier dinámico de audiencia** — `executive` / `pm` / `developer` / `default` se derivan de la transcripción y la metadata (o se fuerzan con el campo `tier`), y el prompt conversacional **v3** adapta el encuadre con un bloque `<audiencia>`.
+- **Compresión de memoria con anclas** — detector heurístico o LLM (`ANCHOR_DETECTION_MODE`) + resumidor acumulativo (`COMPRESSION_MODEL`).
+- **Evals / golden dataset** — `evals/` lanza el dataset dorado contra la app y puntúa adherencia al esquema, cotas de coste y recall de contenido. → **[docs/evals-golden-dataset.md](docs/evals-golden-dataset.md)**
 
 ## Cliente de negocio (Node)
 
@@ -378,6 +394,8 @@ app/prompts/
         └── examples.j2
 ```
 
+Además, desde la sesión 5 (directo) existen tres casos de uso de prompt más: `estimation/v3/` (conversacional con bloque `<audiencia>` por tier y soporte de `critic_feedback`), `metadata_extraction/v1/` (extractor de `ProjectMetadata`), `critic/v1/` (auditor ACB) y `conversation_summary/v1/` (resumidor acumulativo).
+
 El `Environment` de Jinja2 usa `FileSystemLoader` sobre `app/prompts/`, `StrictUndefined` (un typo entre el contexto y la plantilla revienta en el render, no se interpola vacío) y `trim_blocks`/`lstrip_blocks` (las etiquetas de control no dejan saltos ni espacios en el prompt). `system.j2` decide el bloque de `output_format` y el de `detail_level` con `{% if %}` e incluye los ejemplos con `{% include "estimation/<versión>/examples.j2" %}`.
 
 `render_estimation_prompt` devuelve `(system, user)` por separado, que es lo que el wrapper envía como dos mensajes (`role: "system"` y `role: "user"`). `available_estimation_versions()` lista las versiones presentes en disco.
@@ -395,6 +413,7 @@ curl -s "localhost:8000/api/v1/context?prompt_version=v2" | jq '{prompt_version,
 
 - `v1` — tono directo, cifras cerradas.
 - `v2` — tono escéptico: expresa duración y coste como **rangos**, enumera los vacíos de información y siempre añade riesgos y supuestos. Usa un set de ejemplos distinto (data pipeline, herramienta interna).
+- `v3` — base v2 + bloque `<audiencia>` gobernado por el tier (`executive`/`pm`/`developer`/`default`) y soporte de `critic_feedback` en el bucle Actor-Critic-Boss. Es la versión por defecto de los endpoints de sesión (se puede forzar con `?prompt_version=`).
 
 ### Proyectos de referencia (opcional)
 
@@ -525,6 +544,11 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `MAX_CONVERSATION_TURNS`  | Pares user+assistant de la ventana deslizante     | `6`           |
 | `MAX_ATTACHMENT_CHARS`    | Tope de texto extraído por adjunto (caracteres)   | `60000`       |
 | `METADATA_EXTRACTOR_MODEL` | Modelo del extractor de metadata (vacío = `LLM_MODEL`) | —       |
+| `CONVERSATIONAL_PROMPT_VERSION` | Versión del prompt conversacional (vacío = `v3`) | `v3`  |
+| `CRITIC_MODEL`            | Modelo del Critic ACB (vacío = `LLM_MODEL`)        | —             |
+| `BOSS_MAX_ITERATIONS`     | Iteraciones máximas del bucle Actor-Critic-Boss   | `2`           |
+| `COMPRESSION_MODEL`       | Modelo del resumidor/anclas (vacío = `LLM_MODEL`) | —             |
+| `ANCHOR_DETECTION_MODE`   | Detección de anclas: `heuristic` o `llm`          | `heuristic`   |
 | `OPEN_AI_KEY`             | API key de OpenAI                                 | —             |
 | `ANTHROPIC_API_KEY`       | API key de Anthropic                              | —             |
 | `CUSTOM_LLM_BASE_URL`     | URL base del endpoint OpenAI-compatible           | —             |

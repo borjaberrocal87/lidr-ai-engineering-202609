@@ -14,6 +14,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field, model_validator
 
 from app.config import settings
+from app.schemas.acb import BossTrace
 from app.sessions.models import ProjectMetadata
 
 
@@ -178,6 +179,17 @@ class SessionEstimateResponse(BaseModel):
     output_tokens: int | None = Field(None, description="Tokens de salida generados.")
     cost_usd: float | None = Field(None, description="Coste estimado de la llamada (USD).")
     fallback_used: bool = Field(False, description="True si se usó el modelo de fallback.")
+
+
+class ACBResponse(SessionEstimateResponse):
+    """Respuesta de `POST /api/v1/sessions/{session_id}/estimate-acb` (sesión 5).
+
+    Misma forma que `SessionEstimateResponse` más el campo ``acb`` con la traza de
+    auditoría del patrón Actor-Critic-Boss. La UI usa la traza para renderizar un
+    desplegable con lo que el Critic señaló en cada paso y cómo decidió el Boss.
+    """
+
+    acb: BossTrace = Field(..., description="Traza de auditoría del Actor-Critic-Boss.")
 
 
 class ContextResponse(BaseModel):

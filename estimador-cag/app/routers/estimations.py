@@ -1,12 +1,15 @@
 from collections.abc import Iterator
+from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from app.config import settings
+from app.dependencies import get_estimation_service
 from app.guardrails.input import InputGuardrailViolation
 from app.prompts.loader import (
+    DEFAULT_CONVERSATIONAL_PROMPT_VERSION,
     DEFAULT_ESTIMATION_PROMPT_VERSION,
     available_estimation_versions,
     render_estimation_prompt,
@@ -20,12 +23,14 @@ from app.schemas.estimations import (
     StreamDoneEvent,
     StructuredEstimateResponse,
 )
-from app.services.llm_service import (
+from app.services.errors import (
     LLMConfigurationError,
     LLMInputError,
     LLMProviderError,
+)
+from app.services.estimation import EstimationService
+from app.services.streaming import (
     StreamMetrics,
-    generate_structured_estimation,
     stream_estimation,
 )
 
@@ -69,6 +74,18 @@ def validated_prompt_version(prompt_version: str = PROMPT_VERSION) -> str:
     return _resolve_prompt_version(prompt_version)
 
 
+def validated_conversational_prompt_version(
+    prompt_version: str = DEFAULT_CONVERSATIONAL_PROMPT_VERSION,
+) -> str:
+    """Valida la versión del prompt conversacional (default: v3, sesión 5).
+
+    A diferencia de `validated_prompt_version`, arranca en la versión
+    conversacional por defecto (con bloque `<audiencia>`), no en la v1 del
+    formulario estructurado.
+    """
+    return _resolve_prompt_version(prompt_version)
+
+
 @router.post(
     "/estimate",
     response_model=StructuredEstimateResponse,
@@ -76,10 +93,11 @@ def validated_prompt_version(prompt_version: str = PROMPT_VERSION) -> str:
 )
 def estimate(
     payload: EstimationRequest,
-    version: str = Depends(validated_prompt_version),
+    version: Annotated[str, Depends(validated_prompt_version)],
+    service: Annotated[EstimationService, Depends(get_estimation_service)],
 ) -> StructuredEstimateResponse:
     try:
-        outcome = generate_structured_estimation(payload, version=version)
+        outcome = service.estimate(payload, version=version)
     except InputGuardrailViolation as exc:
         logger.info("estimate.guardrail_blocked", reason=exc.reason, message=exc.message)
         raise HTTPException(

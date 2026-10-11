@@ -5,7 +5,10 @@ de Redis durante toda la vida del proceso. Los tests pueden sustituir
 `get_llm_wrapper` con un doble.
 """
 
+from __future__ import annotations
+
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 import redis
 import structlog
@@ -16,6 +19,9 @@ from app.config import get_settings, reveal_secret
 from app.services.cache import InMemoryCache, NullCache, RedisCache, ResponseCache
 from app.services.llm_wrapper import LLMWrapper, provider_from_model
 from app.sessions.store import SessionStore
+
+if TYPE_CHECKING:
+    from app.services.estimation import EstimationService
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -59,6 +65,21 @@ def get_session_store() -> SessionStore:
     """
     settings = get_settings()
     return SessionStore(max_turns=settings.max_conversation_turns)
+
+
+def get_estimation_service() -> EstimationService:
+    """Orquestador de estimación (structured + conversacional + ACB).
+
+    No se cachea: ``EstimationService`` no tiene estado y lee su configuración
+    de ``settings`` en cada llamada, así que devolver una instancia nueva por
+    petición es barato y mantiene los tests libres de estado compartido.
+
+    El import es diferido para evitar el ciclo ``dependencies ↔ estimation``
+    (``estimation`` importa los getters de infraestructura de este módulo).
+    """
+    from app.services.estimation import EstimationService
+
+    return EstimationService()
 
 
 @lru_cache

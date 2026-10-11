@@ -20,22 +20,21 @@ from app.attachments.extractor import (
     extract_text,
 )
 from app.config import settings
-from app.dependencies import get_session_store
+from app.dependencies import get_estimation_service, get_session_store
 from app.guardrails.input import InputGuardrailViolation
-from app.routers.estimations import validated_prompt_version
+from app.routers.estimations import validated_conversational_prompt_version
 from app.schemas.estimations import (
+    ACBResponse,
     DetailLevel,
     OutputFormat,
     ProjectType,
     SessionEstimateResponse,
 )
-from app.services.llm_service import (
-    LLMConfigurationError,
-    LLMProviderError,
-    generate_session_estimation,
-)
-from app.sessions.models import ProjectMetadata
+from app.services.errors import LLMConfigurationError, LLMProviderError
+from app.services.estimation import EstimationService
+from app.sessions.models import ProjectMetadata, Session
 from app.sessions.store import SessionNotFoundError, SessionStore
+from app.sessions.tier_resolver import Tier
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -51,6 +50,10 @@ class SessionInfoResponse(BaseModel):
     message_count: int
     max_turns: int
     metadata: ProjectMetadata
+    anchors_count: int = 0
+    summary_chars: int = 0
+    last_resolved_tier: str | None = None
+    last_tier_rule: str | None = None
 
 
 @router.post("", response_model=CreateSessionResponse, status_code=201)
@@ -76,6 +79,10 @@ def get_session(
         message_count=len(session.history.messages),
         max_turns=session.history.max_turns,
         metadata=session.metadata,
+        anchors_count=len(session.history.anchors),
+        summary_chars=len(session.history.summary or ""),
+        last_resolved_tier=session.last_resolved_tier,
+        last_tier_rule=session.last_tier_rule,
     )
 
 
@@ -92,10 +99,92 @@ async def estimate_in_session(
     project_type: Annotated[ProjectType, Form()],
     detail_level: Annotated[DetailLevel, Form()],
     output_format: Annotated[OutputFormat, Form()],
-    version: Annotated[str, Depends(validated_prompt_version)],
+    version: Annotated[str, Depends(validated_conversational_prompt_version)],
     store: Annotated[SessionStore, Depends(get_session_store)],
+    service: Annotated[EstimationService, Depends(get_estimation_service)],
+    tier: Annotated[Tier | None, Form()] = None,
     attachments: Annotated[list[UploadFile] | None, File()] = None,
 ) -> SessionEstimateResponse:
+    session, enriched = await _load_session_and_enrich(session_id, transcript, attachments, store)
+    try:
+        outcome = service.estimate_conversational(
+            session=session,
+            transcript=enriched,
+            project_type=project_type,
+            detail_level=detail_level,
+            output_format=output_format,
+            tier=tier,
+            version=version,
+        )
+    except Exception as exc:
+        raise _map_pipeline_errors(exc) from exc
+
+    return SessionEstimateResponse(
+        session_id=session.session_id,
+        result=outcome.result,
+        prompt_version=version,
+        metadata=session.metadata,
+        history_messages=len(session.history.messages),
+        model=outcome.model,
+        provider=outcome.provider,
+        input_tokens=outcome.input_tokens,
+        output_tokens=outcome.output_tokens,
+        cost_usd=outcome.cost_usd,
+        fallback_used=outcome.fallback_used,
+    )
+
+
+@router.post("/{session_id}/estimate-acb", response_model=ACBResponse)
+async def estimate_in_session_acb(
+    session_id: str,
+    transcript: Annotated[
+        str,
+        Form(
+            min_length=settings.description_min_length,
+            max_length=settings.description_max_length,
+        ),
+    ],
+    project_type: Annotated[ProjectType, Form()],
+    detail_level: Annotated[DetailLevel, Form()],
+    output_format: Annotated[OutputFormat, Form()],
+    version: Annotated[str, Depends(validated_conversational_prompt_version)],
+    store: Annotated[SessionStore, Depends(get_session_store)],
+    service: Annotated[EstimationService, Depends(get_estimation_service)],
+    tier: Annotated[Tier | None, Form()] = None,
+    attachments: Annotated[list[UploadFile] | None, File()] = None,
+) -> ACBResponse:
+    """Variante Actor-Critic-Boss de `/estimate`.
+
+    Mismo contrato multipart; la respuesta incluye el campo ``acb`` con la traza
+    de iteraciones (veredicto, confianza e issues por ronda) para que el cliente
+    pueda mostrar la auditoría en su UI.
+    """
+    session, enriched = await _load_session_and_enrich(session_id, transcript, attachments, store)
+    try:
+        return service.estimate_with_acb(
+            session=session,
+            transcript=enriched,
+            project_type=project_type,
+            detail_level=detail_level,
+            output_format=output_format,
+            tier=tier,
+            version=version,
+        )
+    except Exception as exc:
+        raise _map_pipeline_errors(exc) from exc
+
+
+async def _load_session_and_enrich(
+    session_id: str,
+    transcript: str,
+    attachments: list[UploadFile] | None,
+    store: SessionStore,
+) -> tuple[Session, str]:
+    """Preludio compartido por `/estimate` y `/estimate-acb`.
+
+    Devuelve ``(session, transcript_enriquecido)``. Lanza ``HTTPException`` para
+    problemas de sesión o adjuntos; el error del LLM lo mapea el llamante.
+    """
     try:
         session = store.get_or_404(session_id)
     except SessionNotFoundError as exc:
@@ -137,39 +226,20 @@ async def estimate_in_session(
         enriched_chars=len(enriched),
         attachment_count=len(extracted),
     )
+    return session, enriched
 
-    try:
-        outcome = generate_session_estimation(
-            session=session,
-            transcript=enriched,
-            project_type=project_type,
-            detail_level=detail_level,
-            output_format=output_format,
-            version=version,
-        )
-    except InputGuardrailViolation as exc:
+
+def _map_pipeline_errors(exc: Exception) -> HTTPException:
+    """Mapeo común: guardrail de entrada → 400, config → 503, proveedor → 502."""
+    if isinstance(exc, InputGuardrailViolation):
         logger.info("session.estimate_guardrail_blocked", reason=exc.reason)
-        raise HTTPException(
-            status_code=400, detail={"reason": exc.reason, "message": exc.message}
-        ) from exc
-    except LLMConfigurationError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except LLMProviderError as exc:
+        return HTTPException(status_code=400, detail={"reason": exc.reason, "message": exc.message})
+    if isinstance(exc, LLMConfigurationError):
+        return HTTPException(status_code=503, detail=str(exc))
+    if isinstance(exc, LLMProviderError):
         logger.warning("session.estimate_provider_error", provider=settings.llm_provider)
-        raise HTTPException(
+        return HTTPException(
             status_code=502, detail="No se pudo generar la estimación. Inténtalo de nuevo."
-        ) from exc
-
-    return SessionEstimateResponse(
-        session_id=session.session_id,
-        result=outcome.result,
-        prompt_version=version,
-        metadata=session.metadata,
-        history_messages=len(session.history.messages),
-        model=outcome.model,
-        provider=outcome.provider,
-        input_tokens=outcome.input_tokens,
-        output_tokens=outcome.output_tokens,
-        cost_usd=outcome.cost_usd,
-        fallback_used=outcome.fallback_used,
-    )
+        )
+    logger.exception("session.estimate_unexpected_error")
+    return HTTPException(status_code=502, detail="Error inesperado generando la estimación.")

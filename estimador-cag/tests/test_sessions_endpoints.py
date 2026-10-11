@@ -12,8 +12,9 @@ import pytest
 from app.config import settings
 from app.dependencies import get_session_store
 from app.main import app
+from app.schemas.critic import CriticFeedback
 from app.schemas.estimations import EstimationResult
-from app.services import llm_service
+from app.services import estimation
 from app.sessions.models import ProjectMetadata
 from app.sessions.store import SessionStore
 
@@ -78,10 +79,20 @@ class FakeConversationalWrapper:
         messages: list[dict[str, str]],
         response_model: type,
         **kwargs: Any,
-    ) -> tuple[EstimationResult, dict[str, Any]]:
-        self.estimation_calls.append(messages)
-        index = min(len(self.estimation_calls) - 1, len(self.estimations) - 1)
-        return self.estimations[index], _meta()
+    ) -> tuple[Any, dict[str, Any]]:
+        if response_model is CriticFeedback:
+            return CriticFeedback(verdict="accept", issues=[], confidence_in_review=90), _meta()
+        if response_model is EstimationResult:
+            self.estimation_calls.append(messages)
+            index = min(len(self.estimation_calls) - 1, len(self.estimations) - 1)
+            return self.estimations[index], _meta()
+        # Envoltorios auxiliares (resumen acumulativo / ancla vía LLM).
+        fields = getattr(response_model, "model_fields", {})
+        if "summary" in fields:
+            return response_model(summary="Resumen acumulado de turnos previos."), _meta()
+        if "is_anchor" in fields:
+            return response_model(is_anchor=False), _meta()
+        return response_model(), _meta()
 
     def complete_structured(
         self,
@@ -111,7 +122,7 @@ async def client(
     store: SessionStore, fake_wrapper: FakeConversationalWrapper, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[httpx.AsyncClient]:
     app.dependency_overrides[get_session_store] = lambda: store
-    monkeypatch.setattr(llm_service, "get_llm_wrapper", lambda: fake_wrapper)
+    monkeypatch.setattr(estimation, "get_llm_wrapper", lambda: fake_wrapper)
     monkeypatch.setattr(settings, "guardrails_enabled", False)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
@@ -200,9 +211,9 @@ async def test_history_respects_the_sliding_window(
         response = await client.post(f"/api/v1/sessions/{session_id}/estimate", data=body)
         assert response.status_code == 200, response.text
 
-    # max_turns=3 => system + 3*2 de ventana + 1 turno actual = 8 como máximo.
+    # max_turns=3 => system + (resumen?) + 3*2 de ventana + 1 turno actual = 9 máximo.
     for messages in fake_wrapper.estimation_calls:
-        assert len(messages) <= 8
+        assert len(messages) <= 9
 
     session = store.get_or_404(session_id)
     assert len(session.history.messages) <= 3 * 2
@@ -233,3 +244,15 @@ async def test_create_session_returns_unique_ids(client: httpx.AsyncClient) -> N
     first = await _create_session(client)
     second = await _create_session(client)
     assert first != second
+
+
+async def test_acb_endpoint_returns_audit_trail(client: httpx.AsyncClient) -> None:
+    session_id = await _create_session(client)
+    response = await client.post(f"/api/v1/sessions/{session_id}/estimate-acb", data=VALID_FORM)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["acb"]["final_decision"] == "accept"
+    assert body["acb"]["iterations_run"] == 1
+    assert body["result"]["total_cost_eur"] == 25_000
+    assert body["session_id"] == session_id

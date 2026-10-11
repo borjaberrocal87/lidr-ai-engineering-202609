@@ -4,30 +4,39 @@ from __future__ import annotations
 
 import pytest
 
-from app.sessions.models import ConversationHistory, ProjectMetadata, Session
+from app.sessions.models import ConversationHistory, Message, ProjectMetadata, Session
 from app.sessions.store import SessionNotFoundError, SessionStore
 
 
-def test_history_sliding_window_drops_oldest_pairs() -> None:
+def test_history_composes_summary_anchors_and_recent_window() -> None:
     history = ConversationHistory(max_turns=2)
-    history.append(user="t1u", assistant="t1a")
-    history.append(user="t2u", assistant="t2a")
-    history.append(user="t3u", assistant="t3a")
+    history.summary = "El cliente firmó un NDA y congeló el alcance."
+    history.anchors = [
+        Message(role="user", content="anchor-user"),
+        Message(role="assistant", content="anchor-assistant"),
+    ]
+    history.append(user="u1", assistant="a1")
+    history.append(user="u2", assistant="a2")
 
     messages = history.to_messages_list("SYSTEM")
-    assert len(messages) == 5  # system + 2 turns * 2
+
     assert messages[0] == {"role": "system", "content": "SYSTEM"}
-    assert messages[1] == {"role": "user", "content": "t2u"}
-    assert messages[-1] == {"role": "assistant", "content": "t3a"}
+    assert messages[1]["role"] == "user"
+    assert "[Earlier conversation summary" in messages[1]["content"]
+    assert "NDA" in messages[1]["content"]
+    assert messages[2] == {"role": "user", "content": "anchor-user"}
+    assert messages[3] == {"role": "assistant", "content": "anchor-assistant"}
+    assert messages[-1] == {"role": "assistant", "content": "a2"}
 
 
-def test_history_keeps_role_alternation() -> None:
+def test_history_append_keeps_all_turns_until_compression() -> None:
     history = ConversationHistory(max_turns=3)
     for index in range(5):
         history.append(user=f"u{index}", assistant=f"a{index}")
 
     roles = [message.role for message in history.messages]
-    assert roles == ["user", "assistant"] * 3
+    # El recorte ya no ocurre en `append`: lo gestiona `CompressionPolicy`.
+    assert roles == ["user", "assistant"] * 5
 
 
 def test_project_metadata_is_empty_by_default() -> None:

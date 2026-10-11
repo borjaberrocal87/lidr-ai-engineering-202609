@@ -1,4 +1,4 @@
-"""Tests del servicio de estimación con el wrapper de proveedores mockeado."""
+"""Tests del camino de texto libre y streaming (``app.services.streaming``)."""
 
 from types import SimpleNamespace
 from typing import Any
@@ -6,28 +6,27 @@ from typing import Any
 import pytest
 from structlog.testing import capture_logs
 
+from app.config import settings
 from app.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
     OutputFormat,
     ProjectType,
 )
-from app.services import llm_service
+from app.services import estimation, streaming
 from app.services.cache import InMemoryCache
 from app.services.errors import (
     LLMConfigurationError,
     LLMInputError,
     LLMProviderError,
 )
-from app.services.llm_service import (
+from app.services.llm_wrapper import LLMWrapper
+from app.services.streaming import (
     StreamMetrics,
-    StructuredEstimation,
     TextEstimationResult,
     generate_estimation,
-    generate_structured_estimation,
     stream_estimation,
 )
-from app.services.llm_wrapper import LLMWrapper
 from tests.conftest import FakeWrapper
 
 DESCRIPTION = "El cliente necesita una landing page con integración con HubSpot."
@@ -45,74 +44,74 @@ def _request(**overrides: Any) -> EstimationRequest:
 
 
 def _use_wrapper(monkeypatch, fake: FakeWrapper) -> None:
-    monkeypatch.setattr(llm_service, "get_llm_wrapper", lambda: fake)
+    monkeypatch.setattr(streaming, "get_llm_wrapper", lambda: fake)
 
 
 def test_unsupported_provider_raises(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "gemini")
+    monkeypatch.setattr(settings, "llm_provider", "gemini")
 
     with pytest.raises(LLMConfigurationError):
         generate_estimation(_request())
 
 
 def test_openai_missing_key_raises(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "openai")
-    monkeypatch.setattr(llm_service.settings, "open_ai_key", "")
+    monkeypatch.setattr(settings, "llm_provider", "openai")
+    monkeypatch.setattr(settings, "open_ai_key", "")
 
     with pytest.raises(LLMConfigurationError, match="OPEN_AI_KEY"):
         generate_estimation(_request())
 
 
 def test_anthropic_missing_key_raises(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "anthropic")
-    monkeypatch.setattr(llm_service.settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "llm_provider", "anthropic")
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
 
     with pytest.raises(LLMConfigurationError, match="ANTHROPIC_API_KEY"):
         generate_estimation(_request())
 
 
 def test_custom_missing_base_url_raises(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "custom")
-    monkeypatch.setattr(llm_service.settings, "custom_llm_base_url", "")
-    monkeypatch.setattr(llm_service.settings, "custom_llm_api_key", "test-key")
+    monkeypatch.setattr(settings, "llm_provider", "custom")
+    monkeypatch.setattr(settings, "custom_llm_base_url", "")
+    monkeypatch.setattr(settings, "custom_llm_api_key", "test-key")
 
     with pytest.raises(LLMConfigurationError, match="CUSTOM_LLM_BASE_URL"):
         generate_estimation(_request())
 
 
 def test_custom_missing_key_raises(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "custom")
-    monkeypatch.setattr(llm_service.settings, "custom_llm_base_url", "http://localhost:11434/v1")
-    monkeypatch.setattr(llm_service.settings, "custom_llm_api_key", "")
+    monkeypatch.setattr(settings, "llm_provider", "custom")
+    monkeypatch.setattr(settings, "custom_llm_base_url", "http://localhost:11434/v1")
+    monkeypatch.setattr(settings, "custom_llm_api_key", "")
 
     with pytest.raises(LLMConfigurationError, match="CUSTOM_LLM_API_KEY"):
         generate_estimation(_request())
 
 
 def test_description_demasiado_larga_raises_input_error(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "description_max_length", 20)
+    monkeypatch.setattr(settings, "description_max_length", 20)
 
     with pytest.raises(LLMInputError, match="entre"):
         generate_estimation(_request())
 
 
 def test_description_demasiado_corta_raises_input_error(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "description_min_length", 100)
+    monkeypatch.setattr(settings, "description_min_length", 100)
 
     with pytest.raises(LLMInputError, match="entre"):
         generate_estimation(_request())
 
 
 def test_stream_description_fuera_de_rango_raises_input_error(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "description_max_length", 20)
+    monkeypatch.setattr(settings, "description_max_length", 20)
 
     with pytest.raises(LLMInputError, match="entre"):
         stream_estimation(_request())
 
 
 def test_generate_estimation_maps_wrapper_result(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "openai")
-    monkeypatch.setattr(llm_service.settings, "temperature", 0.3)
+    monkeypatch.setattr(settings, "llm_provider", "openai")
+    monkeypatch.setattr(settings, "temperature", 0.3)
     fake = FakeWrapper(
         result={
             "estimation": "## Estimación OpenAI",
@@ -146,7 +145,7 @@ def test_generate_estimation_maps_wrapper_result(monkeypatch) -> None:
 
 
 def test_generate_estimation_envia_prompt_renderizado_y_descripcion_separados(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "temperature", 0.2)
+    monkeypatch.setattr(settings, "temperature", 0.2)
     fake = FakeWrapper()
     _use_wrapper(monkeypatch, fake)
 
@@ -159,7 +158,7 @@ def test_generate_estimation_envia_prompt_renderizado_y_descripcion_separados(mo
     assert DESCRIPTION not in call["system_prompt"]
     assert "<project_description>" in call["user_message"]
     assert call["temperature"] == 0.2
-    assert call["max_tokens"] == llm_service.settings.llm_max_tokens
+    assert call["max_tokens"] == settings.llm_max_tokens
     assert DESCRIPTION in call["cache_key"]
 
 
@@ -193,7 +192,7 @@ def test_stream_estimation_yields_deltas_and_metrics(monkeypatch) -> None:
     call = fake.stream_calls[0]
     assert "<examples>" in call["system_prompt"]
     assert DESCRIPTION in call["user_message"]
-    assert call["max_tokens"] == llm_service.settings.llm_max_tokens
+    assert call["max_tokens"] == settings.llm_max_tokens
     assert DESCRIPTION in call["cache_key"]
 
 
@@ -206,25 +205,25 @@ def test_stream_respuesta_vacia_raises(monkeypatch) -> None:
 
 
 def test_stream_missing_key_raises_eagerly(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "openai")
-    monkeypatch.setattr(llm_service.settings, "open_ai_key", "")
+    monkeypatch.setattr(settings, "llm_provider", "openai")
+    monkeypatch.setattr(settings, "open_ai_key", "")
 
     with pytest.raises(LLMConfigurationError, match="OPEN_AI_KEY"):
         stream_estimation(_request())
 
 
 def test_stream_unsupported_provider_raises(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "gemini")
+    monkeypatch.setattr(settings, "llm_provider", "gemini")
 
     with pytest.raises(LLMConfigurationError):
         stream_estimation(_request())
 
 
 def test_anthropic_temperature_ignorada_emite_warning(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "anthropic")
-    monkeypatch.setattr(llm_service.settings, "anthropic_api_key", "test-key")
-    monkeypatch.setattr(llm_service.settings, "temperature", 0.9)
-    monkeypatch.setattr(llm_service, "_temperature_warning_emitted", False)
+    monkeypatch.setattr(settings, "llm_provider", "anthropic")
+    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+    monkeypatch.setattr(settings, "temperature", 0.9)
+    monkeypatch.setattr(estimation, "_temperature_warning_emitted", False)
     _use_wrapper(monkeypatch, FakeWrapper())
 
     with capture_logs() as logs:
@@ -235,9 +234,9 @@ def test_anthropic_temperature_ignorada_emite_warning(monkeypatch) -> None:
 
 
 def _openai_settings(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "openai")
-    monkeypatch.setattr(llm_service.settings, "open_ai_key", "test-key")
-    monkeypatch.setattr(llm_service.settings, "temperature", 0.2)
+    monkeypatch.setattr(settings, "llm_provider", "openai")
+    monkeypatch.setattr(settings, "open_ai_key", "test-key")
+    monkeypatch.setattr(settings, "temperature", 0.2)
 
 
 def _completion(text: str = "## Estimación") -> SimpleNamespace:
@@ -268,7 +267,7 @@ def test_generate_estimation_reusa_cache_con_la_misma_descripcion(monkeypatch) -
 
     wrapper = _real_wrapper()
     monkeypatch.setattr(wrapper.router, "completion", fake_completion)
-    monkeypatch.setattr(llm_service, "get_llm_wrapper", lambda: wrapper)
+    monkeypatch.setattr(streaming, "get_llm_wrapper", lambda: wrapper)
 
     first = generate_estimation(_request())
     second = generate_estimation(_request())
@@ -341,7 +340,7 @@ def test_generate_estimation_aisla_cache_por_version(monkeypatch) -> None:
 
     wrapper = _real_wrapper()
     monkeypatch.setattr(wrapper.router, "completion", fake_completion)
-    monkeypatch.setattr(llm_service, "get_llm_wrapper", lambda: wrapper)
+    monkeypatch.setattr(streaming, "get_llm_wrapper", lambda: wrapper)
 
     generate_estimation(_request(), version="v1")
     generate_estimation(_request(), version="v1")  # acierto de caché
@@ -363,7 +362,7 @@ def test_stream_estimation_reusa_cache_con_la_misma_descripcion(monkeypatch) -> 
 
     wrapper = _real_wrapper()
     monkeypatch.setattr(wrapper.router, "completion", fake_completion)
-    monkeypatch.setattr(llm_service, "get_llm_wrapper", lambda: wrapper)
+    monkeypatch.setattr(streaming, "get_llm_wrapper", lambda: wrapper)
 
     first_metrics = StreamMetrics()
     first = list(stream_estimation(_request(), first_metrics))
@@ -375,51 +374,3 @@ def test_stream_estimation_reusa_cache_con_la_misma_descripcion(monkeypatch) -> 
     assert "".join(second) == "## Estimación"
     assert first_metrics.cache_hit is False
     assert second_metrics.cache_hit is True
-
-
-def test_generate_structured_estimation_maps_result(monkeypatch) -> None:
-    fake = FakeWrapper()
-    _use_wrapper(monkeypatch, fake)
-
-    outcome = generate_structured_estimation(_request())
-
-    assert isinstance(outcome, StructuredEstimation)
-    assert outcome.result.total_cost_eur == 2000
-    assert outcome.model == "gpt-4o-mini"
-    assert outcome.provider == "openai"
-    assert outcome.input_tokens == 11
-    assert outcome.cache_hit is False
-    call = fake.structured_calls[0]
-    assert "<examples>" in call["system_prompt"]
-    assert DESCRIPTION in call["user_message"]
-    assert call["max_retries"] == llm_service.settings.structured_max_retries
-
-
-def test_generate_structured_estimation_reuses_cache(monkeypatch) -> None:
-    _openai_settings(monkeypatch)
-    fake = FakeWrapper()
-    _use_wrapper(monkeypatch, fake)
-
-    first = generate_structured_estimation(_request())
-    second = generate_structured_estimation(_request())
-
-    assert first.cache_hit is False
-    assert second.cache_hit is True
-    assert len(fake.structured_calls) == 1
-    assert second.result.total_cost_eur == 2000
-
-
-def test_generate_structured_estimation_missing_key_raises(monkeypatch) -> None:
-    monkeypatch.setattr(llm_service.settings, "llm_provider", "openai")
-    monkeypatch.setattr(llm_service.settings, "open_ai_key", "")
-
-    with pytest.raises(LLMConfigurationError, match="OPEN_AI_KEY"):
-        generate_structured_estimation(_request())
-
-
-def test_generate_structured_estimation_propagates_provider_error(monkeypatch) -> None:
-    fake = FakeWrapper(error=LLMProviderError("Fallo del proveedor LLM 'openai'."))
-    _use_wrapper(monkeypatch, fake)
-
-    with pytest.raises(LLMProviderError):
-        generate_structured_estimation(_request())
