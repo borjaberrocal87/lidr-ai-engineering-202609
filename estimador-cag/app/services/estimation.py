@@ -340,6 +340,7 @@ class EstimationService:
         project_type: ProjectType,
         detail_level: DetailLevel,
         output_format: OutputFormat,
+        tier: Tier | None = None,
         version: str | None = None,
     ) -> SessionEstimation:
         """Turno de estimación conversacional (sesión 5).
@@ -357,6 +358,15 @@ class EstimationService:
         warn_if_temperature_ignored()
         run_input_guardrails(transcript)
 
+        # Resolver el tier de audiencia (override explícito o cadena de reglas).
+        resolved_tier, rule = resolve_tier(
+            transcript=transcript,
+            metadata=session.metadata,
+            override=tier,
+        )
+        session.last_resolved_tier = resolved_tier.value
+        session.last_tier_rule = rule
+
         system_prompt, user_message = render_conversational_prompt(
             description=transcript,
             project_type=project_type,
@@ -364,6 +374,7 @@ class EstimationService:
             output_format=output_format,
             metadata=session.metadata,
             version=active_version,
+            tier=resolved_tier,
         )
         messages = session.history.to_messages_list(system_prompt)
         messages.append({"role": "user", "content": user_message})

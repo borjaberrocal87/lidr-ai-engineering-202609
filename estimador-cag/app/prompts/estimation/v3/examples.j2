@@ -1,0 +1,45 @@
+<examples>
+Ejemplos de estimaciones calibradas para esta versión del prompt. Muestran el tono escéptico y el uso de horquillas dentro de los campos de texto. No copies sus cifras: son anclas de calibración, no una plantilla.
+
+<example>
+<project_description>
+Pipeline de datos para consolidar ventas de tres e-commerce en un almacén único: ingesta nocturna desde sus APIs, normalización de esquemas, deduplicación de clientes y un cuadro de mando en BI. Los orígenes no documentan sus modelos de datos.
+</project_description>
+<estimation>
+{
+  "summary": "El pipeline de datos es estimable en 11-17 semanas (30.500-46.500 EUR), pero la horquilla es ancha. Vacíos que más mueven la cifra: la calidad de los datos de origen y si los proveedores permiten extracciones incrementales. Asumo acceso a las APIs y un único entorno de BI. Equipo: 1 data engineer, 1 analista de datos (part-time) y 1 QA (part-time).",
+  "confidence_pct": 52,
+  "phases": [
+    {"name": "Discovery", "duration_weeks": 2, "cost_eur": 6000, "summary": "Auditoría de fuentes y esquemas; horquilla 2-3 semanas / 5.000-7.500 EUR."},
+    {"name": "Design", "duration_weeks": 2, "cost_eur": 3000, "summary": "Modelo de datos y reglas de deduplicación; horquilla 1-2 semanas / 2.500-4.000 EUR."},
+    {"name": "Implementation", "duration_weeks": 8, "cost_eur": 24000, "summary": "Ingesta, normalización y deduplicación; horquilla 6-9 semanas / 19.000-28.500 EUR."},
+    {"name": "QA", "duration_weeks": 2, "cost_eur": 4000, "summary": "Validación de cuadres y de calidad; horquilla 1-2 semanas / 2.500-5.000 EUR."},
+    {"name": "Launch", "duration_weeks": 1, "cost_eur": 2000, "summary": "Puesta en producción del cuadro de mando; horquilla 1 semana / 1.500-2.500 EUR."}
+  ],
+  "total_duration_weeks": 15,
+  "total_cost_eur": 39000
+}
+</estimation>
+</example>
+
+<example>
+<project_description>
+Herramienta interna para tramitar solicitudes de compra: formulario de alta, flujo de aprobación por umbrales de importe y roles (empleado, manager, finanzas), y exportación al ERP contable. El ERP expone una API SOAP sin documentación actualizada.
+</project_description>
+<estimation>
+{
+  "summary": "Herramienta de compras estimable en 13-17 semanas (35.000-50.000 EUR). El mayor riesgo es la API SOAP del ERP, sin documentación actualizada, y las reglas de aprobación reales (hoy descritas solo por importe). Asumo un único ERP y exportación desatendida. Equipo: 1 backend, 1 full-stack y 1 QA (part-time).",
+  "confidence_pct": 48,
+  "phases": [
+    {"name": "Discovery", "duration_weeks": 2, "cost_eur": 5500, "summary": "Levantamiento de reglas de aprobación y sondeo del ERP; horquilla 2-3 semanas / 5.000-7.000 EUR."},
+    {"name": "Design", "duration_weeks": 2, "cost_eur": 4500, "summary": "Diseño de flujo y modelo de datos; horquilla 1-2 semanas / 3.000-5.000 EUR."},
+    {"name": "Implementation", "duration_weeks": 9, "cost_eur": 27000, "summary": "Formulario, motor de aprobaciones y exportación al ERP; horquilla 7-10 semanas / 22.000-32.000 EUR."},
+    {"name": "QA", "duration_weeks": 2, "cost_eur": 4000, "summary": "Pruebas de umbrales, roles e integración; horquilla 1-2 semanas / 2.500-5.000 EUR."},
+    {"name": "Launch", "duration_weeks": 1, "cost_eur": 1800, "summary": "Despliegue y validación de la exportación; horquilla 1 semana / 1.500-2.000 EUR."}
+  ],
+  "total_duration_weeks": 16,
+  "total_cost_eur": 52800
+}
+</estimation>
+</example>
+</examples>

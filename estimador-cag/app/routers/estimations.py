@@ -9,6 +9,7 @@ from app.config import settings
 from app.dependencies import get_estimation_service
 from app.guardrails.input import InputGuardrailViolation
 from app.prompts.loader import (
+    DEFAULT_CONVERSATIONAL_PROMPT_VERSION,
     DEFAULT_ESTIMATION_PROMPT_VERSION,
     available_estimation_versions,
     render_estimation_prompt,
@@ -69,6 +70,18 @@ def validated_prompt_version(prompt_version: str = PROMPT_VERSION) -> str:
 
     Al resolverla FastAPI antes de ejecutar el endpoint, el 404 se devuelve antes
     de abrir el flujo SSE (que ya no podría cambiar el estado).
+    """
+    return _resolve_prompt_version(prompt_version)
+
+
+def validated_conversational_prompt_version(
+    prompt_version: str = DEFAULT_CONVERSATIONAL_PROMPT_VERSION,
+) -> str:
+    """Valida la versión del prompt conversacional (default: v3, sesión 5).
+
+    A diferencia de `validated_prompt_version`, arranca en la versión
+    conversacional por defecto (con bloque `<audiencia>`), no en la v1 del
+    formulario estructurado.
     """
     return _resolve_prompt_version(prompt_version)
 

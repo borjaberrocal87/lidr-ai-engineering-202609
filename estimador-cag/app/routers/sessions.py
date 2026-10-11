@@ -22,7 +22,7 @@ from app.attachments.extractor import (
 from app.config import settings
 from app.dependencies import get_estimation_service, get_session_store
 from app.guardrails.input import InputGuardrailViolation
-from app.routers.estimations import validated_prompt_version
+from app.routers.estimations import validated_conversational_prompt_version
 from app.schemas.estimations import (
     ACBResponse,
     DetailLevel,
@@ -99,9 +99,10 @@ async def estimate_in_session(
     project_type: Annotated[ProjectType, Form()],
     detail_level: Annotated[DetailLevel, Form()],
     output_format: Annotated[OutputFormat, Form()],
-    version: Annotated[str, Depends(validated_prompt_version)],
+    version: Annotated[str, Depends(validated_conversational_prompt_version)],
     store: Annotated[SessionStore, Depends(get_session_store)],
     service: Annotated[EstimationService, Depends(get_estimation_service)],
+    tier: Annotated[Tier | None, Form()] = None,
     attachments: Annotated[list[UploadFile] | None, File()] = None,
 ) -> SessionEstimateResponse:
     session, enriched = await _load_session_and_enrich(session_id, transcript, attachments, store)
@@ -112,6 +113,7 @@ async def estimate_in_session(
             project_type=project_type,
             detail_level=detail_level,
             output_format=output_format,
+            tier=tier,
             version=version,
         )
     except Exception as exc:
@@ -145,7 +147,7 @@ async def estimate_in_session_acb(
     project_type: Annotated[ProjectType, Form()],
     detail_level: Annotated[DetailLevel, Form()],
     output_format: Annotated[OutputFormat, Form()],
-    version: Annotated[str, Depends(validated_prompt_version)],
+    version: Annotated[str, Depends(validated_conversational_prompt_version)],
     store: Annotated[SessionStore, Depends(get_session_store)],
     service: Annotated[EstimationService, Depends(get_estimation_service)],
     tier: Annotated[Tier | None, Form()] = None,

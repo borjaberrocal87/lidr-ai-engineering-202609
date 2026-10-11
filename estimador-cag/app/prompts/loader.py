@@ -38,9 +38,9 @@ CRITIC_USE_CASE = "critic"
 CONVERSATION_SUMMARY_USE_CASE = "conversation_summary"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
-# Versión por defecto del prompt conversacional (sesión 5). Se elevará a "v3"
-# cuando el prompt con bloque <audience> entre en juego (Fase C del directo).
-DEFAULT_CONVERSATIONAL_PROMPT_VERSION = "v1"
+# Versión por defecto del prompt conversacional (sesión 5). v3 añade el bloque
+# <audiencia> gobernado por el tier resuelto y el soporte de critic_feedback.
+DEFAULT_CONVERSATIONAL_PROMPT_VERSION = "v3"
 
 _env = Environment(
     loader=FileSystemLoader(_BASE_DIR),
