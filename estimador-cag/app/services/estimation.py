@@ -60,6 +60,7 @@ from app.services.errors import (
 from app.services.errors import (
     LLMProviderError as LLMProviderError,
 )
+from app.sessions.compression import apply_compression
 from app.sessions.metadata_extractor import update_metadata
 from app.sessions.models import Session
 from app.sessions.tier_resolver import Tier, resolve_tier
@@ -230,6 +231,9 @@ class EstimationService:
             or DEFAULT_CONVERSATIONAL_PROMPT_VERSION
         )
 
+    def _compression_model(self) -> str:
+        return settings.compression_model or settings.llm_model
+
     # -- Estimación estructurada (sesión 4) ----------------------------------
 
     def estimate(
@@ -376,6 +380,12 @@ class EstimationService:
             result = enforce_scope_response(result)
 
         session.history.append(user=user_message, assistant=result.model_dump_json())
+        apply_compression(
+            session.history,
+            llm_wrapper=wrapper,
+            compression_model=self._compression_model(),
+            anchor_detection_mode=settings.anchor_detection_mode,
+        )
         session.metadata = update_metadata(
             previous=session.metadata,
             transcript=transcript,
@@ -517,6 +527,12 @@ class EstimationService:
             tier=resolved_tier,
         )[1]
         session.history.append(user=turn_user_message, assistant=final_result.model_dump_json())
+        apply_compression(
+            session.history,
+            llm_wrapper=wrapper,
+            compression_model=self._compression_model(),
+            anchor_detection_mode=settings.anchor_detection_mode,
+        )
 
         # 7. Refrescar metadata desde el resultado final.
         session.metadata = update_metadata(

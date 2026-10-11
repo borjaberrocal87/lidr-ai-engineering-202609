@@ -26,7 +26,7 @@ from app.schemas.estimations import (
     OutputFormat,
     ProjectType,
 )
-from app.sessions.models import ProjectMetadata
+from app.sessions.models import Message, ProjectMetadata
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -35,6 +35,7 @@ _BASE_DIR = Path(__file__).resolve().parent
 ESTIMATION_USE_CASE = "estimation"
 METADATA_EXTRACTION_USE_CASE = "metadata_extraction"
 CRITIC_USE_CASE = "critic"
+CONVERSATION_SUMMARY_USE_CASE = "conversation_summary"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
 # Versión por defecto del prompt conversacional (sesión 5). Se elevará a "v3"
@@ -170,6 +171,38 @@ def render_metadata_extraction_prompt(
 def _content_hash(text: str) -> str:
     """Hash corto del contenido, para trazar el render sin registrar su texto."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def render_conversation_summary_prompt(
+    *,
+    previous_summary: str | None,
+    evicted: list[Message],
+    version: str = "v1",
+) -> tuple[str, str]:
+    """Renderiza los prompts del resumidor acumulativo (sesión 5, directo).
+
+    Funde el resumen previo con los mensajes desalojados de la ventana
+    deslizante en un único resumen rodante.
+    """
+    context: dict[str, object] = {
+        "previous_summary": previous_summary,
+        "evicted": evicted,
+    }
+    system = _env.get_template(f"{CONVERSATION_SUMMARY_USE_CASE}/{version}/system.j2").render(
+        **context
+    )
+    user = _env.get_template(f"{CONVERSATION_SUMMARY_USE_CASE}/{version}/user.j2").render(**context)
+    logger.info(
+        "prompt.rendered",
+        use_case=CONVERSATION_SUMMARY_USE_CASE,
+        version=version,
+        system_chars=len(system),
+        user_chars=len(user),
+        system_hash=_content_hash(system),
+        user_hash=_content_hash(user),
+        evicted=len(evicted),
+    )
+    return system, user
 
 
 def _enum_value(value: object | None) -> object | None:

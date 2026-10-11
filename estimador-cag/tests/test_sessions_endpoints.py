@@ -79,12 +79,20 @@ class FakeConversationalWrapper:
         messages: list[dict[str, str]],
         response_model: type,
         **kwargs: Any,
-    ) -> tuple[EstimationResult, dict[str, Any]]:
+    ) -> tuple[Any, dict[str, Any]]:
         if response_model is CriticFeedback:
             return CriticFeedback(verdict="accept", issues=[], confidence_in_review=90), _meta()
-        self.estimation_calls.append(messages)
-        index = min(len(self.estimation_calls) - 1, len(self.estimations) - 1)
-        return self.estimations[index], _meta()
+        if response_model is EstimationResult:
+            self.estimation_calls.append(messages)
+            index = min(len(self.estimation_calls) - 1, len(self.estimations) - 1)
+            return self.estimations[index], _meta()
+        # Envoltorios auxiliares (resumen acumulativo / ancla vía LLM).
+        fields = getattr(response_model, "model_fields", {})
+        if "summary" in fields:
+            return response_model(summary="Resumen acumulado de turnos previos."), _meta()
+        if "is_anchor" in fields:
+            return response_model(is_anchor=False), _meta()
+        return response_model(), _meta()
 
     def complete_structured(
         self,
@@ -203,9 +211,9 @@ async def test_history_respects_the_sliding_window(
         response = await client.post(f"/api/v1/sessions/{session_id}/estimate", data=body)
         assert response.status_code == 200, response.text
 
-    # max_turns=3 => system + 3*2 de ventana + 1 turno actual = 8 como máximo.
+    # max_turns=3 => system + (resumen?) + 3*2 de ventana + 1 turno actual = 9 máximo.
     for messages in fake_wrapper.estimation_calls:
-        assert len(messages) <= 8
+        assert len(messages) <= 9
 
     session = store.get_or_404(session_id)
     assert len(session.history.messages) <= 3 * 2

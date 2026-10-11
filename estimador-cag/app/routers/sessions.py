@@ -50,6 +50,10 @@ class SessionInfoResponse(BaseModel):
     message_count: int
     max_turns: int
     metadata: ProjectMetadata
+    anchors_count: int = 0
+    summary_chars: int = 0
+    last_resolved_tier: str | None = None
+    last_tier_rule: str | None = None
 
 
 @router.post("", response_model=CreateSessionResponse, status_code=201)
@@ -75,6 +79,10 @@ def get_session(
         message_count=len(session.history.messages),
         max_turns=session.history.max_turns,
         metadata=session.metadata,
+        anchors_count=len(session.history.anchors),
+        summary_chars=len(session.history.summary or ""),
+        last_resolved_tier=session.last_resolved_tier,
+        last_tier_rule=session.last_tier_rule,
     )
 
 
