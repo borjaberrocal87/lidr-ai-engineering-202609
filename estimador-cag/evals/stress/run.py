@@ -23,7 +23,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -251,8 +251,14 @@ async def _run_campaign(
     latency_budget_ms: int,
     cost_budget_usd: float,
     errors: list[str],
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
+    on_row: Callable[[dict[str, Any]], None],
+) -> int:
+    """Recorre la matriz y entrega cada fila a ``on_row`` según se produce.
+
+    Escribir de forma incremental (en vez de acumular y volcar al final) permite
+    seguir el progreso de una campaña larga y no perder lo medido si se corta.
+    """
+    row_count = 0
     for scenario in scenarios:
         for size_kb in attachment_sizes:
             attachment = _attachment_for(size_kb, fixtures)
@@ -273,7 +279,7 @@ async def _run_campaign(
                             f"{type(exc).__name__}: {str(exc)[:160]}"
                         )
                         errors.append(message)
-                        print(f"  ERROR {message}")
+                        print(f"  ERROR {message}", flush=True)
                         continue
                     observation = snapshot.get("last_turn") or {}
                     row = _evaluate_turn(
@@ -287,17 +293,30 @@ async def _run_campaign(
                         cost_budget_usd=cost_budget_usd,
                     )
                     row["repeat"] = repeat
-                    rows.append(row)
-    return rows
+                    on_row(row)
+                    row_count += 1
+    return row_count
 
 
-def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(CSV_FIELDS), extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
+class _CsvSink:
+    """Escritor CSV incremental: cabecera al abrir y ``flush`` por fila."""
+
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = path.open("w", newline="", encoding="utf-8")
+        self._writer = csv.DictWriter(
+            self._handle, fieldnames=list(CSV_FIELDS), extrasaction="ignore"
+        )
+        self._writer.writeheader()
+        self._handle.flush()
+
+    def write(self, row: dict[str, Any]) -> None:
+        self._writer.writerow(row)
+        self._handle.flush()
+
+    def close(self) -> None:
+        self._handle.flush()
+        self._handle.close()
 
 
 async def _main_async(args: argparse.Namespace) -> int:
@@ -317,8 +336,9 @@ async def _main_async(args: argparse.Namespace) -> int:
         print("Running stress campaign in-process (TestClient)")
 
     errors: list[str] = []
+    sink = _CsvSink(args.output)
     try:
-        rows = await _run_campaign(
+        row_count = await _run_campaign(
             client,
             scenarios=scenarios,
             attachment_sizes=attachment_sizes,
@@ -327,15 +347,16 @@ async def _main_async(args: argparse.Namespace) -> int:
             latency_budget_ms=args.latency_budget_ms,
             cost_budget_usd=args.cost_budget_usd,
             errors=errors,
+            on_row=sink.write,
         )
     finally:
         await client.aclose()
+        sink.close()
 
-    _write_csv(args.output, rows)
-    print(f"\n{len(rows)} filas escritas en {args.output}")
+    print(f"\n{row_count} filas escritas en {args.output}")
     if errors:
         print(f"{len(errors)} turnos fallaron (ver arriba).")
-    return 0 if rows else 1
+    return 0 if row_count else 1
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
