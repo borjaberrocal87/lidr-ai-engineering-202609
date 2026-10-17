@@ -1,0 +1,4 @@
+budget_id,client_name,client_code,currency,total_amount,signed_at
+BUDGET-2024-0101,Toledo Industrial S.L.,CLI-0101,EUR,12000,2024-06-01
+BUDGET-2024-0102,Nortena de Servicios,CLI-0102,EUR,8300,2024-06-15
+BUDGET-2024-0103,Acme Retail,CLI-0103,EUR,4500,2024-07-02
