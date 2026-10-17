@@ -22,9 +22,12 @@ estimador-cag/
 │   ├── logging_config.py        # Configuración de structlog (console/json)
 │   ├── routers/
 │   │   ├── estimations.py       # /estimate, /estimate/stream (SSE) y /context
-│   │   └── sessions.py          # /sessions, /sessions/{id} y .../estimate (multipart)
+│   │   ├── sessions.py          # /sessions, /sessions/{id} y .../estimate (multipart)
+│   │   └── ingestion.py         # /ingestion/runs y /ingestion/jobs/{id} (sesión 6)
 │   ├── schemas/
-│   │   └── estimations.py       # Contrato HTTP (Pydantic) y enums del formulario
+│   │   ├── estimations.py       # Contrato HTTP (Pydantic) y enums del formulario
+│   │   ├── ingestion.py         # Contratos de la ingesta (sesión 6)
+│   │   └── observability.py     # TurnObservation del stress test (sesión 6)
 │   ├── prompts/                 # Prompts versionados (Jinja2)
 │   │   ├── loader.py            # render_estimation_prompt / render_conversational_prompt
 │   │   ├── estimation/v1/       # system.j2, user.j2, examples.j2
@@ -41,6 +44,13 @@ estimador-cag/
 │   ├── services/
 │   │   ├── llm_service.py       # Orquesta: guardrails, prompts, caché y wrapper
 │   │   └── llm_wrapper.py       # Wrapper LiteLLM (fallback, caché, coste, logging, JSON schema)
+│   ├── ingestion/               # Ingesta de datos (sesión 6). Ver docs/ingesta-datos-sesion-06.md
+│   │   ├── catalog/             # Catálogo de fuentes (include/review/exclude)
+│   │   ├── loaders/ · parsers/  # bytes → Document (json, txt)
+│   │   ├── cleaning/            # Limpieza/validación tabular (pandas + pandera)
+│   │   ├── pii/                 # Detección/pseudonimización (Presidio + spaCy + Faker)
+│   │   └── orchestrator.py      # Caso de uso ingest_source + ensure_ingestible
+│   ├── persistence/             # Postgres + Alembic (jobs de ingesta y mapping de PII)
 ├── frontend/                    # Capa de presentación (no importa `app.*`)
 │   ├── config.py                # API_BASE_URL y timeouts
 │   ├── client.py                # Cliente HTTP (httpx) contra la API
@@ -58,6 +68,10 @@ estimador-cag/
 │   └── stress/                  # Baseline de estrés del CAG (sesión 6): escenarios, fixtures y métricas
 ├── examples/
 │   └── transcripcion.md         # Transcripción de reunión de ejemplo (input del formulario)
+├── alembic/                     # Migraciones Alembic (sesión 6)
+├── data/                        # Catálogo de fuentes y corpus semilla (sesión 6)
+├── docs/                        # Documentación de subsistemas (p. ej. ingesta-datos-sesion-06.md)
+├── scripts/                     # Preflight y demos de la sesión 6
 ├── specs/
 │   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
@@ -66,7 +80,7 @@ estimador-cag/
 │   ├── sesion-6-stress-test-cag.md  # Spec del baseline de estrés del CAG (sesión 6)
 │   └── proveedor-openai-compatible.md  # Spec del proveedor custom (OpenAI-compatible)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
-├── docker-compose.yml       # Servicios api, ui y test
+├── docker-compose.yml       # Servicios api, ui, redis, cliente-web, postgres y estimator-postgres (pgvector)
 ├── .dockerignore
 ├── .env.example
 ├── pyproject.toml
@@ -325,9 +339,56 @@ uv run python -m evals.stress.run --http http://localhost:8000 \
 
 El runner escribe `results.csv` fila a fila: una campaña larga se puede seguir en vivo y no se pierde lo medido si se interrumpe.
 
+## Ingesta de datos, persistencia y PII (Sesión 6)
+
+La sesión 6 añade la puerta de entrada a RAG: un subsistema de **ingesta** que
+audita las fuentes en un **catálogo** versionado (`include`/`review`/`exclude`),
+las convierte en `Document` canónicos (parsers **JSON, TXT y CSV**), limpia y
+valida datos tabulares (pandas + pandera), pseudonimiza PII (Presidio + spaCy
+`es_core_news_md` + Faker) y hace tracking de los jobs en **Postgres** (imagen
+pgvector, puerto host 5433) con migraciones **Alembic**.
+
+Endpoints nuevos:
+
+```
+GET  /api/v1/ingestion/sources[?decision=include|review|exclude]  → catálogo
+POST /api/v1/ingestion/runs {source_name}                         → 202 + job_id
+GET  /api/v1/ingestion/jobs[?limit&offset]                        → jobs (paginado)
+GET  /api/v1/ingestion/jobs/{job_id}                              → estado del job
+```
+
+```bash
+# El servicio `api` aplica las migraciones al arrancar (`alembic upgrade head`)
+docker compose up --build
+
+curl -s http://localhost:8000/api/v1/ingestion/sources | jq '.sources[].name'
+curl -X POST http://localhost:8000/api/v1/ingestion/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"source_name": "presupuestos_json"}'
+curl -s "http://localhost:8000/api/v1/ingestion/jobs?limit=5" | jq '.items'
+```
+
+**Pseudonimización en el pipeline (opt-in configurable).** Si
+`INGESTION_PSEUDONYMIZE_PII=true` (por defecto) y la fuente declara
+`sensitivity.has_pii`, la ingesta sustituye el texto de cada `Document` por su
+versión pseudonimizada antes de completar el job (el mapping se persiste en la
+misma transacción). El modelo spaCy sólo se carga cuando alguna fuente con PII
+se ingiere.
+
+**Parser CSV propio.** `presupuestos_extra.csv` (fuente `presupuestos_csv`,
+`include`) emite un `Document` por fila: demuestra que el contrato `Parser` +
+`ParserRegistry` es extensible sin tocar el orquestador.
+
+👉 Detalle completo (arquitectura, catálogo, parsers, cleaning, PII, UoW ligero y
+Docker) en **[`docs/ingesta-datos-sesion-06.md`](docs/ingesta-datos-sesion-06.md)**.
+La pantalla **/ingestion** del cliente de negocio Node consume estos endpoints
+(ver más abajo).
+
 ## Cliente de negocio (Node)
 
 `cliente-web/` es un cliente de negocio en **Node/Express + EJS + Tailwind** que consume la misma API por HTTP, ofrece formulario, histórico y detalle, y **persiste** cada estimación en **Postgres**. Comparte el look & feel de LIDR (tema oscuro, Helvetica, amarillo `#F6DE82`). Nunca habla con el proveedor LLM: las claves viven solo en la API Python.
+
+Desde la sesión 6 incluye además la pantalla **/ingestion**: lista el catálogo de fuentes (con su decisión y si contienen PII), permite lanzar una ingesta y consulta el estado de los jobs consumiendo `/api/v1/ingestion/*`.
 
 ```bash
 cd cliente-web
@@ -575,6 +636,13 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `BOSS_MAX_ITERATIONS`     | Iteraciones máximas del bucle Actor-Critic-Boss   | `2`           |
 | `COMPRESSION_MODEL`       | Modelo del resumidor/anclas (vacío = `LLM_MODEL`) | —             |
 | `ANCHOR_DETECTION_MODE`   | Detección de anclas: `heuristic` o `llm`          | `heuristic`   |
+| `DATABASE_URL`            | Postgres (pgvector) para jobs de ingesta y mapping de PII | `postgresql+psycopg://estimator:estimator@localhost:5433/estimator` |
+| `CATALOG_PATH`            | Catálogo YAML de fuentes (relativo a la raíz si no es absoluto) | `data/catalog/catalog.yaml` |
+| `INGESTION_DATA_ROOT`     | Raíz donde se resuelven los `location` del catálogo | `data/seed` |
+| `PRESIDIO_SPACY_MODEL`    | Modelo spaCy que usa Presidio para NER           | `es_core_news_md` |
+| `PSEUDONYM_FAKER_LOCALE`  | Locale de Faker para generar pseudónimos          | `es_ES`       |
+| `PSEUDONYM_HASH_SALT`     | Sal del HMAC que indexa el mapping de PII (cambiar en prod) | `change-me-in-prod` |
+| `INGESTION_PSEUDONYMIZE_PII` | Pseudonimiza el texto de las fuentes con PII al ingerir | `true` |
 | `OPEN_AI_KEY`             | API key de OpenAI                                 | —             |
 | `ANTHROPIC_API_KEY`       | API key de Anthropic                              | —             |
 | `CUSTOM_LLM_BASE_URL`     | URL base del endpoint OpenAI-compatible           | —             |

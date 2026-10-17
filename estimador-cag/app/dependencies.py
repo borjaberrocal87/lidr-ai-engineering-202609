@@ -7,7 +7,9 @@ de Redis durante toda la vida del proceso. Los tests pueden sustituir
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from functools import lru_cache
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import redis
@@ -15,12 +17,20 @@ import structlog
 from openai import OpenAI
 
 from app.cache.semantic import EstimationSemanticCache
-from app.config import get_settings, reveal_secret
+from app.config import BASE_DIR, get_settings, reveal_secret
+from app.ingestion.catalog import DataCatalog, load_catalog
+from app.ingestion.loaders.filesystem import FileSystemLoader
+from app.ingestion.parsers.registry import ParserRegistry, default_registry
+from app.persistence.unit_of_work import UnitOfWork
 from app.services.cache import InMemoryCache, NullCache, RedisCache, ResponseCache
 from app.services.llm_wrapper import LLMWrapper, provider_from_model
 from app.sessions.store import SessionStore
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from app.ingestion.pii import ConsistentPseudonymizer
+    from app.ingestion.ports import TextPseudonymizer
     from app.services.estimation import EstimationService
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -137,3 +147,86 @@ def get_semantic_cache() -> EstimationSemanticCache | None:
             error=str(exc)[:200],
         )
         return None
+
+
+# --- Sesión 6 — ingesta de datos -------------------------------------------------
+
+
+def _resolve_under_base_dir(path: Path) -> Path:
+    """Resuelve rutas relativas de configuración contra la raíz del proyecto."""
+    return path if path.is_absolute() else BASE_DIR / path
+
+
+@lru_cache
+def get_catalog() -> DataCatalog:
+    """Carga y cachea el catálogo de fuentes (una vez por proceso).
+
+    Releerlo invalidaría las decisiones ya horneadas en el pipeline en marcha;
+    desplegar una versión nueva del catálogo exige reiniciar el proceso.
+    """
+    settings = get_settings()
+    return load_catalog(_resolve_under_base_dir(settings.catalog_path))
+
+
+@lru_cache
+def get_filesystem_loader() -> FileSystemLoader:
+    settings = get_settings()
+    return FileSystemLoader(data_root=_resolve_under_base_dir(settings.ingestion_data_root))
+
+
+@lru_cache
+def get_parser_registry() -> ParserRegistry:
+    """Registry con los parsers disponibles en esta rama (json, txt)."""
+    return default_registry()
+
+
+def get_unit_of_work() -> Iterator[UnitOfWork]:
+    """Dependencia FastAPI: cede un UoW y lo cierra al terminar la request.
+
+    No hace commit automático: la frontera decide cuándo cerrar la transacción
+    (`uow.commit()`), tal como exige el patrón UoW ligero.
+    """
+    uow = UnitOfWork()
+    try:
+        yield uow
+    finally:
+        uow.close()
+
+
+def build_pseudonymizer(session: Session) -> ConsistentPseudonymizer:
+    """Construye un ``ConsistentPseudonymizer`` respaldado por Postgres.
+
+    No es singleton: el mapping store envuelve una ``Session``, así que quien lo
+    llame (scripts, BackgroundTasks, tests) debe pasar la suya. El analyzer (sí
+    singleton vía ``build_analyzer``) y la salt salen de settings. El import es
+    diferido para no cargar Presidio/spaCy al arrancar el proceso.
+    """
+    from app.ingestion.pii import (
+        ConsistentPseudonymizer,
+        PostgresMappingStore,
+        build_analyzer,
+    )
+
+    settings = get_settings()
+    return ConsistentPseudonymizer(
+        analyzer=build_analyzer(),
+        mapping_store=PostgresMappingStore(session),
+        salt=settings.pseudonym_hash_salt,
+        faker_locale=settings.pseudonym_faker_locale,
+        language="es",
+    )
+
+
+def get_text_pseudonymizer(session: Session) -> TextPseudonymizer:
+    """Adaptador ``str → str`` sobre :func:`build_pseudonymizer`.
+
+    El núcleo de ingesta sólo conoce el puerto ``TextPseudonymizer``; aquí se
+    encapsula el tipo de resultado de Presidio. Import diferido de Presidio para
+    no cargarlo salvo que una fuente con PII vaya a ingerirse.
+    """
+    pseudonymizer = build_pseudonymizer(session)
+
+    def _pseudonymize(text: str) -> str:
+        return pseudonymizer.pseudonymize(text).pseudonymized_text
+
+    return _pseudonymize

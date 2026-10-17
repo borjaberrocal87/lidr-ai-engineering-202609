@@ -2,6 +2,7 @@ import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createPool, InMemoryEstimationRepo, PgEstimationRepo } from "./db.js";
 import { HttpEstimatorClient } from "./estimatorClient.js";
+import { HttpIngestionClient } from "./ingestionClient.js";
 import { runMigrations } from "./migrate.js";
 
 const config = loadConfig();
@@ -26,7 +27,12 @@ const estimator = new HttpEstimatorClient({
   timeoutMs: config.estimatorTimeoutMs,
 });
 
-const app = createApp({ repo, estimator });
+const ingestion = new HttpIngestionClient({
+  baseUrl: config.estimatorApiBaseUrl,
+  timeoutMs: config.estimatorTimeoutMs,
+});
+
+const app = createApp({ repo, estimator, ingestion });
 
 app.listen(config.port, () => {
   console.log(

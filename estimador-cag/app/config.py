@@ -95,6 +95,27 @@ class Settings(BaseSettings):
     compression_model: str = ""
     anchor_detection_mode: Literal["heuristic", "llm"] = "heuristic"
 
+    # Sesión 6 — ingesta de datos, persistencia y PII.
+    # Postgres (imagen pgvector) para el tracking de jobs y el mapping de PII.
+    # En docker-compose se sobreescribe a estimator-postgres:5432.
+    database_url: str = "postgresql+psycopg://estimator:estimator@localhost:5433/estimator"
+    # Catálogo YAML de fuentes (se carga una vez al arrancar). Relativo a BASE_DIR
+    # si no es absoluto.
+    catalog_path: Path = Path("data/catalog/catalog.yaml")
+    # Raíz donde se resuelven los `location` del catálogo.
+    ingestion_data_root: Path = Path("data/seed")
+    # Modelo spaCy que usa Presidio para detectar PERSON/LOC en español.
+    presidio_spacy_model: str = "es_core_news_md"
+    # Locale de Faker para generar pseudónimos consistentes por tipo de entidad.
+    pseudonym_faker_locale: str = "es_ES"
+    # Sal manual del HMAC que indexa el mapping de PII. Rotarla invalida los
+    # mappings previos (palanca GDPR art. 17). Cambiar en producción.
+    pseudonym_hash_salt: str = "change-me-in-prod"
+    # Si está activo, la ingesta pseudonimiza el texto de las fuentes con PII
+    # (``sensitivity.has_pii``) antes de marcarlas como completadas. Requiere el
+    # modelo spaCy de Presidio; sólo se carga cuando hace falta.
+    ingestion_pseudonymize_pii: bool = True
+
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
 

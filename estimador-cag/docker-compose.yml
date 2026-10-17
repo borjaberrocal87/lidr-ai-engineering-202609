@@ -27,9 +27,18 @@ services:
       # La API usa la caché Redis del servicio `redis` por la red interna.
       CACHE_BACKEND: redis
       REDIS_URL: redis://redis:6379
+      # Sesión 6: Postgres dedicado (pgvector) para ingesta y PII.
+      DATABASE_URL: postgresql+psycopg://estimator:estimator@estimator-postgres:5432/estimator
     depends_on:
       redis:
         condition: service_healthy
+      estimator-postgres:
+        condition: service_healthy
+    # Aplica las migraciones Alembic y arranca el servidor.
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports:
       - "${API_PORT:-8000}:8000"
     restart: unless-stopped
@@ -112,6 +121,29 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  estimator-postgres:
+    # Postgres con pgvector para el subsistema de ingesta (Sesión 6): tracking de
+    # jobs y mapping de PII. Es una instancia DISTINTA a `postgres` (cliente-web)
+    # a propósito: pgvector no debe mezclarse con la BD de negocio. El puerto del
+    # host es 5433 para no chocar con el 5432 de cliente-web.
+    image: pgvector/pgvector:pg16
+    container_name: estimador-cag-estimator-postgres
+    environment:
+      POSTGRES_USER: estimator
+      POSTGRES_PASSWORD: estimator
+      POSTGRES_DB: estimator
+    ports:
+      - "${ESTIMATOR_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - estimator_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U estimator -d estimator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
   cliente-web:
     # Cliente de negocio (Node/Express+EJS) que consume la API y persiste en Postgres.
     build:
@@ -133,3 +165,4 @@ services:
 
 volumes:
   postgres_data:
+  estimator_postgres_data:

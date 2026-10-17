@@ -4,7 +4,15 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.config import DEFAULT_TEMPERATURE, get_settings, settings
-from app.dependencies import get_cache, get_llm_wrapper, get_openai_client, get_semantic_cache
+from app.dependencies import (
+    get_cache,
+    get_catalog,
+    get_filesystem_loader,
+    get_llm_wrapper,
+    get_openai_client,
+    get_parser_registry,
+    get_semantic_cache,
+)
 from app.main import app
 
 
@@ -16,12 +24,18 @@ def _reset_settings_cache():
     get_cache.cache_clear()
     get_openai_client.cache_clear()
     get_semantic_cache.cache_clear()
+    get_catalog.cache_clear()
+    get_filesystem_loader.cache_clear()
+    get_parser_registry.cache_clear()
     yield
     get_settings.cache_clear()
     get_llm_wrapper.cache_clear()
     get_cache.cache_clear()
     get_openai_client.cache_clear()
     get_semantic_cache.cache_clear()
+    get_catalog.cache_clear()
+    get_filesystem_loader.cache_clear()
+    get_parser_registry.cache_clear()
 
 
 @pytest.fixture(autouse=True)

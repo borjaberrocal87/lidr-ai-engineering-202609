@@ -1,5 +1,6 @@
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
@@ -7,9 +8,34 @@ from starlette.responses import Response
 
 from app.config import APP_NAME, settings
 from app.logging_config import configure_logging
-from app.routers import estimations, sessions
+from app.routers import estimations, ingestion, sessions
 
 configure_logging()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Arranque/parada. Prevalida el catálogo de ingesta (fail-fast).
+
+    Un catálogo mal formado es un problema de despliegue, no de request: mejor
+    detectarlo al arrancar que en la primera llamada a `/ingestion/runs`.
+    """
+    log = structlog.get_logger()
+    try:
+        from app.dependencies import get_catalog
+
+        catalog = get_catalog()
+        log.info(
+            "catalog_loaded",
+            version=catalog.version,
+            sources_total=len(catalog.sources),
+            sources_included=len(catalog.included_sources()),
+        )
+    except Exception as exc:
+        log.error("catalog_load_failed", error=str(exc)[:400])
+    yield
+    log.info("application_shutdown")
+
 
 app = FastAPI(
     title=APP_NAME,
@@ -19,6 +45,7 @@ app = FastAPI(
         "(contexto estático inyectado en el prompt)."
     ),
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -39,6 +66,7 @@ async def request_context(
 
 app.include_router(estimations.router, prefix="/api/v1", tags=["estimations"])
 app.include_router(sessions.router, prefix="/api/v1")
+app.include_router(ingestion.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Estado del servicio")

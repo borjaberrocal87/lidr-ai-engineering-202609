@@ -1,0 +1,45 @@
+<%- include('partials/head', { title: 'Job de ingesta' }) %>
+<%- include('partials/header') %>
+
+<div class="max-w-3xl mx-auto py-12 px-4">
+  <h1 class="text-3xl font-bold tracking-tighter text-white mb-6">Job de ingesta</h1>
+
+  <div class="card space-y-2 text-white/90">
+    <div>
+      <span class="text-white/50">ID:</span>
+      <span class="tabular-nums"><%= job.job_id %></span>
+    </div>
+    <div><span class="text-white/50">Fuente:</span> <%= job.source_name %></div>
+    <div>
+      <span class="text-white/50">Estado:</span>
+      <span class="<%= job.status === 'completed' ? 'badge-success' : 'badge' %>">
+        <%= job.status %>
+      </span>
+    </div>
+    <div>
+      <span class="text-white/50">Documentos:</span>
+      <span class="tabular-nums"><%= job.documents_count %></span>
+    </div>
+    <div><span class="text-white/50">Inicio:</span> <%= formatDate(job.started_at) %></div>
+    <% if (job.finished_at) { %>
+      <div><span class="text-white/50">Fin:</span> <%= formatDate(job.finished_at) %></div>
+    <% } %>
+    <% if (job.error_message) { %>
+      <div class="text-red-200"><span class="text-white/50">Error:</span> <%= job.error_message %></div>
+    <% } %>
+  </div>
+
+  <div class="mt-6">
+    <a href="/ingestion" class="btn-primary">Volver a ingesta</a>
+  </div>
+
+  <% if (job.status === 'pending' || job.status === 'running') { %>
+    <script>
+      setTimeout(function () {
+        window.location.reload();
+      }, 3000);
+    </script>
+  <% } %>
+</div>
+
+<%- include('partials/footer') %>

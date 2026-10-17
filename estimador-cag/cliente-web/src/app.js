@@ -5,10 +5,11 @@ import express from "express";
 
 import { DETAIL_LEVELS, OUTPUT_FORMATS, PROJECT_TYPES, humanize } from "./constants.js";
 import { estimationsRouter } from "./routes/estimations.js";
+import { ingestionRouter } from "./routes/ingestion.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-export function createApp({ repo, estimator }) {
+export function createApp({ repo, estimator, ingestion }) {
   const app = express();
 
   app.set("view engine", "ejs");
@@ -27,6 +28,7 @@ export function createApp({ repo, estimator }) {
   app.get("/health", (req, res) => res.json({ status: "ok", service: "cliente-web" }));
 
   app.use(estimationsRouter({ repo, estimator }));
+  app.use(ingestionRouter({ ingestion }));
 
   app.use((req, res) => res.status(404).render("not-found"));
   // eslint-disable-next-line no-unused-vars

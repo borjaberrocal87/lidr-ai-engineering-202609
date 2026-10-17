@@ -2,6 +2,8 @@
 
 Cliente de negocio del estimador: una app **Node/Express + EJS** que ofrece el formulario, persiste las estimaciones en **Postgres** y consume la API FastAPI (`estimador-cag`) por HTTP. Nunca habla directamente con OpenAI/Anthropic: las claves viven solo en el backend Python.
 
+Desde la sesión 6 incluye además una pantalla de **Ingesta de datos** que consume los endpoints `/api/v1/ingestion/*` del backend (catálogo de fuentes, lanzamiento de ingestas y estado de los jobs). El cliente no persiste nada de la ingesta: la API Python es la dueña de los jobs.
+
 El look & feel replica el tema de LIDR Academy (oscuro, tipografía Helvetica, amarillo de marca `#F6DE82`, sin sombras) definido como tema de Tailwind.
 
 ## Requisitos
@@ -31,14 +33,15 @@ DATABASE_URL=postgres://estimator:estimator@localhost:5432/estimator_web npm run
 cliente-web/
 ├── src/
 │   ├── server.js            # Arranque: migra Postgres y levanta Express
-│   ├── app.js               # createApp({ repo, estimator }) (inyección para tests)
+│   ├── app.js               # createApp({ repo, estimator, ingestion }) (inyección para tests)
 │   ├── config.js            # Variables de entorno
 │   ├── constants.js         # Enums y umbrales compartidos con la API
 │   ├── estimatorClient.js   # Cliente HTTP + errores tipados (400/422/502/503)
+│   ├── ingestionClient.js   # Cliente HTTP de /ingestion (catálogo, runs, jobs)
 │   ├── db.js                # Repositorio Postgres + repositorio en memoria
 │   ├── migrate.js           # Aplica migrations/*.sql
-│   └── routes/estimations.js
-├── views/                   # EJS (formulario, listado, detalle)
+│   └── routes/              # estimations.js, ingestion.js
+├── views/                   # EJS (formulario, listado, detalle, ingesta)
 ├── public/                  # CSS compilado, JS del formulario y assets LIDR
 ├── migrations/              # SQL versionado
 ├── test/                    # node:test + supertest
@@ -53,6 +56,9 @@ cliente-web/
 - `POST /estimations` — llama a la API, persiste y redirige al detalle. Un `400` de guardrail o un `422` se re-renderizan en el formulario con el motivo.
 - `GET /estimations` — histórico.
 - `GET /estimations/:id` — detalle (summary, tarjetas de duración/coste/confianza y tabla de fases).
+- `GET /ingestion` — catálogo de fuentes (con su decisión y si contienen PII) y últimos jobs; botón “Ingerir” en las fuentes `include`.
+- `POST /ingestion/runs` — lanza una ingesta (`source_name`) y redirige al detalle del job.
+- `GET /ingestion/jobs/:id` — estado del job (se refresca solo mientras está `pending`/`running`).
 - `GET /health` — estado del servicio.
 
 ## Variables de entorno
