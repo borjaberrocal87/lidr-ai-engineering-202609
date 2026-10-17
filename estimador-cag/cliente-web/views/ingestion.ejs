@@ -1,0 +1,111 @@
+<%- include('partials/head', { title: 'Ingesta' }) %>
+<%- include('partials/header') %>
+
+<div class="max-w-5xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">Ingesta de datos</h1>
+      <% if (version) { %>
+        <p class="text-white/60 text-sm mt-1">Catálogo versión <%= version %></p>
+      <% } %>
+    </div>
+    <a href="/" class="btn-primary">Nueva estimación</a>
+  </div>
+
+  <% if (error) { %>
+    <div class="p-4 mb-6 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <h2 class="text-xl font-bold tracking-tight text-white mb-3">Fuentes del catálogo</h2>
+  <% if (sources.length === 0) { %>
+    <div class="p-6 rounded-md bg-ink/30 border border-white/10 text-white/70 mb-10">
+      No hay fuentes disponibles (¿la API de ingesta no responde?).
+    </div>
+  <% } else { %>
+    <div class="rounded-md border border-white/10 overflow-hidden mb-10">
+      <table class="w-full text-sm">
+        <thead class="bg-ink/40 text-white/70">
+          <tr>
+            <th class="text-left p-3 font-bold tracking-tight">Fuente</th>
+            <th class="text-left p-3 font-bold tracking-tight">Formato</th>
+            <th class="text-left p-3 font-bold tracking-tight">Decisión</th>
+            <th class="text-left p-3 font-bold tracking-tight">PII</th>
+            <th class="text-right p-3 font-bold tracking-tight"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-white/10">
+          <% sources.forEach(function (source) { %>
+            <tr>
+              <td class="p-3 align-top">
+                <div class="text-white/90 font-bold tracking-tight"><%= source.name %></div>
+                <div class="text-white/50 text-xs mt-1 max-w-md"><%= source.description %></div>
+              </td>
+              <td class="p-3 align-top text-white/80"><%= source.format %></td>
+              <td class="p-3 align-top">
+                <span class="badge"><%= source.decision %></span>
+                <% if (source.decision_reason) { %>
+                  <div class="text-white/50 text-xs mt-1 max-w-xs"><%= source.decision_reason %></div>
+                <% } %>
+              </td>
+              <td class="p-3 align-top text-white/80"><%= source.has_pii ? 'sí' : 'no' %></td>
+              <td class="p-3 align-top text-right whitespace-nowrap">
+                <% if (source.decision === 'include') { %>
+                  <form method="post" action="/ingestion/runs">
+                    <input type="hidden" name="source_name" value="<%= source.name %>" />
+                    <button type="submit" class="btn-primary">Ingerir</button>
+                  </form>
+                <% } %>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+
+  <h2 class="text-xl font-bold tracking-tight text-white mb-3">Jobs recientes</h2>
+  <% if (jobs.length === 0) { %>
+    <div class="p-6 rounded-md bg-ink/30 border border-white/10 text-white/70">
+      Aún no hay ejecuciones de ingesta.
+    </div>
+  <% } else { %>
+    <div class="rounded-md border border-white/10 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink/40 text-white/70">
+          <tr>
+            <th class="text-left p-3 font-bold tracking-tight">Fuente</th>
+            <th class="text-left p-3 font-bold tracking-tight">Estado</th>
+            <th class="text-left p-3 font-bold tracking-tight">Docs</th>
+            <th class="text-left p-3 font-bold tracking-tight">Inicio</th>
+            <th class="text-right p-3 font-bold tracking-tight"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-white/10">
+          <% jobs.forEach(function (job) { %>
+            <tr>
+              <td class="p-3 align-top text-white/90"><%= job.source_name %></td>
+              <td class="p-3 align-top">
+                <span class="<%= job.status === 'completed' ? 'badge-success' : 'badge' %>">
+                  <%= job.status %>
+                </span>
+              </td>
+              <td class="p-3 align-top text-white/80 tabular-nums"><%= job.documents_count %></td>
+              <td class="p-3 align-top text-white/70 tabular-nums whitespace-nowrap">
+                <%= formatDate(job.started_at) %>
+              </td>
+              <td class="p-3 align-top text-right whitespace-nowrap">
+                <a href="/ingestion/jobs/<%= job.job_id %>" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+                  Ver →
+                </a>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<%- include('partials/footer') %>

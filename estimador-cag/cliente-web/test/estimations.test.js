@@ -46,8 +46,29 @@ function fakeEstimator({ result, error } = {}) {
   };
 }
 
+function fakeIngestion() {
+  return {
+    async listSources() {
+      return { version: "1.1.0", sources: [] };
+    },
+    async listJobs() {
+      return { items: [], limit: 10, offset: 0 };
+    },
+    async startRun() {
+      throw new Error("no usado en los tests de estimaciones");
+    },
+    async getJob() {
+      throw new Error("no usado en los tests de estimaciones");
+    },
+  };
+}
+
 function makeApp(estimator) {
-  return createApp({ repo: new InMemoryEstimationRepo(), estimator });
+  return createApp({
+    repo: new InMemoryEstimationRepo(),
+    estimator,
+    ingestion: fakeIngestion(),
+  });
 }
 
 test("GET / renders the new estimation form", async () => {
