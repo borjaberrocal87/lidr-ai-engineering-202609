@@ -7,6 +7,8 @@ from app.config import DEFAULT_TEMPERATURE, get_settings, settings
 from app.dependencies import (
     get_cache,
     get_catalog,
+    get_chunker,
+    get_embedder,
     get_filesystem_loader,
     get_llm_wrapper,
     get_openai_client,
@@ -27,6 +29,8 @@ def _reset_settings_cache():
     get_catalog.cache_clear()
     get_filesystem_loader.cache_clear()
     get_parser_registry.cache_clear()
+    get_chunker.cache_clear()
+    get_embedder.cache_clear()
     yield
     get_settings.cache_clear()
     get_llm_wrapper.cache_clear()
@@ -36,6 +40,8 @@ def _reset_settings_cache():
     get_catalog.cache_clear()
     get_filesystem_loader.cache_clear()
     get_parser_registry.cache_clear()
+    get_chunker.cache_clear()
+    get_embedder.cache_clear()
 
 
 @pytest.fixture(autouse=True)

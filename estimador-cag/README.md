@@ -51,6 +51,11 @@ estimador-cag/
 │   │   ├── pii/                 # Detección/pseudonimización (Presidio + spaCy + Faker)
 │   │   └── orchestrator.py      # Caso de uso ingest_source + ensure_ingestible
 │   ├── persistence/             # Postgres + Alembic (jobs de ingesta y mapping de PII)
+│   ├── embedding_pipeline/      # Chunking + embeddings (sesión 7)
+│   │   ├── chunker.py           # Un componente del presupuesto = un chunk
+│   │   ├── embedder.py          # OpenAIEmbedder (batches + reintentos + coste)
+│   │   ├── schemas.py           # Contratos (Budget, Chunk, EmbeddedChunk…)
+│   │   └── router.py            # POST /embeddings/ingest
 ├── frontend/                    # Capa de presentación (no importa `app.*`)
 │   ├── config.py                # API_BASE_URL y timeouts
 │   ├── client.py                # Cliente HTTP (httpx) contra la API
@@ -69,15 +74,16 @@ estimador-cag/
 ├── examples/
 │   └── transcripcion.md         # Transcripción de reunión de ejemplo (input del formulario)
 ├── alembic/                     # Migraciones Alembic (sesión 6)
-├── data/                        # Catálogo de fuentes y corpus semilla (sesión 6)
+├── data/                        # Catálogo, corpus semilla (s. 6) y budgets_sample.json (s. 7)
 ├── docs/                        # Documentación de subsistemas (p. ej. ingesta-datos-sesion-06.md)
-├── scripts/                     # Preflight y demos de la sesión 6
+├── scripts/                     # Preflight y demos de la sesión 6; compare.py (sesión 7)
 ├── specs/
 │   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
 │   ├── sesion-4-formulario-tipado-prompt-jinja2.md  # Spec del formulario y prompts (sesión 4)
 │   ├── sesion-5-memoria-conversacional-adjuntos.md  # Spec de memoria y adjuntos (sesión 5)
 │   ├── sesion-6-stress-test-cag.md  # Spec del baseline de estrés del CAG (sesión 6)
+│   ├── sesion-7-pipeline-embeddings.md  # Spec del pipeline de embeddings (sesión 7)
 │   └── proveedor-openai-compatible.md  # Spec del proveedor custom (OpenAI-compatible)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
 ├── docker-compose.yml       # Servicios api, ui, redis, cliente-web, postgres y estimator-postgres (pgvector)
@@ -383,6 +389,87 @@ se ingiere.
 Docker) en **[`docs/ingesta-datos-sesion-06.md`](docs/ingesta-datos-sesion-06.md)**.
 La pantalla **/ingestion** del cliente de negocio Node consume estos endpoints
 (ver más abajo).
+
+## Pipeline de embeddings (Sesión 7)
+
+Primer paso hacia la búsqueda semántica: convertir los presupuestos históricos
+en vectores. El módulo nuevo vive en `app/embedding_pipeline/` y expone un único
+endpoint. **No se persiste nada todavía**: los vectores se generan en memoria y
+se devuelven por HTTP; la persistencia en pgvector entra en la Sesión 08.
+
+Piezas:
+
+- `chunker.py` (`JSONStructuralChunker`) — **chunking estructural**: un
+  componente del presupuesto = un chunk. A cada chunk se le antepone una cabecera
+  de contexto del presupuesto padre (proyecto, sector, año y tecnología) para que
+  no pierda la pista de a quién pertenece. Cuenta tokens con `tiktoken`.
+- `embedder.py` (`OpenAIEmbedder`) — invoca `text-embedding-3-small` (1536 dims)
+  en **batches** de 100, con reintento exponencial (1s/2s/4s) ante
+  `RateLimitError`, logging por batch y coste estimado.
+- `router.py` — orquesta `chunk → embed → stats`.
+
+### Endpoint nuevo
+
+```
+POST /api/v1/embeddings/ingest
+  Input  (IngestRequest):  {"budgets": [ <Budget>, ... ]}
+  Output (IngestResponse): {"chunks": [ <EmbeddedChunk>, ... ], "stats": {...}}
+  200 OK · 422 validación Pydantic · 500 error de la API de embeddings
+```
+
+Aparece en Swagger (`http://localhost:8000/docs`) y se puede invocar desde ahí
+mismo con el sample de datos (`data/budgets_sample.json`). Desde CLI, recuerda
+envolver el array en el campo `budgets`:
+
+```bash
+# httpie
+http POST :8000/api/v1/embeddings/ingest budgets:=@data/budgets_sample.json
+
+# curl equivalente
+curl -s -X POST http://localhost:8000/api/v1/embeddings/ingest \
+  -H 'Content-Type: application/json' \
+  -d "{\"budgets\": $(cat data/budgets_sample.json)}" | python -m json.tool | head -40
+```
+
+Con el sample: 15 presupuestos → 52 chunks → ~4.1k tokens → coste estimado
+~$0.00008.
+
+### Script CLI `compare.py`
+
+Sanity check de los embeddings: embebe dos textos y devuelve su similitud coseno
+(calculada a mano con `math`, sin numpy). Reutiliza `OpenAIEmbedder`:
+
+```bash
+# Dentro del contenedor (los scripts ya viajan en la imagen desde la sesión 6):
+docker compose exec api python scripts/compare.py \
+  --text-a "OAuth 2.0 authentication backend for fintech" \
+  --text-b "JWT-based authorization service for banking app"
+
+# Fuera del contenedor, con el .env del repo cargado:
+uv run python scripts/compare.py \
+  --text-a "OAuth 2.0 authentication backend for fintech" \
+  --text-b "JWT-based authorization service for banking app"
+```
+
+Los resultados de las tres parejas de validación están en
+[`app/embedding_pipeline/SANITY_CHECK.md`](app/embedding_pipeline/SANITY_CHECK.md).
+
+### Configuración de embeddings
+
+El embedder reutiliza `EMBEDDING_MODEL` (default `text-embedding-3-small`) y,
+si están definidos, `EMBEDDING_BASE_URL` + `EMBEDDING_API_KEY` (endpoint
+OpenAI-compatible); en caso contrario usa `OPEN_AI_KEY`. Si tu endpoint custom
+no sirve `text-embedding-3-small`, ajusta `EMBEDDING_MODEL` al modelo que
+corresponda. Los embeddings generados con otro modelo tendrán otra dimensión y
+los valores de `SANITY_CHECK.md` no serán comparables.
+
+### Dependencias y scope
+
+- Nueva dependencia: `tiktoken>=0.7.0` (`openai` ya estaba desde la Sesión 01).
+- **Fuera de scope** (lo veremos en el directo): otras estrategias de chunking
+  (recursive, semantic, hierarchical, late, contextual retrieval), comparativa
+  de modelos de embeddings, enriquecimiento con LLM, persistencia vectorial y
+  retrieval.
 
 ## Cliente de negocio (Node)
 
