@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from starlette.responses import Response
 
 from app.config import APP_NAME, settings
+from app.embedding_pipeline.router import router as embeddings_router
 from app.logging_config import configure_logging
 from app.routers import estimations, ingestion, sessions
 
@@ -67,6 +68,7 @@ async def request_context(
 app.include_router(estimations.router, prefix="/api/v1", tags=["estimations"])
 app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(ingestion.router, prefix="/api/v1")
+app.include_router(embeddings_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Estado del servicio")

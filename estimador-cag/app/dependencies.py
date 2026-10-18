@@ -18,6 +18,8 @@ from openai import OpenAI
 
 from app.cache.semantic import EstimationSemanticCache
 from app.config import BASE_DIR, get_settings, reveal_secret
+from app.embedding_pipeline.chunker import JSONStructuralChunker
+from app.embedding_pipeline.embedder import OpenAIEmbedder
 from app.ingestion.catalog import DataCatalog, load_catalog
 from app.ingestion.loaders.filesystem import FileSystemLoader
 from app.ingestion.parsers.registry import ParserRegistry, default_registry
@@ -230,3 +232,31 @@ def get_text_pseudonymizer(session: Session) -> TextPseudonymizer:
         return pseudonymizer.pseudonymize(text).pseudonymized_text
 
     return _pseudonymize
+
+
+# --- Sesión 7 — pipeline de embeddings ----------------------------------------
+
+
+@lru_cache
+def get_chunker() -> JSONStructuralChunker:
+    """Chunker estructural (sin estado) del pipeline de embeddings."""
+    return JSONStructuralChunker()
+
+
+@lru_cache
+def get_embedder() -> OpenAIEmbedder | None:
+    """Embedder de OpenAI. ``None`` si no hay embeddings configurados.
+
+    La construcción del cliente (clave, ``base_url`` y modelo) vive en
+    ``OpenAIEmbedder.from_settings``: API y CLI comparten una única fuente de
+    verdad. Sigue el patrón de degradación de ``get_semantic_cache`` y el router
+    traduce el ``None`` a un 500 con mensaje genérico.
+
+    Ojo: NO reutilizamos ``get_openai_client()``, porque ese cliente está
+    condicionado a la moderación (``has_moderation``) y aquí lo necesitamos
+    aunque la moderación esté apagada.
+    """
+    embedder = OpenAIEmbedder.from_settings(get_settings())
+    if embedder is None:
+        logger.warning("embedding.disabled", reason="no_embeddings_configured")
+    return embedder
