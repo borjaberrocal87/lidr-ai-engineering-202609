@@ -10,6 +10,7 @@ COPY src ./src
 COPY views ./views
 COPY public ./public
 COPY migrations ./migrations
+COPY data ./data
 
 ENV NODE_ENV=production
 EXPOSE 3000

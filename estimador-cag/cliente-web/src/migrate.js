@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,8 +8,14 @@ import { createPool } from "./db.js";
 const here = dirname(fileURLToPath(import.meta.url));
 
 export async function runMigrations(pool) {
-  const sql = await readFile(join(here, "..", "migrations", "001_create_estimations.sql"), "utf8");
-  await pool.query(sql);
+  const migrationsDir = join(here, "..", "migrations");
+  const files = (await readdir(migrationsDir))
+    .filter((file) => file.endsWith(".sql"))
+    .sort();
+  for (const file of files) {
+    const sql = await readFile(join(migrationsDir, file), "utf8");
+    await pool.query(sql);
+  }
 }
 
 async function main() {

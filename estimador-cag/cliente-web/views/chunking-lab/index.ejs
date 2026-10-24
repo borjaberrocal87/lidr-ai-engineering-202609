@@ -1,0 +1,65 @@
+<%- include('../partials/head', { title: 'Chunking Lab' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-5xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">Chunking Lab</h1>
+      <p class="text-white/60 text-sm mt-1">
+        Compara las 8 estrategias de chunking sobre el corpus de presupuestos.
+      </p>
+    </div>
+    <a href="/chunking-lab/new" class="btn-primary">Nueva comparativa</a>
+  </div>
+
+  <% if (comparisons.length === 0) { %>
+    <div class="p-6 rounded-md bg-ink/30 border border-white/10 text-white/70">
+      Aún no hay comparativas guardadas. Lanza la primera.
+    </div>
+  <% } else { %>
+    <div class="rounded-md border border-white/10 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink/40 text-white/70">
+          <tr>
+            <th class="text-left p-3 font-bold tracking-tight">Fecha</th>
+            <th class="text-left p-3 font-bold tracking-tight">Estrategias</th>
+            <th class="text-left p-3 font-bold tracking-tight">Queries</th>
+            <th class="text-left p-3 font-bold tracking-tight">Top-k</th>
+            <th class="text-left p-3 font-bold tracking-tight">Corpus</th>
+            <th class="text-left p-3 font-bold tracking-tight">Duración</th>
+            <th class="text-right p-3 font-bold tracking-tight"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-white/10">
+          <% comparisons.forEach(function (comparison) { %>
+            <tr>
+              <td class="p-3 align-top text-white/70 tabular-nums whitespace-nowrap">
+                <%= formatDate(comparison.createdAt) %>
+              </td>
+              <td class="p-3 align-top text-white/90">
+                <%= comparison.strategies.join(', ') %>
+              </td>
+              <td class="p-3 align-top text-white/80 tabular-nums">
+                <%= comparison.queries.length %>
+              </td>
+              <td class="p-3 align-top text-white/80 tabular-nums"><%= comparison.topK %></td>
+              <td class="p-3 align-top text-white/70">
+                <%= comparison.corpusCount %> presupuestos
+              </td>
+              <td class="p-3 align-top text-white/70 tabular-nums">
+                <%= comparison.durationMs ? (comparison.durationMs / 1000).toFixed(1) + ' s' : '—' %>
+              </td>
+              <td class="p-3 align-top text-right whitespace-nowrap">
+                <a href="/chunking-lab/<%= comparison.id %>" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+                  Ver →
+                </a>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>
