@@ -21,6 +21,9 @@ from app.cache.semantic import EstimationSemanticCache
 from app.config import BASE_DIR, get_settings, reveal_secret
 from app.embedding_pipeline.base import Chunker
 from app.embedding_pipeline.embedder import OpenAIEmbedder
+from app.embedding_pipeline.ingest_service import RagIngestService
+from app.embedding_pipeline.retriever import SemanticRetriever
+from app.embedding_pipeline.store.repository import ChunkStore
 from app.embedding_pipeline.strategies import (
     ContextualRetrievalChunker,
     FixedSizeChunker,
@@ -34,6 +37,7 @@ from app.embedding_pipeline.structural import JSONStructuralChunker
 from app.ingestion.catalog import DataCatalog, load_catalog
 from app.ingestion.loaders.filesystem import FileSystemLoader
 from app.ingestion.parsers.registry import ParserRegistry, default_registry
+from app.persistence.database import get_async_session_factory
 from app.persistence.unit_of_work import UnitOfWork
 from app.services.cache import InMemoryCache, NullCache, RedisCache, ResponseCache
 from app.services.llm_wrapper import LLMWrapper, provider_from_model
@@ -284,6 +288,46 @@ def get_embedder() -> OpenAIEmbedder | None:
     if embedder is None:
         logger.warning("embedding.disabled", reason="no_embeddings_configured")
     return embedder
+
+
+# --- Sesión 8 — persistencia pgvector + búsqueda semántica --------------------
+
+
+@lru_cache
+def get_chunk_store() -> ChunkStore:
+    """Capa de acceso async, sin estado, sobre documents/chunks."""
+    return ChunkStore()
+
+
+@lru_cache
+def get_rag_ingest_service() -> RagIngestService | None:
+    """Orquestación chunk → embed → persist.
+
+    ``None`` sin embeddings configurados (mismo contrato que ``get_embedder``);
+    el router lo traduce a un 500 con mensaje genérico.
+    """
+    embedder = get_embedder()
+    if embedder is None:
+        return None
+    return RagIngestService(
+        chunker=get_chunker(),
+        embedder=embedder,
+        session_factory=get_async_session_factory(),
+        store=get_chunk_store(),
+    )
+
+
+@lru_cache
+def get_semantic_retriever() -> SemanticRetriever | None:
+    """Contraparte de consulta del servicio de ingesta. Mismo contrato ``None``."""
+    embedder = get_embedder()
+    if embedder is None:
+        return None
+    return SemanticRetriever(
+        embedder=embedder,
+        session_factory=get_async_session_factory(),
+        store=get_chunk_store(),
+    )
 
 
 # --- Sesión 7 (directo) — una factoría por estrategia de chunking --------------

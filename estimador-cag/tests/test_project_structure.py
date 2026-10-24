@@ -22,8 +22,16 @@ REQUIRED_PATHS = (
     "app/routers/config.py",
     "app/embedding_pipeline/base.py",
     "app/embedding_pipeline/structural.py",
+    "app/embedding_pipeline/store/__init__.py",
+    "app/embedding_pipeline/store/models.py",
+    "app/embedding_pipeline/store/repository.py",
+    "app/embedding_pipeline/ingest_service.py",
+    "app/embedding_pipeline/retriever.py",
     "app/embedding_pipeline/strategies/__init__.py",
     "app/embedding_pipeline/analysis/comparison.py",
+    "alembic/versions/0002_session8_pgvector.py",
+    "scripts/query_examples.py",
+    "data/output/session08/output_examples.txt",
     "app/services/runtime_config.py",
     "app/sessions/__init__.py",
     "app/sessions/models.py",
@@ -95,6 +103,7 @@ REQUIRED_PATHS = (
     "evals/golden_dataset.json",
     "docs/patron-actor-critic-boss.md",
     "docs/evals-golden-dataset.md",
+    "docs/persistencia-pgvector-busqueda-semantica-sesion-08.md",
     "pyproject.toml",
     "README.md",
     ".env.example",
@@ -134,6 +143,7 @@ def test_app_exposes_expected_entrypoints() -> None:
     assert "/api/v1/sessions/{session_id}/estimate" in paths
     assert "/api/v1/embeddings/ingest" in paths
     assert "/api/v1/embeddings/compare" in paths
+    assert "/api/v1/search" in paths
     assert "/api/v1/config/models" in paths
 
 

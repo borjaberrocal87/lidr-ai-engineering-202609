@@ -9,14 +9,14 @@ import pytest
 from pydantic import ValidationError
 
 from app.embedding_pipeline.chunker import JSONStructuralChunker, count_tokens
-from app.embedding_pipeline.schemas import Budget, IngestRequest
+from app.embedding_pipeline.schemas import Budget
 
 DATASET = Path(__file__).resolve().parents[1] / "data" / "budgets_sample.json"
 
 
 def _budgets() -> list[Budget]:
     payload = json.loads(DATASET.read_text(encoding="utf-8"))
-    return IngestRequest(budgets=payload).budgets
+    return [Budget.model_validate(item) for item in payload]
 
 
 def test_one_chunk_per_component() -> None:
@@ -63,7 +63,7 @@ def test_unknown_sector_fails_validation() -> None:
     payload[0]["client_metadata"]["sector"] = "retail"
 
     with pytest.raises(ValidationError):
-        IngestRequest(budgets=payload)
+        Budget.model_validate(payload[0])
 
 
 def test_unknown_field_fails_validation() -> None:
@@ -71,4 +71,4 @@ def test_unknown_field_fails_validation() -> None:
     payload[0]["surprise_field"] = "nope"
 
     with pytest.raises(ValidationError):
-        IngestRequest(budgets=payload)
+        Budget.model_validate(payload[0])

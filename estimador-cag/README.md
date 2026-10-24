@@ -52,15 +52,18 @@ estimador-cag/
 │   │   ├── cleaning/            # Limpieza/validación tabular (pandas + pandera)
 │   │   ├── pii/                 # Detección/pseudonimización (Presidio + spaCy + Faker)
 │   │   └── orchestrator.py      # Caso de uso ingest_source + ensure_ingestible
-│   ├── persistence/             # Postgres + Alembic (jobs de ingesta y mapping de PII)
-│   ├── embedding_pipeline/      # Chunking + embeddings (sesión 7)
+│   ├── persistence/             # Postgres sync + Alembic (S6) y motor async (S8)
+│   ├── embedding_pipeline/      # Chunking + embeddings (S7) y store pgvector (S8)
 │   │   ├── base.py              # Interfaz Chunker + helpers de tokens/logs
 │   │   ├── structural.py        # Chunker estructural y render del corpus
 │   │   ├── chunker.py           # Shim de compatibilidad de imports
 │   │   ├── strategies/          # 7 estrategias del comparador (S7 directo)
 │   │   ├── analysis/            # Coseno/percentiles + framework de comparación
 │   │   ├── embedder.py          # OpenAIEmbedder (batches, reintentos, dimensions)
-│   │   ├── schemas.py           # Contratos (Budget, Chunk, EmbeddedChunk…)
+│   │   ├── schemas.py           # Contratos (Budget, Chunk, Ingest, Search…)
+│   │   ├── ingest_service.py    # chunk → embed → persist en una transacción (S8)
+│   │   ├── retriever.py         # Búsqueda k-NN por coseno (S8)
+│   │   ├── store/               # Modelos ORM y repositorio async (S8)
 │   │   └── router.py            # POST /embeddings/{ingest,compare}
 ├── frontend/                    # Capa de presentación (no importa `app.*`)
 │   ├── config.py                # API_BASE_URL y timeouts
@@ -81,10 +84,12 @@ estimador-cag/
 │   └── stress/                  # Baseline de estrés del CAG (sesión 6): escenarios, fixtures y métricas
 ├── examples/
 │   └── transcripcion.md         # Transcripción de reunión de ejemplo (input del formulario)
-├── alembic/                     # Migraciones Alembic (sesión 6)
-├── data/                        # Catálogo, corpus semilla (s. 6) y budgets_sample.json (s. 7)
-├── docs/                        # Documentación de subsistemas (ingesta, stress, Chunking Lab…)
-├── scripts/                     # Preflight/demos S6; compare.py y compare_chunkers.py (S7)
+├── alembic/                     # Migraciones Alembic (S6) + pgvector (S8)
+│   └── versions/0002_session8_pgvector.py
+├── data/                        # Catálogo, corpus semilla (S6), budgets_sample.json (S7) y evidencia (S8)
+│   └── output/session08/output_examples.txt
+├── docs/                        # Documentación de subsistemas (ingesta, stress, Chunking Lab, pgvector…)
+├── scripts/                     # Preflight/demos S6; compare.py y compare_chunkers.py (S7); query_examples.py (S8)
 ├── specs/
 │   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
@@ -92,6 +97,7 @@ estimador-cag/
 │   ├── sesion-5-memoria-conversacional-adjuntos.md  # Spec de memoria y adjuntos (sesión 5)
 │   ├── sesion-6-stress-test-cag.md  # Spec del baseline de estrés del CAG (sesión 6)
 │   ├── sesion-7-pipeline-embeddings.md  # Spec del pipeline de embeddings (sesión 7)
+│   ├── sesion-8-persistencia-pgvector-busqueda-semantica.md  # Spec de pgvector y búsqueda (sesión 8)
 │   └── proveedor-openai-compatible.md  # Spec del proveedor custom (OpenAI-compatible)
 ├── Dockerfile               # Build multi-stage (builder / test / runtime)
 ├── docker-compose.yml       # Servicios api, ui, redis, cliente-web, postgres y estimator-postgres (pgvector)
@@ -401,9 +407,11 @@ La pantalla **/ingestion** del cliente de negocio Node consume estos endpoints
 ## Pipeline de embeddings (Sesión 7)
 
 Primer paso hacia la búsqueda semántica: convertir los presupuestos históricos
-en vectores. El módulo nuevo vive en `app/embedding_pipeline/` y expone la
-ingesta y, desde el directo, la comparativa de estrategias. **No se persiste nada todavía**: los vectores se generan en memoria y
-se devuelven por HTTP; la persistencia en pgvector entra en la Sesión 08.
+en vectores. El módulo vive en `app/embedding_pipeline/` y expone la ingesta y,
+desde el directo, la comparativa de estrategias. En la S7 **no se persistía
+nada**: los vectores se generaban en memoria y se devolvían por HTTP. **Desde
+la S8 el ingest persiste en pgvector** y la búsqueda semántica es real (ver la
+sección siguiente).
 
 Piezas:
 
@@ -418,29 +426,15 @@ Piezas:
 
 ### Endpoint nuevo
 
-```
-POST /api/v1/embeddings/ingest
-  Input  (IngestRequest):  {"budgets": [ <Budget>, ... ]}
-  Output (IngestResponse): {"chunks": [ <EmbeddedChunk>, ... ], "stats": {...}}
-  200 OK · 422 validación Pydantic · 500 error de la API de embeddings
-```
+> **Contrato actualizado en la Sesión 08.** El contrato original de la S07
+> (`{"budgets": [...]}` → chunks + vectores por HTTP, sin persistencia) fue
+> reemplazado por el contrato persistente de un documento por petición que se
+> documenta en la sección de la Sesión 08. Las piezas de esta sección (chunker,
+> embedder) siguen siendo las mismas; lo que cambió es qué se hace con los
+> vectores.
 
-Aparece en Swagger (`http://localhost:8000/docs`) y se puede invocar desde ahí
-mismo con el sample de datos (`data/budgets_sample.json`). Desde CLI, recuerda
-envolver el array en el campo `budgets`:
-
-```bash
-# httpie
-http POST :8000/api/v1/embeddings/ingest budgets:=@data/budgets_sample.json
-
-# curl equivalente
-curl -s -X POST http://localhost:8000/api/v1/embeddings/ingest \
-  -H 'Content-Type: application/json' \
-  -d "{\"budgets\": $(cat data/budgets_sample.json)}" | python -m json.tool | head -40
-```
-
-Con el sample: 17 presupuestos → 60 chunks → 5.970 tokens → coste estimado
-~$0.0001194.
+Con el sample completo: 17 presupuestos → 60 chunks (`text-embedding-3-small`,
+1536 dims).
 
 ### Script CLI `compare.py`
 
@@ -496,6 +490,21 @@ hierarchical). Viven en `app/embedding_pipeline/strategies/`.
 
 Detalles, contrato completo, costes y demo en
 [`docs/chunking-lab-y-ajustes-runtime-sesion-07.md`](docs/chunking-lab-y-ajustes-runtime-sesion-07.md).
+
+## Sesión 8 — Persistencia vectorial y búsqueda semántica
+
+El pipeline de la S07 ya no devuelve vectores por HTTP: los persiste en Postgres
++ pgvector reutilizando `estimator-postgres` (sin servicio nuevo). La migración
+`0002_session8_pgvector` crea `documents`/`chunks`; el store async y el
+retriever viven en `app/embedding_pipeline/`, y el servicio expone
+`POST /api/v1/embeddings/ingest` y `POST /api/v1/search`.
+
+Las cuatro decisiones de diseño —dos tablas, metadata JSONB, distancia coseno y
+ausencia deliberada de índice vectorial— están justificadas en
+[`docs/persistencia-pgvector-busqueda-semantica-sesion-08.md`](docs/persistencia-pgvector-busqueda-semantica-sesion-08.md).
+
+Evidencia real del corpus:
+[`data/output/session08/output_examples.txt`](data/output/session08/output_examples.txt).
 
 ## Configuración de modelos en runtime
 
@@ -685,6 +694,7 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 - la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`);
 - el baseline de estrés: métricas de presupuesto y drift (`tests/test_stress_metrics.py`) y el runner de campaña end-to-end con wrapper falso (`tests/test_stress_runner.py`);
 - las estrategias de chunking y el comparador: estrategias offline, LLM/Anthropic falsos, estadísticos y top-k (`tests/test_chunking_strategies.py`, `tests/test_embedding_compare.py`);
+- la persistencia vectorial y la búsqueda: contrato del ingest persistente, 409 de duplicado, validaciones, ranking y errores de configuración con dobles (`tests/test_embedding_endpoint.py`, `tests/test_search_endpoint.py`);
 - los overrides de modelo en runtime: store Redis con fakeredis, validaciones del endpoint, camino directo del wrapper y partición de la caché semántica (`tests/test_runtime_config.py`, `tests/test_config_endpoint.py`, `tests/test_llm_wrapper_runtime.py`).
 
 El cliente de negocio tiene su propia batería (Node): `cd cliente-web && npm test` (rutas de Express, clientes HTTP, corpus sincronizado, Chunking Lab y Ajustes con dobles).

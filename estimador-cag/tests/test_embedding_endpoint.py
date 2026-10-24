@@ -1,4 +1,4 @@
-"""Tests del endpoint ``POST /api/v1/embeddings/ingest`` con un embedder falso."""
+"""Tests del endpoint ``POST /api/v1/embeddings/ingest`` con un servicio falso."""
 
 from __future__ import annotations
 
@@ -9,80 +9,152 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from app.dependencies import get_embedder
-from app.embedding_pipeline.schemas import Chunk, EmbeddedChunk
+from app.dependencies import get_rag_ingest_service
+from app.embedding_pipeline.ingest_service import DuplicateDocumentError
+from app.embedding_pipeline.schemas import Budget, IngestResponse
 from app.main import app
 
 DATASET = Path(__file__).resolve().parents[1] / "data" / "budgets_sample.json"
-FAKE_VECTOR = [0.01] * 1536
 
 
-class FakeEmbedder:
-    """Doble del embedder: no llama a la API y registra los batches recibidos."""
+class FakeIngestService:
+    """Doble del servicio de ingesta: no toca Postgres ni la API de embeddings."""
 
-    def __init__(self) -> None:
-        self.batches: list[int] = []
+    def __init__(
+        self,
+        *,
+        response: IngestResponse | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.response = response or IngestResponse(
+            document_id=42,
+            chunks_created=3,
+            embedding_dimension=1536,
+            ingestion_time_ms=12,
+        )
+        self.error = error
+        self.calls: list[dict[str, object]] = []
 
-    def embed_many(self, chunks: list[Chunk]) -> list[EmbeddedChunk]:
-        self.batches.append(len(chunks))
-        return [EmbeddedChunk(**chunk.model_dump(), embedding=FAKE_VECTOR) for chunk in chunks]
+    async def ingest(
+        self,
+        *,
+        source_path: str,
+        document_type: str,
+        budget: Budget,
+    ) -> IngestResponse:
+        self.calls.append(
+            {
+                "source_path": source_path,
+                "document_type": document_type,
+                "budget": budget,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        return self.response
+
+
+def _budget() -> dict:
+    return json.loads(DATASET.read_text(encoding="utf-8"))[0]
 
 
 def _payload() -> dict:
-    return {"budgets": json.loads(DATASET.read_text(encoding="utf-8"))}
+    return {
+        "source_path": "data/budgets_sample.json::BUD-2024-001",
+        "document_type": "historical_budget",
+        "content": _budget(),
+    }
 
 
 @pytest.fixture
-def fake_embedder() -> Iterator[FakeEmbedder]:
-    embedder = FakeEmbedder()
-    app.dependency_overrides[get_embedder] = lambda: embedder
-    yield embedder
-    app.dependency_overrides.pop(get_embedder, None)
+def fake_service() -> Iterator[FakeIngestService]:
+    service = FakeIngestService()
+    app.dependency_overrides[get_rag_ingest_service] = lambda: service
+    yield service
+    app.dependency_overrides.pop(get_rag_ingest_service, None)
 
 
-def test_ingest_returns_vectorized_chunks_and_stats(
-    client: TestClient, fake_embedder: FakeEmbedder
+def test_ingest_persists_and_returns_ids_and_metrics(
+    client: TestClient, fake_service: FakeIngestService
 ) -> None:
     response = client.post("/api/v1/embeddings/ingest", json=_payload())
 
     assert response.status_code == 200
-    body = response.json()
-    assert len(body["chunks"]) == 60
-    assert len(body["chunks"][0]["embedding"]) == 1536
-    assert body["stats"] == {
-        "total_budgets": 17,
-        "total_chunks": 60,
-        "total_tokens": 5970,
-        "estimated_cost_usd": pytest.approx(0.0001194),
+    assert response.json() == {
+        "document_id": 42,
+        "chunks_created": 3,
+        "embedding_dimension": 1536,
+        "ingestion_time_ms": 12,
     }
-    # 60 chunks caben en un único batch de 100.
-    assert fake_embedder.batches == [60]
+    assert fake_service.calls[0]["source_path"] == "data/budgets_sample.json::BUD-2024-001"
+    assert fake_service.calls[0]["document_type"] == "historical_budget"
 
 
-def test_invalid_sector_returns_422(client: TestClient, fake_embedder: FakeEmbedder) -> None:
-    payload = _payload()
-    payload["budgets"][0]["client_metadata"]["sector"] = "retail"
-
-    response = client.post("/api/v1/embeddings/ingest", json=payload)
-
-    assert response.status_code == 422
-
-
-def test_unknown_field_returns_422(client: TestClient, fake_embedder: FakeEmbedder) -> None:
-    payload = _payload()
-    payload["budgets"][0]["surprise_field"] = "nope"
-
-    response = client.post("/api/v1/embeddings/ingest", json=payload)
-
-    assert response.status_code == 422
-
-
-def test_missing_embeddings_configuration_returns_500(client: TestClient) -> None:
-    app.dependency_overrides[get_embedder] = lambda: None
+def test_duplicate_source_path_returns_409(client: TestClient) -> None:
+    service = FakeIngestService(error=DuplicateDocumentError(42))
+    app.dependency_overrides[get_rag_ingest_service] = lambda: service
     try:
         response = client.post("/api/v1/embeddings/ingest", json=_payload())
     finally:
-        app.dependency_overrides.pop(get_embedder, None)
+        app.dependency_overrides.pop(get_rag_ingest_service, None)
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Document already ingested",
+        "document_id": 42,
+    }
+
+
+def test_invalid_sector_returns_422(client: TestClient, fake_service: FakeIngestService) -> None:
+    payload = _payload()
+    payload["content"]["client_metadata"]["sector"] = "retail"
+
+    response = client.post("/api/v1/embeddings/ingest", json=payload)
+
+    assert response.status_code == 422
+    assert fake_service.calls == []
+
+
+def test_unknown_budget_field_returns_422(
+    client: TestClient, fake_service: FakeIngestService
+) -> None:
+    payload = _payload()
+    payload["content"]["surprise_field"] = "nope"
+
+    response = client.post("/api/v1/embeddings/ingest", json=payload)
+
+    assert response.status_code == 422
+    assert fake_service.calls == []
+
+
+def test_empty_source_path_returns_422(client: TestClient, fake_service: FakeIngestService) -> None:
+    payload = _payload()
+    payload["source_path"] = ""
+
+    response = client.post("/api/v1/embeddings/ingest", json=payload)
+
+    assert response.status_code == 422
+    assert fake_service.calls == []
+
+
+def test_document_type_too_long_returns_422(
+    client: TestClient, fake_service: FakeIngestService
+) -> None:
+    payload = _payload()
+    payload["document_type"] = "x" * 51
+
+    response = client.post("/api/v1/embeddings/ingest", json=payload)
+
+    assert response.status_code == 422
+    assert fake_service.calls == []
+
+
+def test_missing_ingest_configuration_returns_500(client: TestClient) -> None:
+    app.dependency_overrides[get_rag_ingest_service] = lambda: None
+    try:
+        response = client.post("/api/v1/embeddings/ingest", json=_payload())
+    finally:
+        app.dependency_overrides.pop(get_rag_ingest_service, None)
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "No se pudieron generar los embeddings."}
+    assert response.json() == {"detail": "No se pudieron persistir los embeddings."}

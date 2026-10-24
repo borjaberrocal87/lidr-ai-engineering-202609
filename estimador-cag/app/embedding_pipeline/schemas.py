@@ -8,6 +8,7 @@ vectores con sus estadísticas agregadas.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -101,26 +102,72 @@ class EmbeddedChunk(Chunk):
 
 
 class IngestRequest(BaseModel):
-    """Payload de entrada de ``POST /api/v1/embeddings/ingest``."""
+    """Payload de ``POST /api/v1/embeddings/ingest`` (contrato persistente).
+
+    Una petición = un documento. ``content`` es el JSON completo del
+    presupuesto, validado contra :class:`Budget`, de modo que un corpus mal
+    formado falla con 422 antes de tocar la base de datos o la API de
+    embeddings.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    budgets: list[Budget] = Field(
-        ..., min_length=1, description="Presupuestos a chunquear y embeber."
+    source_path: str = Field(
+        ...,
+        min_length=1,
+        max_length=1024,
+        description="Procedencia del documento; única por ingesta.",
     )
-
-
-class IngestStats(BaseModel):
-    """Contadores agregados que acompañan a una respuesta de ingesta."""
-
-    total_budgets: int = Field(..., ge=0)
-    total_chunks: int = Field(..., ge=0)
-    total_tokens: int = Field(..., ge=0)
-    estimated_cost_usd: float = Field(..., ge=0.0)
+    document_type: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Familia documental, p. ej. 'historical_budget'.",
+    )
+    content: Budget = Field(..., description="JSON completo del presupuesto.")
 
 
 class IngestResponse(BaseModel):
-    """Respuesta de ``POST /api/v1/embeddings/ingest``."""
+    """Respuesta de ``POST /api/v1/embeddings/ingest``.
 
-    chunks: list[EmbeddedChunk]
-    stats: IngestStats
+    Los vectores ya no viajan por HTTP: viven en pgvector. Solo se devuelven
+    identificadores y métricas de la ingesta.
+    """
+
+    document_id: int = Field(..., description="Clave primaria del documento persistido.")
+    chunks_created: int = Field(..., ge=0, description="Chunks persistidos para este documento.")
+    embedding_dimension: int = Field(..., description="Dimensionalidad de los vectores guardados.")
+    ingestion_time_ms: int = Field(..., ge=0, description="Tiempo de pared de la ingesta.")
+
+
+class SearchRequest(BaseModel):
+    """Payload de ``POST /api/v1/search``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(..., min_length=1, description="Consulta semántica en texto libre.")
+    k: int = Field(default=5, ge=1, le=50, description="Número de chunks más cercanos.")
+
+
+class SearchHit(BaseModel):
+    """Un chunk rankeado.
+
+    ``chunk_id`` es la clave primaria de la base de datos; el id trazable del
+    corpus (``BUD-X::COMP-Y``) viaja dentro de ``metadata``.
+    """
+
+    chunk_id: int
+    document_id: int
+    chunk_type: str
+    content: str
+    distance: float = Field(..., description="Distancia coseno (menor = más similar).")
+    metadata: dict[str, Any]
+
+
+class SearchResponse(BaseModel):
+    """Respuesta de ``POST /api/v1/search``."""
+
+    query: str
+    k: int
+    search_time_ms: int = Field(..., ge=0)
+    results: list[SearchHit]
