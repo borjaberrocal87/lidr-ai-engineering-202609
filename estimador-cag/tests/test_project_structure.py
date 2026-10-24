@@ -103,6 +103,7 @@ REQUIRED_PATHS = (
     "evals/golden_dataset.json",
     "docs/patron-actor-critic-boss.md",
     "docs/evals-golden-dataset.md",
+    "docs/persistencia-pgvector-busqueda-semantica-sesion-08.md",
     "pyproject.toml",
     "README.md",
     ".env.example",

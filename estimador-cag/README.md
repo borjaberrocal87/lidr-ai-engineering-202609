@@ -88,7 +88,7 @@ estimador-cag/
 │   └── versions/0002_session8_pgvector.py
 ├── data/                        # Catálogo, corpus semilla (S6), budgets_sample.json (S7) y evidencia (S8)
 │   └── output/session08/output_examples.txt
-├── docs/                        # Documentación de subsistemas (ingesta, stress, Chunking Lab…)
+├── docs/                        # Documentación de subsistemas (ingesta, stress, Chunking Lab, pgvector…)
 ├── scripts/                     # Preflight/demos S6; compare.py y compare_chunkers.py (S7); query_examples.py (S8)
 ├── specs/
 │   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
@@ -493,72 +493,18 @@ Detalles, contrato completo, costes y demo en
 
 ## Sesión 8 — Persistencia vectorial y búsqueda semántica
 
-El pipeline de la S07 deja de devolver vectores por HTTP y los persiste en
-Postgres + pgvector. **No se añade un servicio Postgres nuevo**: se reutiliza
-`estimator-postgres` (imagen `pgvector/pgvector:pg16`) que ya existía desde la
-Sesión 06. El esquema se gestiona con Alembic
-(`alembic/versions/0002_session8_pgvector.py`: extensión `vector` + tablas
-`documents` y `chunks`).
+El pipeline de la S07 ya no devuelve vectores por HTTP: los persiste en Postgres
++ pgvector reutilizando `estimator-postgres` (sin servicio nuevo). La migración
+`0002_session8_pgvector` crea `documents`/`chunks`; el store async y el
+retriever viven en `app/embedding_pipeline/`, y el servicio expone
+`POST /api/v1/embeddings/ingest` y `POST /api/v1/search`.
 
-Piezas nuevas: `app/embedding_pipeline/store/` (modelos ORM y repositorio async
-`ChunkStore`), `ingest_service.py` (chunk → embed → persist en **una sola
-transacción**), `retriever.py` (k-NN por coseno) y `app/routers/search.py`. El
-stack async convive con el sync de la S06: una sola `DATABASE_URL` y el motor
-async deriva el driver `+asyncpg`.
+Las cuatro decisiones de diseño —dos tablas, metadata JSONB, distancia coseno y
+ausencia deliberada de índice vectorial— están justificadas en
+[`docs/persistencia-pgvector-busqueda-semantica-sesion-08.md`](docs/persistencia-pgvector-busqueda-semantica-sesion-08.md).
 
-### Endpoints
-
-`POST /api/v1/embeddings/ingest` recibe `{source_path, document_type, content}`,
-devuelve `{document_id, chunks_created, embedding_dimension,
-ingestion_time_ms}` y responde **409** con `{detail, document_id}` si el
-`source_path` ya existe. Una transacción: si el embedder falla, rollback —sin
-documents huérfanos. `POST /api/v1/search` recibe `{query, k}` y devuelve
-`{query, k, search_time_ms, results[]}` con `distance` coseno. Sin índice
-vectorial: sequential scan.
-
-### Script y evidencia
-
-`scripts/query_examples.py` ingesta el corpus completo de forma idempotente (los
-`409` se saltan) y lanza cinco queries que ejercitan ángulos distintos: match
-directo, reformulación semántica, dominio ajeno, ambigua y muy específica. La
-salida real está en
+Evidencia real del corpus:
 [`data/output/session08/output_examples.txt`](data/output/session08/output_examples.txt).
-
-```bash
-docker compose up -d --build api
-docker compose run --rm api python scripts/query_examples.py \
-  | tee data/output/session08/output_examples.txt
-```
-
-### Decisiones de schema
-
-- **Dos tablas y no una.** Un presupuesto produce N chunks: es un uno-a-muchos
-  real. Una tabla única duplicaría la metadata del documento en cada fila y
-  perdería integridad referencial. Con `ON DELETE CASCADE`, borrar un
-  presupuesto elimina sus chunks automáticamente.
-- **`metadata` como JSONB y no columnas tipadas.** Lo estable (tipo de
-  documento, tipo de chunk, fechas) va en columnas tipadas; lo que el chunker
-  puede enriquecer (sector, tecnologías, horas) va a JSONB. El índice GIN
-  permite consultar claves arbitrarias sin una migración por cada clave nueva.
-- **`cosine_distance` y no L2 ni inner product.** Los embeddings de OpenAI
-  vienen normalizados, así que el ranking sería equivalente; usamos coseno por
-  convención RAG y, sobre todo, para quedar alineados con la operator class
-  `vector_cosine_ops` del índice HNSW que se añade en el directo. Si la query
-  usa un operador y el índice está construido con otra operator class,
-  Postgres ignora el índice **en silencio** y cae a sequential scan.
-- **Sin índice vectorial todavía (deliberado).** Con 17 presupuestos / 60
-  chunks el sequential scan responde en pocos cientos de ms y es el baseline
-  contra el que el directo mide el impacto del HNSW. Añadirlo ahora ocultaría
-  justamente lo que queremos observar.
-- **`embedding` nullable.** Permite insertar el chunk y rellenar el vector
-  después (ingesta asíncrona futura). En esta sesión chunk + embedding se
-  escriben atómicamente.
-- **`vector(1536)` hardcodeado.** Es la dimensionalidad de
-  `text-embedding-3-small`; cambiarla implica re-embedear todo el corpus.
-
-**Fuera de scope (se construye en el directo):** índices vectoriales
-(HNSW/IVFFlat), filtros por metadata en SQL, búsqueda híbrida (full-text +
-vector) y tuning de Postgres.
 
 ## Configuración de modelos en runtime
 

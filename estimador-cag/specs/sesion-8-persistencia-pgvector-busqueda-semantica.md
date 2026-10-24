@@ -1342,20 +1342,16 @@ uv run python scripts/query_examples.py
 
 #### 9.1 — README
 
-Añade una sección **"Sesión 8 — Persistencia vectorial y búsqueda semántica"** de **máximo una página**. Debe contener:
+Crea un documento de **máximo una página** en `docs/persistencia-pgvector-busqueda-semantica-sesion-08.md` que contenga **únicamente** las cuatro justificaciones (a)–(d) desarrolladas. El detalle técnico (esquema, migración, contratos, flujo transaccional, búsqueda y operación) vive en este spec; no lo dupliques en `docs/`.
 
-1. El contrato nuevo de los dos endpoints, con códigos `200 / 409 / 422 / 500`.
-2. Los comandos para aplicar la migración y ejecutar `query_examples.py`.
-3. La referencia a `data/output/session08/output_examples.txt`.
-4. Las cuatro justificaciones, en este orden:
-   - **(a) Dos tablas y no una.** Un presupuesto produce N chunks: es un uno-a-muchos real. Una tabla única duplicaría la metadata del documento en cada fila y perdería integridad referencial. `ON DELETE CASCADE` elimina los chunks al borrar el documento.
-   - **(b) `metadata` como JSONB y no columnas.** Lo estable (tipo de documento, tipo de chunk, fechas) va en columnas tipadas; lo que el chunker enriquece (sector, tecnologías, horas) va a JSONB. El índice GIN permite consultar claves arbitrarias sin una migración por cada clave nueva. Una columna se promociona a tipada solo cuando se convierte en filtro caliente.
-   - **(c) `cosine_distance` y no L2 ni inner product.** Los embeddings de OpenAI están normalizados, así que el ranking sería equivalente; usamos coseno por convención RAG y, sobre todo, para quedar alineados con la operator class `vector_cosine_ops` del índice HNSW que se añade en el directo. Un operador y una operator class distintos hacen que Postgres ignore el índice **en silencio**.
-   - **(d) Sin índice vectorial todavía.** Con 17 presupuestos y 60 chunks, el sequential scan responde en pocos cientos de ms y es el baseline contra el que se mide HNSW. Añadirlo ahora ocultaría justo lo que queremos observar.
+En el README añade una sección **"Sesión 8 — Persistencia vectorial y búsqueda semántica"** con:
 
-Además, actualiza la sección de la **Sesión 07** para avisar de que el contrato de `/embeddings/ingest` cambió: ya no devuelve `chunks` ni `stats`; persiste y devuelve identificadores y métricas. El `/embeddings/compare` y el Chunking Lab siguen igual.
+1. Un resumen de 2–3 frases del cambio (persistencia, servicio Postgres reutilizado, endpoints).
+2. Un enlace al documento de `docs/` donde están las cuatro justificaciones.
+3. Un enlace a `data/output/session08/output_examples.txt`.
+4. La nota de que el contrato de la **Sesión 07** cambió: `/embeddings/ingest` ya no devuelve `chunks` ni `stats`; persiste y devuelve identificadores y métricas. El `/embeddings/compare` y el Chunking Lab siguen igual.
 
-> **Una página, no un ensayo.** El README ya es largo. La sección nueva debe ser una tabla y cuatro bullets; el detalle vive en este spec.
+> **El README solo resume y enlaza.** Las justificaciones (a) dos tablas, (b) JSONB, (c) coseno y (d) ausencia de índice vectorial viven **únicamente** en `docs/persistencia-pgvector-busqueda-semantica-sesion-08.md`, que debe caber en una página.
 
 #### 9.2 — Tests
 
@@ -1488,8 +1484,9 @@ Una rama nueva en el repositorio: **`feature/pre-session-08`**. Debe contener:
 9. `alembic/versions/0002_session8_pgvector.py` y `alembic/env.py` actualizado.
 10. `scripts/query_examples.py` ejecutable.
 11. `data/output/session08/output_examples.txt` con la salida real.
-12. README con la sección nueva y la nota de cambio de contrato en la Sesión 07.
-13. Tests actualizados (`test_embedding_endpoint.py`, `test_embedding_chunker.py`, `test_project_structure.py`) y nuevo `test_search_endpoint.py`.
+12. README con la sección resumen, los enlaces y la nota de cambio de contrato en la Sesión 07.
+13. `docs/persistencia-pgvector-busqueda-semantica-sesion-08.md`, de máximo una página, con únicamente las justificaciones (a)–(d).
+14. Tests actualizados (`test_embedding_endpoint.py`, `test_embedding_chunker.py`, `test_project_structure.py`) y nuevo `test_search_endpoint.py`.
 
 No es obligatorio añadir tests de integración con Postgres. Si decides escribirlos, perfecto, pero no son requisito.
 
@@ -1505,7 +1502,7 @@ El ejercicio está completo cuando:
 - [ ] `alembic upgrade head` crea la extensión `vector`, las tablas `documents` y `chunks`, y los índices no vectoriales.
 - [ ] `scripts/query_examples.py` ingesta el corpus (17 documentos / 60 chunks) de forma idempotente y ejecuta las cinco queries.
 - [ ] `data/output/session08/output_examples.txt` contiene la salida real del script.
-- [ ] El README justifica (a) dos tablas, (b) JSONB, (c) coseno y (d) ausencia de índice vectorial.
+- [ ] El README solo resume y enlaza; las justificaciones (a) dos tablas, (b) JSONB, (c) coseno y (d) ausencia de índice vectorial están únicamente en `docs/persistencia-pgvector-busqueda-semantica-sesion-08.md`, que cabe en una página.
 - [ ] `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .` y `uv run mypy app frontend` pasan.
 
 ## Checklist de verificación
