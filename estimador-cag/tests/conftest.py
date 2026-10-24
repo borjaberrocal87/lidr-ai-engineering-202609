@@ -5,19 +5,24 @@ from starlette.testclient import TestClient
 
 from app.config import DEFAULT_TEMPERATURE, get_settings, settings
 from app.dependencies import (
+    get_async_session_factory,
     get_cache,
     get_catalog,
+    get_chunk_store,
     get_chunker,
     get_embedder,
     get_filesystem_loader,
     get_llm_wrapper,
     get_openai_client,
     get_parser_registry,
+    get_rag_ingest_service,
     get_raw_openai_client,
     get_runtime_config,
     get_semantic_cache,
+    get_semantic_retriever,
 )
 from app.main import app
+from app.persistence.database import create_async_engine_from_settings
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +40,11 @@ def _reset_settings_cache():
     get_parser_registry.cache_clear()
     get_chunker.cache_clear()
     get_embedder.cache_clear()
+    create_async_engine_from_settings.cache_clear()
+    get_async_session_factory.cache_clear()
+    get_chunk_store.cache_clear()
+    get_rag_ingest_service.cache_clear()
+    get_semantic_retriever.cache_clear()
     yield
     get_settings.cache_clear()
     get_llm_wrapper.cache_clear()
@@ -48,6 +58,11 @@ def _reset_settings_cache():
     get_parser_registry.cache_clear()
     get_chunker.cache_clear()
     get_embedder.cache_clear()
+    create_async_engine_from_settings.cache_clear()
+    get_async_session_factory.cache_clear()
+    get_chunk_store.cache_clear()
+    get_rag_ingest_service.cache_clear()
+    get_semantic_retriever.cache_clear()
 
 
 @pytest.fixture(autouse=True)

@@ -42,6 +42,11 @@ dependencies = [
     "langchain-experimental>=0.3.0",
     "langchain-openai>=0.2.0",
     "nltk>=3.9",
+    # Sesión 8 — persistencia vectorial con PostgreSQL + asyncpg.
+    # greenlet es requisito de la extensión asyncio de SQLAlchemy.
+    "asyncpg>=0.32.0",
+    "pgvector>=0.5.1",
+    "greenlet>=3.5.6",
 ]
 
 [dependency-groups]

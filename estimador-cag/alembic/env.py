@@ -1,18 +1,21 @@
-"""Entorno de migraciones de Alembic para la capa de persistencia de la Sesión 6.
+"""Entorno de migraciones de Alembic para la capa de persistencia (Sesiones 6 y 8).
 
 La URL de la base de datos se lee de ``app.config.Settings`` (no de alembic.ini)
 para que el contenedor, el host de desarrollo y CI usen la misma fuente de
-verdad. Las migraciones se descubren importando ``app.persistence.models``: cada
-modelo de SQLAlchemy de ese módulo queda registrado en ``Base.metadata`` y pasa
-a ser visible para el autogenerate de Alembic.
+verdad. Las migraciones se descubren importando los módulos de modelos: cada
+modelo de SQLAlchemy registrado en ``Base.metadata`` pasa a ser visible para el
+autogenerate de Alembic.
 """
 
 from __future__ import annotations
 
 from logging.config import fileConfig
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.dialects.postgresql.base import ischema_names
 
+import app.embedding_pipeline.store.models  # noqa: F401 — registra S8 en Base.metadata
 from alembic import context
 from app.config import get_settings
 from app.persistence.models import Base
@@ -23,6 +26,11 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
+
+# Enseña a la reflexión el tipo ``vector``. Sin esto, ``alembic check`` /
+# autogenerate contra una BD que ya tiene columnas vector no sabe mapearlas de
+# vuelta y produce diffs inconsistentes.
+ischema_names["vector"] = Vector
 
 target_metadata = Base.metadata
 
