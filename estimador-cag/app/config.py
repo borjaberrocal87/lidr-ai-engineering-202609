@@ -95,6 +95,20 @@ class Settings(BaseSettings):
     compression_model: str = ""
     anchor_detection_mode: Literal["heuristic", "llm"] = "heuristic"
 
+    # Sesión 7 (directo) — modelos de las estrategias de chunking con LLM.
+    propositional_chunker_model: str = "gpt-4o-mini"
+    contextual_chunker_model: str = "claude-sonnet-4-5"
+
+    # Catálogo de modelos seleccionables en caliente desde Ajustes. Se filtra
+    # por las API keys realmente configuradas.
+    available_models: list[str] = [
+        "gpt-4o-mini",
+        "gpt-4o",
+        "claude-haiku-4-5",
+        "claude-sonnet-4-5",
+        "deepseek-v4-flash",
+    ]
+
     # Sesión 6 — ingesta de datos, persistencia y PII.
     # Postgres (imagen pgvector) para el tracking de jobs y el mapping de PII.
     # En docker-compose se sobreescribe a estimator-postgres:5432.

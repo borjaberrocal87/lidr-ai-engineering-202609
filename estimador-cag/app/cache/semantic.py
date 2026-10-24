@@ -110,16 +110,21 @@ class EstimationSemanticCache:
             logger.debug("semantic_index_create_skipped", error=str(exc)[:120])
 
     @staticmethod
-    def bucket_for(request: EstimationRequest, prompt_version: str) -> str:
+    def bucket_for(request: EstimationRequest, prompt_version: str, model: str) -> str:
+        # El modelo forma parte del bucket (igual que la caché exacta): un hit
+        # generado por un modelo nunca debe servirse con otro activo.
         return (
             f"{prompt_version}"
             f":{request.project_type.value}"
             f":{request.detail_level.value}"
             f":{request.output_format.value}"
+            f":{model}"
         )
 
-    def lookup(self, request: EstimationRequest, prompt_version: str) -> EstimationResult | None:
-        bucket = self.bucket_for(request, prompt_version)
+    def lookup(
+        self, request: EstimationRequest, prompt_version: str, model: str
+    ) -> EstimationResult | None:
+        bucket = self.bucket_for(request, prompt_version, model)
         try:
             from redisvl.query import VectorQuery
             from redisvl.query.filter import Tag
@@ -178,8 +183,9 @@ class EstimationSemanticCache:
         request: EstimationRequest,
         result: EstimationResult,
         prompt_version: str,
+        model: str,
     ) -> None:
-        bucket = self.bucket_for(request, prompt_version)
+        bucket = self.bucket_for(request, prompt_version, model)
         try:
             embedding = self.vectorizer.embed(request.description)
             payload = [

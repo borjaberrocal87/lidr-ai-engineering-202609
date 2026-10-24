@@ -23,9 +23,9 @@ def test_one_chunk_per_component() -> None:
     budgets = _budgets()
     chunks = JSONStructuralChunker().chunk(budgets)
 
-    assert len(budgets) == 15
-    assert sum(len(budget.components) for budget in budgets) == 52
-    assert len(chunks) == 52
+    assert len(budgets) == 17
+    assert sum(len(budget.components) for budget in budgets) == 60
+    assert len(chunks) == 60
 
 
 def test_chunk_is_traceable_and_carries_filterable_metadata() -> None:

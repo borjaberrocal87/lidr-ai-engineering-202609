@@ -47,16 +47,16 @@ def test_ingest_returns_vectorized_chunks_and_stats(
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body["chunks"]) == 52
+    assert len(body["chunks"]) == 60
     assert len(body["chunks"][0]["embedding"]) == 1536
     assert body["stats"] == {
-        "total_budgets": 15,
-        "total_chunks": 52,
-        "total_tokens": 4126,
-        "estimated_cost_usd": pytest.approx(0.00008252),
+        "total_budgets": 17,
+        "total_chunks": 60,
+        "total_tokens": 5970,
+        "estimated_cost_usd": pytest.approx(0.0001194),
     }
-    # 52 chunks caben en un único batch de 100.
-    assert fake_embedder.batches == [52]
+    # 60 chunks caben en un único batch de 100.
+    assert fake_embedder.batches == [60]
 
 
 def test_invalid_sector_returns_422(client: TestClient, fake_embedder: FakeEmbedder) -> None:

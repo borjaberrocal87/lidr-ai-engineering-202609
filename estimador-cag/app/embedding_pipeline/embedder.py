@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 from itertools import batched
+from typing import Any
 
 import structlog
 from openai import OpenAI, RateLimitError
@@ -43,9 +44,11 @@ def estimate_cost_usd(total_tokens: int) -> float:
 class OpenAIEmbedder:
     """Wrapper fino sobre ``client.embeddings.create`` con batching y reintentos."""
 
-    def __init__(self, client: OpenAI, model: str = MODEL) -> None:
+    def __init__(self, client: OpenAI, model: str = MODEL, dimensions: int | None = None) -> None:
         self._client = client
         self._model = model
+        # Recorte Matryoshka opcional. ``None`` = dimensión nativa del modelo.
+        self._dimensions = dimensions
 
     @classmethod
     def from_settings(cls, settings: Settings) -> OpenAIEmbedder | None:
@@ -99,7 +102,10 @@ class OpenAIEmbedder:
         retries = 0
         while True:
             try:
-                response = self._client.embeddings.create(model=self._model, input=texts)
+                kwargs: dict[str, Any] = {"model": self._model, "input": texts}
+                if self._dimensions is not None:
+                    kwargs["dimensions"] = self._dimensions
+                response = self._client.embeddings.create(**kwargs)
                 return [item.embedding for item in response.data]
             except RateLimitError:
                 if retries >= len(_RETRY_DELAYS_SECONDS):

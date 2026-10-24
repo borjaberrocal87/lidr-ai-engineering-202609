@@ -7,25 +7,37 @@ de Redis durante toda la vida del proceso. Los tests pueden sustituir
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import anthropic
 import redis
 import structlog
 from openai import OpenAI
 
 from app.cache.semantic import EstimationSemanticCache
 from app.config import BASE_DIR, get_settings, reveal_secret
-from app.embedding_pipeline.chunker import JSONStructuralChunker
+from app.embedding_pipeline.base import Chunker
 from app.embedding_pipeline.embedder import OpenAIEmbedder
+from app.embedding_pipeline.strategies import (
+    ContextualRetrievalChunker,
+    FixedSizeChunker,
+    HierarchicalChunker,
+    PropositionalChunker,
+    RecursiveChunker,
+    SemanticChunker,
+    SentenceWindowChunker,
+)
+from app.embedding_pipeline.structural import JSONStructuralChunker
 from app.ingestion.catalog import DataCatalog, load_catalog
 from app.ingestion.loaders.filesystem import FileSystemLoader
 from app.ingestion.parsers.registry import ParserRegistry, default_registry
 from app.persistence.unit_of_work import UnitOfWork
 from app.services.cache import InMemoryCache, NullCache, RedisCache, ResponseCache
 from app.services.llm_wrapper import LLMWrapper, provider_from_model
+from app.services.runtime_config import RuntimeModelConfig
 from app.sessions.store import SessionStore
 
 if TYPE_CHECKING:
@@ -49,6 +61,17 @@ def get_cache() -> ResponseCache:
 
 
 @lru_cache
+def get_runtime_config() -> RuntimeModelConfig:
+    """Store Redis de overrides de modelo (Ajustes).
+
+    El singleton solo contiene el handle de Redis: la frescura viene de leer
+    Redis en cada llamada, no de reconstruir el objeto.
+    """
+    settings = get_settings()
+    return RuntimeModelConfig.from_url(settings.redis_url, settings)
+
+
+@lru_cache
 def get_llm_wrapper() -> LLMWrapper:
     settings = get_settings()
     fallback_model = settings.llm_fallback_model
@@ -65,6 +88,7 @@ def get_llm_wrapper() -> LLMWrapper:
         anthropic_api_key=reveal_secret(settings.anthropic_api_key),
         custom_base_url=settings.custom_llm_base_url,
         custom_api_key=reveal_secret(settings.custom_llm_api_key),
+        runtime_config=get_runtime_config(),
     )
 
 
@@ -260,3 +284,104 @@ def get_embedder() -> OpenAIEmbedder | None:
     if embedder is None:
         logger.warning("embedding.disabled", reason="no_embeddings_configured")
     return embedder
+
+
+# --- Sesión 7 (directo) — una factoría por estrategia de chunking --------------
+
+
+@lru_cache
+def get_raw_openai_client() -> OpenAI | None:
+    """Cliente OpenAI sin la condición de moderación.
+
+    ``get_openai_client`` devuelve ``None`` si la moderación está desactivada;
+    las estrategias de chunking y el comparador necesitan el cliente aunque sea
+    así.
+    """
+    settings = get_settings()
+    key = reveal_secret(settings.open_ai_key)
+    if not key:
+        return None
+    return OpenAI(api_key=key)
+
+
+@lru_cache
+def get_anthropic_client() -> anthropic.Anthropic | None:
+    """Cliente Anthropic perezoso. ``None`` si no hay API key configurada."""
+    settings = get_settings()
+    key = reveal_secret(settings.anthropic_api_key)
+    if not key:
+        return None
+    return anthropic.Anthropic(api_key=key)
+
+
+@lru_cache
+def get_fixed_size_chunker() -> FixedSizeChunker:
+    return FixedSizeChunker()
+
+
+@lru_cache
+def get_recursive_chunker() -> RecursiveChunker:
+    return RecursiveChunker()
+
+
+@lru_cache
+def get_sentence_window_chunker() -> SentenceWindowChunker:
+    return SentenceWindowChunker()
+
+
+@lru_cache
+def get_hierarchical_chunker() -> HierarchicalChunker:
+    return HierarchicalChunker()
+
+
+@lru_cache
+def get_semantic_chunker() -> SemanticChunker:
+    settings = get_settings()
+    key = reveal_secret(settings.embedding_api_key) or reveal_secret(settings.open_ai_key)
+    return SemanticChunker(api_key=key, model=settings.embedding_model)
+
+
+# Sin ``lru_cache``: se reconstruyen por request de comparación para que un
+# override de modelo en runtime aplique en la siguiente llamada.
+def get_propositional_chunker() -> PropositionalChunker:
+    client = get_raw_openai_client()
+    if client is None:
+        raise RuntimeError("PropositionalChunker requiere OPEN_AI_KEY.")
+    settings = get_settings()
+    return PropositionalChunker(client=client, model=settings.propositional_chunker_model)
+
+
+def get_contextual_retrieval_chunker() -> ContextualRetrievalChunker:
+    client = get_anthropic_client()
+    if client is None:
+        raise RuntimeError("ContextualRetrievalChunker requiere ANTHROPIC_API_KEY.")
+    settings = get_settings()
+    return ContextualRetrievalChunker(client=client, model=settings.contextual_chunker_model)
+
+
+CHUNKER_FACTORIES: dict[str, Callable[[], Chunker]] = {
+    "structural": get_chunker,
+    "fixed_size": get_fixed_size_chunker,
+    "recursive": get_recursive_chunker,
+    "sentence_window": get_sentence_window_chunker,
+    "semantic": get_semantic_chunker,
+    "propositional": get_propositional_chunker,
+    "contextual_retrieval": get_contextual_retrieval_chunker,
+    "hierarchical": get_hierarchical_chunker,
+}
+ALL_STRATEGIES = list(CHUNKER_FACTORIES)
+
+
+def build_chunkers(names: list[str]) -> list[Chunker]:
+    """Instancia las estrategias pedidas por nombre.
+
+    ``KeyError`` para una estrategia desconocida y ``RuntimeError`` si falta la
+    API key de una estrategia de pago; el router los traduce a 400/500.
+    """
+    chunkers: list[Chunker] = []
+    for name in names:
+        factory = CHUNKER_FACTORIES.get(name)
+        if factory is None:
+            raise KeyError(name)
+        chunkers.append(factory())
+    return chunkers
