@@ -13,6 +13,8 @@ from app.dependencies import (
     get_llm_wrapper,
     get_openai_client,
     get_parser_registry,
+    get_raw_openai_client,
+    get_runtime_config,
     get_semantic_cache,
 )
 from app.main import app
@@ -26,6 +28,8 @@ def _reset_settings_cache():
     get_cache.cache_clear()
     get_openai_client.cache_clear()
     get_semantic_cache.cache_clear()
+    get_runtime_config.cache_clear()
+    get_raw_openai_client.cache_clear()
     get_catalog.cache_clear()
     get_filesystem_loader.cache_clear()
     get_parser_registry.cache_clear()
@@ -37,6 +41,8 @@ def _reset_settings_cache():
     get_cache.cache_clear()
     get_openai_client.cache_clear()
     get_semantic_cache.cache_clear()
+    get_runtime_config.cache_clear()
+    get_raw_openai_client.cache_clear()
     get_catalog.cache_clear()
     get_filesystem_loader.cache_clear()
     get_parser_registry.cache_clear()
@@ -73,6 +79,8 @@ def _base_llm_settings(monkeypatch):
         "anthropic_api_key": "test-key",
         "custom_llm_base_url": "",
         "custom_llm_api_key": "test-key",
+        "propositional_chunker_model": "gpt-4o-mini",
+        "contextual_chunker_model": "claude-sonnet-4-5",
     }
     for name, value in baseline.items():
         monkeypatch.setattr(settings, name, value)

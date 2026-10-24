@@ -1,0 +1,127 @@
+<%- include('../partials/head', { title: 'Comparativa de chunking' }) %>
+<%- include('../partials/header') %>
+
+<%
+  const payload = comparison.responsePayload || {};
+  const stats = payload.stats_per_strategy || {};
+  const entries = Object.entries(stats);
+  const maxCost = entries.reduce(function (max, entry) {
+    return Math.max(max, entry[1].ingestion_cost_usd || 0);
+  }, 0);
+  const queriesByStrategy = payload.queries_per_strategy || {};
+%>
+
+<div class="max-w-5xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">Comparativa</h1>
+      <p class="text-white/60 text-sm mt-1">
+        <%= formatDate(comparison.createdAt) %> ·
+        <%= comparison.corpusCount %> presupuestos ·
+        <%= comparison.durationMs ? (comparison.durationMs / 1000).toFixed(1) + ' s' : '—' %>
+      </p>
+    </div>
+    <div class="flex items-center gap-4">
+      <a href="/chunking-lab" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+        ← Historial
+      </a>
+      <a href="/chunking-lab/new" class="btn-primary">Nueva</a>
+    </div>
+  </div>
+
+  <div class="mb-8 text-sm text-white/70">
+    <span class="font-bold tracking-tight text-white/90">Estrategias:</span>
+    <%= comparison.strategies.map(strategyLabel).join(' · ') %>
+    <% if (comparison.queries.length) { %>
+      <span class="ml-3 font-bold tracking-tight text-white/90">Queries:</span>
+      <%= comparison.queries.join(' · ') %>
+    <% } %>
+  </div>
+
+  <h2 class="text-xl font-bold tracking-tight text-white mb-3">Estadísticos por estrategia</h2>
+  <div class="rounded-md border border-white/10 overflow-x-auto mb-10">
+    <table class="w-full text-sm">
+      <thead class="bg-ink/40 text-white/70">
+        <tr>
+          <th class="text-left p-3 font-bold tracking-tight">Estrategia</th>
+          <th class="text-right p-3 font-bold tracking-tight">Chunks</th>
+          <th class="text-right p-3 font-bold tracking-tight">Min</th>
+          <th class="text-right p-3 font-bold tracking-tight">p50</th>
+          <th class="text-right p-3 font-bold tracking-tight">p95</th>
+          <th class="text-right p-3 font-bold tracking-tight">Max</th>
+          <th class="text-right p-3 font-bold tracking-tight">Huérfanos</th>
+          <th class="text-right p-3 font-bold tracking-tight">Obesos</th>
+          <th class="text-right p-3 font-bold tracking-tight">Coste</th>
+          <th class="text-right p-3 font-bold tracking-tight">Segundos</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-white/10">
+        <% entries.forEach(function (entry) { const name = entry[0]; const stat = entry[1]; %>
+          <tr>
+            <td class="p-3 align-top text-white/90 font-bold tracking-tight"><%= strategyLabel(name) %></td>
+            <td class="p-3 align-top text-right tabular-nums"><%= stat.n_chunks %></td>
+            <td class="p-3 align-top text-right tabular-nums"><%= stat.token_distribution.min %></td>
+            <td class="p-3 align-top text-right tabular-nums"><%= stat.token_distribution.p50 %></td>
+            <td class="p-3 align-top text-right tabular-nums"><%= stat.token_distribution.p95 %></td>
+            <td class="p-3 align-top text-right tabular-nums"><%= stat.token_distribution.max %></td>
+            <td class="p-3 align-top text-right tabular-nums"><%= stat.n_orphan_chunks %></td>
+            <td class="p-3 align-top text-right tabular-nums"><%= stat.n_obese_chunks %></td>
+            <td class="p-3 align-top text-right tabular-nums">$<%= Number(stat.ingestion_cost_usd).toFixed(6) %></td>
+            <td class="p-3 align-top text-right tabular-nums"><%= Number(stat.ingestion_seconds).toFixed(2) %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="text-xl font-bold tracking-tight text-white mb-3">Coste de ingesta</h2>
+  <div class="space-y-3 mb-10">
+    <% entries.forEach(function (entry) { const name = entry[0]; const stat = entry[1]; const cost = Number(stat.ingestion_cost_usd) || 0; const width = maxCost > 0 ? Math.max(2, (cost / maxCost) * 100) : 0; %>
+      <div>
+        <div class="flex items-center justify-between text-sm mb-1">
+          <span class="text-white/80 font-bold tracking-tight"><%= strategyLabel(name) %></span>
+          <span class="text-white/60 tabular-nums">$<%= cost.toFixed(6) %></span>
+        </div>
+        <div class="h-2 rounded-full bg-white/10 overflow-hidden">
+          <div class="h-2 rounded-full bg-brand" style="width: <%= width %>%"></div>
+        </div>
+      </div>
+    <% }); %>
+  </div>
+
+  <% if (Object.keys(queriesByStrategy).length > 0) { %>
+    <h2 class="text-xl font-bold tracking-tight text-white mb-3">Top-k por query</h2>
+    <div class="space-y-5">
+      <% Object.entries(queriesByStrategy).forEach(function (entry) { const name = entry[0]; const results = entry[1]; %>
+        <div class="rounded-md border border-white/10 overflow-hidden">
+          <div class="px-4 py-3 bg-ink/40 text-white/90 font-bold tracking-tight"><%= strategyLabel(name) %></div>
+          <% results.forEach(function (result) { %>
+            <div class="px-4 py-3 border-t border-white/10">
+              <p class="text-white/70 text-sm mb-2"><%= result.query %></p>
+              <ol class="space-y-2">
+                <% result.top_k.forEach(function (top) { %>
+                  <li class="text-sm">
+                    <div class="flex items-center gap-2">
+                      <span class="text-brand tabular-nums font-bold"><%= Number(top.cosine).toFixed(4) %></span>
+                      <span class="text-white/80 font-mono text-xs"><%= top.chunk_id %></span>
+                      <% if (name === 'hierarchical') { %>
+                        <span class="badge"><%= top.chunk_id.endsWith('::parent') ? 'parent' : 'child' %></span>
+                      <% } %>
+                    </div>
+                    <p class="text-white/50 text-xs mt-1"><%= top.text_preview %></p>
+                  </li>
+                <% }); %>
+              </ol>
+            </div>
+          <% }); %>
+        </div>
+      <% }); %>
+    </div>
+  <% } else { %>
+    <div class="p-6 rounded-md bg-ink/30 border border-white/10 text-white/70">
+      Esta comparativa se ejecutó sin queries: solo contiene estadísticos de corpus.
+    </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

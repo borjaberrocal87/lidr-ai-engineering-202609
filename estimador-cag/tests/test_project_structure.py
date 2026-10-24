@@ -19,6 +19,12 @@ REQUIRED_PATHS = (
     "app/routers/__init__.py",
     "app/routers/estimations.py",
     "app/routers/sessions.py",
+    "app/routers/config.py",
+    "app/embedding_pipeline/base.py",
+    "app/embedding_pipeline/structural.py",
+    "app/embedding_pipeline/strategies/__init__.py",
+    "app/embedding_pipeline/analysis/comparison.py",
+    "app/services/runtime_config.py",
     "app/sessions/__init__.py",
     "app/sessions/models.py",
     "app/sessions/store.py",
@@ -126,6 +132,9 @@ def test_app_exposes_expected_entrypoints() -> None:
     assert "/api/v1/sessions" in paths
     assert "/api/v1/sessions/{session_id}" in paths
     assert "/api/v1/sessions/{session_id}/estimate" in paths
+    assert "/api/v1/embeddings/ingest" in paths
+    assert "/api/v1/embeddings/compare" in paths
+    assert "/api/v1/config/models" in paths
 
 
 def test_env_file_is_gitignored() -> None:

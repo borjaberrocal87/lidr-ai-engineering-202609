@@ -37,6 +37,11 @@ dependencies = [
     # para que dev, CI y Docker usen exactamente el mismo modelo.
     "es-core-news-md @ https://github.com/explosion/spacy-models/releases/download/es_core_news_md-3.8.0/es_core_news_md-3.8.0-py3-none-any.whl",
     "tiktoken>=0.7.0",
+    # Sesión 7 (directo) — comparativa de estrategias de chunking.
+    "langchain-text-splitters>=0.3.0",
+    "langchain-experimental>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "nltk>=3.9",
 ]
 
 [dependency-groups]
@@ -102,6 +107,10 @@ module = [
     "faker",
     "spacy",
     "spacy.*",
+    "nltk",
+    "nltk.*",
+    "langchain_experimental",
+    "langchain_experimental.*",
 ]
 ignore_missing_imports = true
 

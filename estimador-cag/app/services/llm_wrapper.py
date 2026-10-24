@@ -31,6 +31,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.services.cache import ResponseCache, make_cache_key
 from app.services.errors import LLMProviderError
+from app.services.runtime_config import RuntimeModelConfig
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -167,11 +168,13 @@ class LLMWrapper:
         anthropic_api_key: str | None = None,
         custom_base_url: str = "",
         custom_api_key: str | None = None,
+        runtime_config: RuntimeModelConfig | None = None,
     ) -> None:
-        self.primary_model = primary_model
+        self._initial_primary_model = primary_model
+        self._initial_fallback_model = fallback_model
         self.primary_provider = primary_provider
-        self.fallback_model = fallback_model
         self.fallback_provider = fallback_provider
+        self._runtime_config = runtime_config
         self.routing_mode = routing_mode
         self.cache = cache
         self.timeout = timeout
@@ -221,6 +224,117 @@ class LLMWrapper:
             fallbacks=fallbacks,
             num_retries=num_retries,
         )
+
+    # ------------------------------------------------------------------
+    # Modelos efectivos (override runtime > default de settings)
+    # ------------------------------------------------------------------
+
+    @property
+    def primary_model(self) -> str:
+        """Modelo primario resuelto por llamada (Ajustes puede cambiarlo)."""
+        if self._runtime_config is not None:
+            return self._runtime_config.effective("PRIMARY_MODEL")
+        return self._initial_primary_model
+
+    @property
+    def fallback_model(self) -> str:
+        if self._runtime_config is not None:
+            return self._runtime_config.effective("FALLBACK_MODEL")
+        return self._initial_fallback_model
+
+    def _runtime_override_active(self) -> bool:
+        if self._runtime_config is None:
+            return False
+        return self._runtime_config.is_overridden(
+            "PRIMARY_MODEL"
+        ) or self._runtime_config.is_overridden("FALLBACK_MODEL")
+
+    def _active_primary_provider(self) -> Provider:
+        if self._runtime_config is not None and self._runtime_config.is_overridden("PRIMARY_MODEL"):
+            return provider_from_model(self.primary_model)
+        return self.primary_provider
+
+    def _direct_kwargs(
+        self,
+        *,
+        system_prompt: str,
+        user_message: str,
+        temperature: float | None,
+        max_tokens: int,
+        stream: bool = False,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        target_model = model or self.primary_model
+        provider = provider_from_model(target_model)
+        kwargs: dict[str, Any] = {
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "max_tokens": max_tokens,
+            "timeout": self.timeout,
+            "num_retries": self.num_retries,
+        }
+        if stream:
+            kwargs["stream"] = True
+        if temperature is not None and provider != "anthropic":
+            kwargs["temperature"] = temperature
+        kwargs.update(self._litellm_target(target_model, provider))
+        return kwargs
+
+    def _direct_candidates(self) -> list[tuple[str, Provider]]:
+        primary_overridden = (
+            self._runtime_config is not None and self._runtime_config.is_overridden("PRIMARY_MODEL")
+        )
+        primary_provider = (
+            provider_from_model(self.primary_model) if primary_overridden else self.primary_provider
+        )
+        candidates: list[tuple[str, Provider]] = [(self.primary_model, primary_provider)]
+        fallback = self.fallback_model
+        if fallback and fallback != self.primary_model:
+            fallback_overridden = (
+                self._runtime_config is not None
+                and self._runtime_config.is_overridden("FALLBACK_MODEL")
+            )
+            fallback_provider = (
+                provider_from_model(fallback)
+                if fallback_overridden
+                else self.fallback_provider or provider_from_model(fallback)
+            )
+            candidates.append((fallback, fallback_provider))
+        return candidates
+
+    def _direct_complete(
+        self, *, system_prompt: str, user_message: str, temperature: float | None, max_tokens: int
+    ) -> Any:
+        last_error: Exception | None = None
+        for index, (model, provider) in enumerate(self._direct_candidates()):
+            try:
+                return litellm.completion(
+                    **self._direct_kwargs(
+                        system_prompt=system_prompt,
+                        user_message=user_message,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        model=model,
+                    )
+                )
+            except Exception as exc:
+                last_error = exc
+                if index == len(self._direct_candidates()) - 1:
+                    logger.warning(
+                        "llm.direct.fallback_failed",
+                        model=model,
+                        provider=provider,
+                        error_type=type(exc).__name__,
+                    )
+                    break
+                logger.warning(
+                    "llm.direct.fallback",
+                    failed_model=model,
+                    fallback_model=self._direct_candidates()[index + 1][0],
+                )
+        raise LLMProviderError("Fallo del proveedor LLM con override de modelo.") from last_error
 
     @staticmethod
     def _deployment(
@@ -289,7 +403,7 @@ class LLMWrapper:
         if stream:
             kwargs["stream"] = True
         # Anthropic ignora `temperature` en este proyecto (su SDK no lo acepta).
-        if temperature is not None and self.primary_provider != "anthropic":
+        if temperature is not None and self._active_primary_provider() != "anthropic":
             kwargs["temperature"] = temperature
         return kwargs
 
@@ -325,14 +439,24 @@ class LLMWrapper:
             max_tokens=max_tokens,
         )
         try:
-            response = self.router.completion(**kwargs)
-        except OpenAIError as exc:
+            if self._runtime_override_active():
+                response = self._direct_complete(
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            else:
+                response = self.router.completion(**kwargs)
+        except (OpenAIError, LLMProviderError) as exc:
             log.error(
                 "llm.call.error",
                 error_type=type(exc).__name__,
                 latency_ms=_elapsed_ms(started_at),
             )
-            raise LLMProviderError(f"Fallo del proveedor LLM '{self.primary_provider}'.") from exc
+            raise LLMProviderError(
+                f"Fallo del proveedor LLM '{self._active_primary_provider()}'."
+            ) from exc
 
         result = self._normalise(response, latency_ms=_elapsed_ms(started_at))
         log.info(
@@ -401,7 +525,18 @@ class LLMWrapper:
         stream_model = self.primary_model
         stream_usage: Any = None
         try:
-            response = self.router.completion(**kwargs)
+            if self._runtime_override_active():
+                direct_kwargs = self._direct_kwargs(
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=True,
+                    model=self.primary_model,
+                )
+                response = litellm.completion(**direct_kwargs)
+            else:
+                response = self.router.completion(**kwargs)
             for chunk in response:
                 chunk_model = getattr(chunk, "model", None)
                 if chunk_model:
@@ -413,13 +548,15 @@ class LLMWrapper:
                 if delta:
                     parts.append(delta)
                     yield delta
-        except OpenAIError as exc:
+        except (OpenAIError, LLMProviderError) as exc:
             log.error(
                 "llm.stream.error",
                 error_type=type(exc).__name__,
                 latency_ms=_elapsed_ms(started_at),
             )
-            raise LLMProviderError(f"Fallo del proveedor LLM '{self.primary_provider}'.") from exc
+            raise LLMProviderError(
+                f"Fallo del proveedor LLM '{self._active_primary_provider()}'."
+            ) from exc
 
         rendered = "".join(parts)
         latency_ms = _elapsed_ms(started_at)
@@ -514,19 +651,26 @@ class LLMWrapper:
         secundario) y devuelve `(modelo_validado, meta)` con métricas acumuladas.
         """
         primary_model = model_override or self.primary_model
-        if model_override is None or model_override == self.primary_model:
-            primary_provider = self.primary_provider
+        primary_overridden = (
+            self._runtime_config is not None and self._runtime_config.is_overridden("PRIMARY_MODEL")
+        )
+        if model_override is not None or primary_overridden:
+            primary_provider = provider_from_model(primary_model)
         else:
-            primary_provider = provider_from_model(model_override)
+            primary_provider = self.primary_provider
 
         candidates: list[tuple[str, Provider]] = [(primary_model, primary_provider)]
         if self.fallback_model and self.fallback_model != primary_model:
-            candidates.append(
-                (
-                    self.fallback_model,
-                    self.fallback_provider or provider_from_model(self.fallback_model),
-                )
+            fallback_overridden = (
+                self._runtime_config is not None
+                and self._runtime_config.is_overridden("FALLBACK_MODEL")
             )
+            fallback_provider = (
+                provider_from_model(self.fallback_model)
+                if fallback_overridden
+                else self.fallback_provider or provider_from_model(self.fallback_model)
+            )
+            candidates.append((self.fallback_model, fallback_provider))
 
         last_error: Exception | None = None
         for index, (model, provider) in enumerate(candidates):

@@ -23,7 +23,8 @@ estimador-cag/
 │   ├── routers/
 │   │   ├── estimations.py       # /estimate, /estimate/stream (SSE) y /context
 │   │   ├── sessions.py          # /sessions, /sessions/{id} y .../estimate (multipart)
-│   │   └── ingestion.py         # /ingestion/runs y /ingestion/jobs/{id} (sesión 6)
+│   │   ├── ingestion.py         # /ingestion/runs y /ingestion/jobs/{id} (sesión 6)
+│   │   └── config.py            # GET/PUT /config/models (ajustes runtime)
 │   ├── schemas/
 │   │   ├── estimations.py       # Contrato HTTP (Pydantic) y enums del formulario
 │   │   ├── ingestion.py         # Contratos de la ingesta (sesión 6)
@@ -43,7 +44,8 @@ estimador-cag/
 │   │   └── output.py            # Filtro enforce_scope_response (baja confianza)
 │   ├── services/
 │   │   ├── llm_service.py       # Orquesta: guardrails, prompts, caché y wrapper
-│   │   └── llm_wrapper.py       # Wrapper LiteLLM (fallback, caché, coste, logging, JSON schema)
+│   │   ├── llm_wrapper.py       # Wrapper LiteLLM (fallback, caché, coste, logging, JSON schema)
+│   │   └── runtime_config.py    # Overrides de modelo en Redis (ajustes runtime)
 │   ├── ingestion/               # Ingesta de datos (sesión 6). Ver docs/ingesta-datos-sesion-06.md
 │   │   ├── catalog/             # Catálogo de fuentes (include/review/exclude)
 │   │   ├── loaders/ · parsers/  # bytes → Document (json, txt)
@@ -52,10 +54,14 @@ estimador-cag/
 │   │   └── orchestrator.py      # Caso de uso ingest_source + ensure_ingestible
 │   ├── persistence/             # Postgres + Alembic (jobs de ingesta y mapping de PII)
 │   ├── embedding_pipeline/      # Chunking + embeddings (sesión 7)
-│   │   ├── chunker.py           # Un componente del presupuesto = un chunk
-│   │   ├── embedder.py          # OpenAIEmbedder (batches + reintentos + coste)
+│   │   ├── base.py              # Interfaz Chunker + helpers de tokens/logs
+│   │   ├── structural.py        # Chunker estructural y render del corpus
+│   │   ├── chunker.py           # Shim de compatibilidad de imports
+│   │   ├── strategies/          # 7 estrategias del comparador (S7 directo)
+│   │   ├── analysis/            # Coseno/percentiles + framework de comparación
+│   │   ├── embedder.py          # OpenAIEmbedder (batches, reintentos, dimensions)
 │   │   ├── schemas.py           # Contratos (Budget, Chunk, EmbeddedChunk…)
-│   │   └── router.py            # POST /embeddings/ingest
+│   │   └── router.py            # POST /embeddings/{ingest,compare}
 ├── frontend/                    # Capa de presentación (no importa `app.*`)
 │   ├── config.py                # API_BASE_URL y timeouts
 │   ├── client.py                # Cliente HTTP (httpx) contra la API
@@ -63,8 +69,10 @@ estimador-cag/
 │   ├── logging_config.py        # Logging del frontend
 │   └── streamlit_app.py         # Formulario tipado (Streamlit)
 ├── cliente-web/                 # Cliente de negocio Node (Express + EJS + Tailwind + Postgres)
-│   ├── src/                     # server, app, cliente HTTP, repositorio y rutas
-│   ├── views/                   # EJS (formulario, listado, detalle)
+│   ├── src/                     # server, app, clientes HTTP, repositorios y rutas
+│   ├── views/                   # EJS (estimación, ingesta, Chunking Lab y Ajustes)
+│   ├── data/                    # Copia del corpus para la comparativa
+│   ├── migrations/              # Estimaciones + runs del Chunking Lab
 │   ├── test/                    # node:test + supertest
 │   └── Dockerfile
 ├── tests/                       # Tests con pytest (proveedores y API mockeados)
@@ -75,8 +83,8 @@ estimador-cag/
 │   └── transcripcion.md         # Transcripción de reunión de ejemplo (input del formulario)
 ├── alembic/                     # Migraciones Alembic (sesión 6)
 ├── data/                        # Catálogo, corpus semilla (s. 6) y budgets_sample.json (s. 7)
-├── docs/                        # Documentación de subsistemas (p. ej. ingesta-datos-sesion-06.md)
-├── scripts/                     # Preflight y demos de la sesión 6; compare.py (sesión 7)
+├── docs/                        # Documentación de subsistemas (ingesta, stress, Chunking Lab…)
+├── scripts/                     # Preflight/demos S6; compare.py y compare_chunkers.py (S7)
 ├── specs/
 │   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
@@ -393,14 +401,14 @@ La pantalla **/ingestion** del cliente de negocio Node consume estos endpoints
 ## Pipeline de embeddings (Sesión 7)
 
 Primer paso hacia la búsqueda semántica: convertir los presupuestos históricos
-en vectores. El módulo nuevo vive en `app/embedding_pipeline/` y expone un único
-endpoint. **No se persiste nada todavía**: los vectores se generan en memoria y
+en vectores. El módulo nuevo vive en `app/embedding_pipeline/` y expone la
+ingesta y, desde el directo, la comparativa de estrategias. **No se persiste nada todavía**: los vectores se generan en memoria y
 se devuelven por HTTP; la persistencia en pgvector entra en la Sesión 08.
 
 Piezas:
 
-- `chunker.py` (`JSONStructuralChunker`) — **chunking estructural**: un
-  componente del presupuesto = un chunk. A cada chunk se le antepone una cabecera
+- `structural.py` (`JSONStructuralChunker`) — **chunking estructural**: un
+  componente del presupuesto = un chunk (el antiguo `chunker.py` queda como shim). A cada chunk se le antepone una cabecera
   de contexto del presupuesto padre (proyecto, sector, año y tecnología) para que
   no pierda la pista de a quién pertenece. Cuenta tokens con `tiktoken`.
 - `embedder.py` (`OpenAIEmbedder`) — invoca `text-embedding-3-small` (1536 dims)
@@ -431,8 +439,8 @@ curl -s -X POST http://localhost:8000/api/v1/embeddings/ingest \
   -d "{\"budgets\": $(cat data/budgets_sample.json)}" | python -m json.tool | head -40
 ```
 
-Con el sample: 15 presupuestos → 52 chunks → ~4.1k tokens → coste estimado
-~$0.00008.
+Con el sample: 17 presupuestos → 60 chunks → 5.970 tokens → coste estimado
+~$0.0001194.
 
 ### Script CLI `compare.py`
 
@@ -463,19 +471,65 @@ no sirve `text-embedding-3-small`, ajusta `EMBEDDING_MODEL` al modelo que
 corresponda. Los embeddings generados con otro modelo tendrán otra dimensión y
 los valores de `SANITY_CHECK.md` no serán comparables.
 
-### Dependencias y scope
+### Comparativa de estrategias (Sesión 7 en vivo)
 
-- Nueva dependencia: `tiktoken>=0.7.0` (`openai` ya estaba desde la Sesión 01).
-- **Fuera de scope** (lo veremos en el directo): otras estrategias de chunking
-  (recursive, semantic, hierarchical, late, contextual retrieval), comparativa
-  de modelos de embeddings, enriquecimiento con LLM, persistencia vectorial y
-  retrieval.
+El chunker estructural sigue siendo la base, pero ahora convive con **ocho
+estrategias** detrás de la misma interfaz `Chunker` (estructural, fixed size,
+recursive, sentence window, semantic, propositional, contextual retrieval y
+hierarchical). Viven en `app/embedding_pipeline/strategies/`.
+
+- **Endpoint**: `POST /api/v1/embeddings/compare` devuelve estadísticos por
+  estrategia (chunks, percentiles de tokens, huérfanos/obesos, coste y segundos)
+  y, opcionalmente, el top-k por similitud coseno para un set de queries. Sin
+  queries no necesita embeddings; con queries, sí.
+- **CLI**: `scripts/compare_chunkers.py` reproduce la comparativa desde consola,
+  permite comparar dimensiones Matryoshka y genera un informe Markdown.
+- **UI**: `/chunking-lab` ejecuta comparativas y persiste cada run en la tabla
+  `chunking_comparisons` del cliente Node para no re-pagar las caras.
+- **Datos**: `data/budgets_sample.json` (17 presupuestos, 60 componentes) y
+  `data/test_queries.json`.
+- Las estrategias `semantic`, `propositional` y `contextual_retrieval` llaman a
+  APIs externas durante la ingesta y son opt-in en la UI.
+- **Informe de referencia**:
+  [`app/embedding_pipeline/COMPARISON_REPORT.md`](app/embedding_pipeline/COMPARISON_REPORT.md)
+  (estrategias gratuitas sobre los 17 presupuestos).
+
+Detalles, contrato completo, costes y demo en
+[`docs/chunking-lab-y-ajustes-runtime-sesion-07.md`](docs/chunking-lab-y-ajustes-runtime-sesion-07.md).
+
+## Configuración de modelos en runtime
+
+Los knobs de modelo (`PRIMARY_MODEL`, `FALLBACK_MODEL`, `CRITIC_MODEL`,
+`METADATA_EXTRACTOR_MODEL`, `COMPRESSION_MODEL`, `PROPOSITIONAL_CHUNKER_MODEL` y
+`CONTEXTUAL_CHUNKER_MODEL`) se pueden **sobreescribir en caliente** sin editar
+`.env` ni recrear contenedores.
+
+```
+GET /api/v1/config/models
+PUT /api/v1/config/models   {"models": {"PRIMARY_MODEL": "gpt-4o", "CRITIC_MODEL": null}}
+```
+
+Los overrides viven en el hash Redis `estimator:runtime_config`, sobreviven a
+reinicios y los ven todos los workers. `.env` sigue siendo la capa de defaults.
+El catálogo se filtra por las API keys configuradas; un modelo sin clave
+devuelve 400 y un Redis caído en escritura, 503. `EMBEDDING_MODEL` queda fuera a
+propósito.
+
+La pantalla **`/ai-settings`** del cliente Node permite cambiarlos y la navbar
+muestra el modelo primario efectivo como badge. Guía completa en
+[`docs/chunking-lab-y-ajustes-runtime-sesion-07.md`](docs/chunking-lab-y-ajustes-runtime-sesion-07.md).
 
 ## Cliente de negocio (Node)
 
 `cliente-web/` es un cliente de negocio en **Node/Express + EJS + Tailwind** que consume la misma API por HTTP, ofrece formulario, histórico y detalle, y **persiste** cada estimación en **Postgres**. Comparte el look & feel de LIDR (tema oscuro, Helvetica, amarillo `#F6DE82`). Nunca habla con el proveedor LLM: las claves viven solo en la API Python.
 
 Desde la sesión 6 incluye además la pantalla **/ingestion**: lista el catálogo de fuentes (con su decisión y si contienen PII), permite lanzar una ingesta y consulta el estado de los jobs consumiendo `/api/v1/ingestion/*`.
+
+Desde la sesión 7 incorpora **`/chunking-lab`** (comparativa de estrategias con
+historial persistido) y **`/ai-settings`** (ajustes de modelos en runtime). La
+navbar enlaza ambas pantallas y muestra el modelo primario efectivo. El corpus
+de la comparativa se copia en `cliente-web/data/` para que la imagen Docker no
+dependa de la raíz del repo; un test comprueba que la copia coincide.
 
 ```bash
 cd cliente-web
@@ -629,9 +683,11 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 - la caché de respuestas (clave determinista, TTL, memoria y Redis con `fakeredis`), la caché semántica (bucket, umbral, `log_only` y degradación) y el wrapper de LiteLLM (normalización, fallback, coste y cacheo) con el `Router` mockeado;
 - el logging estructurado (eventos, coste, cache_hit y que las claves no se filtran) y la propagación de `X-Request-ID`;
 - la derivación del modelo, el arranque sin credenciales y la validación automática de la estructura de carpetas (`tests/test_project_structure.py`);
-- el baseline de estrés: métricas de presupuesto y drift (`tests/test_stress_metrics.py`) y el runner de campaña end-to-end con wrapper falso (`tests/test_stress_runner.py`).
+- el baseline de estrés: métricas de presupuesto y drift (`tests/test_stress_metrics.py`) y el runner de campaña end-to-end con wrapper falso (`tests/test_stress_runner.py`);
+- las estrategias de chunking y el comparador: estrategias offline, LLM/Anthropic falsos, estadísticos y top-k (`tests/test_chunking_strategies.py`, `tests/test_embedding_compare.py`);
+- los overrides de modelo en runtime: store Redis con fakeredis, validaciones del endpoint, camino directo del wrapper y partición de la caché semántica (`tests/test_runtime_config.py`, `tests/test_config_endpoint.py`, `tests/test_llm_wrapper_runtime.py`).
 
-El cliente de negocio tiene su propia batería (Node): `cd cliente-web && npm test` (rutas de Express y cliente HTTP con estimador falso).
+El cliente de negocio tiene su propia batería (Node): `cd cliente-web && npm test` (rutas de Express, clientes HTTP, corpus sincronizado, Chunking Lab y Ajustes con dobles).
 
 ## Calidad y CI
 
@@ -723,6 +779,9 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `BOSS_MAX_ITERATIONS`     | Iteraciones máximas del bucle Actor-Critic-Boss   | `2`           |
 | `COMPRESSION_MODEL`       | Modelo del resumidor/anclas (vacío = `LLM_MODEL`) | —             |
 | `ANCHOR_DETECTION_MODE`   | Detección de anclas: `heuristic` o `llm`          | `heuristic`   |
+| `PROPOSITIONAL_CHUNKER_MODEL` | Modelo del chunker proposicional (S7)         | `gpt-4o-mini` |
+| `CONTEXTUAL_CHUNKER_MODEL` | Modelo del chunker contextual (S7)               | `claude-sonnet-4-5` |
+| `AVAILABLE_MODELS`        | Catálogo JSON de modelos para Ajustes             | catálogo del código |
 | `DATABASE_URL`            | Postgres (pgvector) para jobs de ingesta y mapping de PII | `postgresql+psycopg://estimator:estimator@localhost:5433/estimator` |
 | `CATALOG_PATH`            | Catálogo YAML de fuentes (relativo a la raíz si no es absoluto) | `data/catalog/catalog.yaml` |
 | `INGESTION_DATA_ROOT`     | Raíz donde se resuelven los `location` del catálogo | `data/seed` |
@@ -735,6 +794,9 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `CUSTOM_LLM_BASE_URL`     | URL base del endpoint OpenAI-compatible           | —             |
 | `CUSTOM_LLM_API_KEY`      | API key del endpoint OpenAI-compatible            | —             |
 | `API_BASE_URL`            | URL base de la API que consume el frontend        | `http://localhost:8000` |
+| `CHUNKING_TIMEOUT_MS`     | Timeout del cliente Node para `/embeddings/compare` | `600000` |
+| `CONFIG_TIMEOUT_MS`       | Timeout del badge/Ajustes en el cliente Node      | `3000`        |
+| `CONFIG_CACHE_TTL_MS`     | TTL de la caché del badge de modelo               | `15000`       |
 
 > En Docker Compose, el servicio `api` fuerza `CACHE_BACKEND=redis` y `REDIS_URL=redis://redis:6379` (servicio `redis` de la misma red).
 

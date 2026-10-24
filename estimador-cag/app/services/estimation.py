@@ -30,6 +30,7 @@ from app.dependencies import (
     get_cache,
     get_llm_wrapper,
     get_openai_client,
+    get_runtime_config,
     get_semantic_cache,
 )
 from app.guardrails.input import check_input
@@ -61,6 +62,7 @@ from app.services.errors import (
 from app.services.errors import (
     LLMProviderError as LLMProviderError,
 )
+from app.services.llm_wrapper import provider_from_model
 from app.sessions.compression import apply_compression
 from app.sessions.metadata_extractor import update_metadata
 from app.sessions.models import Session
@@ -114,9 +116,22 @@ def check_description(description: str) -> None:
         )
 
 
+def effective_primary_model() -> str:
+    """Modelo primario efectivo (override runtime > default de settings)."""
+    return get_runtime_config().effective("PRIMARY_MODEL")
+
+
+def effective_primary_provider() -> str:
+    """Proveedor del modelo primario efectivo."""
+    runtime = get_runtime_config()
+    if runtime.is_overridden("PRIMARY_MODEL"):
+        return provider_from_model(runtime.effective("PRIMARY_MODEL"))
+    return settings.llm_provider
+
+
 def require_configuration() -> None:
     """Valida de forma anticipada que el proveedor activo tiene credenciales."""
-    provider = settings.llm_provider
+    provider = effective_primary_provider()
     if provider == "openai":
         if not reveal_secret(settings.open_ai_key):
             raise LLMConfigurationError("OPEN_AI_KEY no está configurada. Añádela al archivo .env.")
@@ -153,7 +168,7 @@ def warn_if_temperature_ignored() -> None:
     global _temperature_warning_emitted
     if _temperature_warning_emitted:
         return
-    if settings.llm_provider == "anthropic" and settings.temperature != DEFAULT_TEMPERATURE:
+    if effective_primary_provider() == "anthropic" and settings.temperature != DEFAULT_TEMPERATURE:
         logger.warning(
             "llm.temperature.ignored",
             provider="anthropic",
@@ -164,7 +179,7 @@ def warn_if_temperature_ignored() -> None:
 
 def temperature_for_result() -> float | None:
     """Temperatura efectiva: Anthropic no la admite, el resto sí."""
-    if settings.llm_provider == "anthropic":
+    if effective_primary_provider() == "anthropic":
         return None
     return settings.temperature
 
@@ -232,8 +247,18 @@ class EstimationService:
             or DEFAULT_CONVERSATIONAL_PROMPT_VERSION
         )
 
+    def _effective_model(self, key: str) -> str:
+        """Modelo efectivo de un knob, leyendo los overrides runtime."""
+        return get_runtime_config().effective(key)
+
     def _compression_model(self) -> str:
-        return settings.compression_model or settings.llm_model
+        return self._effective_model("COMPRESSION_MODEL")
+
+    def _metadata_model(self) -> str:
+        return self.metadata_extractor_model or self._effective_model("METADATA_EXTRACTOR_MODEL")
+
+    def _critic_model(self) -> str:
+        return self.critic_model or self._effective_model("CRITIC_MODEL")
 
     # -- Estimación estructurada (sesión 4) ----------------------------------
 
@@ -258,7 +283,7 @@ class EstimationService:
         system_prompt, user_message = render_estimation_prompt(request, version=active_version)
         cache_key = make_cache_key(
             cache_key=cache_key_material(request, active_version),
-            model=settings.llm_model,
+            model=effective_primary_model(),
             max_tokens=settings.llm_max_tokens,
             temperature=settings.temperature,
         )
@@ -279,7 +304,7 @@ class EstimationService:
 
         semantic_cache = get_semantic_cache()
         if semantic_cache is not None:
-            semantic_hit = semantic_cache.lookup(request, active_version)
+            semantic_hit = semantic_cache.lookup(request, active_version, effective_primary_model())
             if semantic_hit is not None:
                 logger.info("estimate.semantic_cache_hit", prompt_version=active_version)
                 return StructuredEstimation(
@@ -318,7 +343,7 @@ class EstimationService:
             },
         )
         if semantic_cache is not None:
-            semantic_cache.store(request, result, active_version)
+            semantic_cache.store(request, result, active_version, effective_primary_model())
 
         return StructuredEstimation(
             result=result,
@@ -414,7 +439,7 @@ class EstimationService:
             transcript=transcript,
             result=result,
             llm_wrapper=wrapper,
-            model=self.metadata_extractor_model or settings.metadata_extractor_model,
+            model=self._metadata_model(),
         )
 
         # Bloque 1 (sesión 6): una sola línea agregada por turno, con el estado
@@ -542,7 +567,7 @@ class EstimationService:
         # 4. Construir el callable del critic.
         critic = Critic(
             llm_wrapper=wrapper,
-            model=self.critic_model or settings.critic_model or settings.llm_model,
+            model=self._critic_model(),
         )
 
         def _critic(draft: EstimationResult) -> CriticFeedback:
@@ -583,7 +608,7 @@ class EstimationService:
             transcript=transcript,
             result=final_result,
             llm_wrapper=wrapper,
-            model=self.metadata_extractor_model or settings.metadata_extractor_model,
+            model=self._metadata_model(),
         )
 
         return ACBResponse(
@@ -593,8 +618,8 @@ class EstimationService:
             acb=trace,
             metadata=session.metadata,
             history_messages=len(session.history.messages),
-            model=settings.llm_model,
-            provider=settings.llm_provider,
+            model=effective_primary_model(),
+            provider=effective_primary_provider(),
             input_tokens=None,
             output_tokens=None,
             cost_usd=None,

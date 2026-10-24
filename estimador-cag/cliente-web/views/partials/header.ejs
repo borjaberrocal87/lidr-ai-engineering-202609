@@ -8,6 +8,11 @@
           />
         </a>
         <span class="text-white font-bold tracking-tight text-lg">Estimator</span>
+        <% if (typeof primaryModel !== "undefined" && primaryModel) { %>
+          <span class="text-xs text-white/50 border border-white/15 rounded-full px-2 py-1">
+            <%= primaryModel %>
+          </span>
+        <% } %>
         <nav class="ml-auto flex items-center gap-4 text-sm">
           <a href="/" class="font-bold tracking-tight text-white/80 hover:text-white">
             Nueva estimación
@@ -20,6 +25,18 @@
             class="font-bold tracking-tight text-white/80 hover:text-white"
           >
             Ingesta
+          </a>
+          <a
+            href="/chunking-lab"
+            class="font-bold tracking-tight text-white/80 hover:text-white"
+          >
+            Chunking Lab
+          </a>
+          <a
+            href="/ai-settings"
+            class="font-bold tracking-tight text-white/80 hover:text-white"
+          >
+            Ajustes
           </a>
         </nav>
       </div>

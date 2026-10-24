@@ -1,0 +1,93 @@
+<%- include('../partials/head', { title: 'Nueva comparativa' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-4xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">Nueva comparativa</h1>
+      <p class="text-white/60 text-sm mt-1">
+        <%= corpusCount %> presupuestos · <%= componentCount %> componentes
+      </p>
+    </div>
+    <a href="/chunking-lab" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+      ← Historial
+    </a>
+  </div>
+
+  <% if (error) { %>
+    <div class="p-4 mb-6 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <form method="post" action="/chunking-lab" class="space-y-6" data-form-loading>
+    <div>
+      <h2 class="text-xl font-bold tracking-tight text-white mb-1">Estrategias</h2>
+      <p class="text-white/50 text-sm mb-3">
+        Las estrategias de pago llaman a APIs externas durante la ingesta y pueden tardar minutos.
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <% strategies.forEach(function (strategy) { %>
+          <label class="p-3 rounded-md bg-ink/30 border border-white/10 flex gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="strategies"
+              value="<%= strategy.name %>"
+              class="mt-1"
+              <%= selectedStrategies.includes(strategy.name) ? 'checked' : '' %>
+            />
+            <span>
+              <span class="block text-white/90 font-bold tracking-tight">
+                <%= strategy.label %>
+                <% if (strategy.paid) { %>
+                  <span class="badge ml-1">de pago</span>
+                <% } %>
+              </span>
+              <span class="block text-white/50 text-xs mt-1"><%= strategy.description %></span>
+            </span>
+          </label>
+        <% }); %>
+      </div>
+    </div>
+
+    <div>
+      <label for="queries" class="label">Queries (opcional, una por línea)</label>
+      <textarea
+        id="queries"
+        name="queries"
+        rows="4"
+        class="field"
+        placeholder="OAuth authentication for fintech mobile app&#10;real-time inventory synchronization"
+      ><%= queriesText %></textarea>
+      <p class="text-white/50 text-xs mt-2">
+        Sin queries solo se calculan estadísticos y no hace falta API key de embeddings.
+      </p>
+      <% if (sampleQueries.length) { %>
+        <p class="text-white/40 text-xs mt-1">
+          Ejemplos: <%= sampleQueries.slice(0, 3).join(' · ') %>
+        </p>
+      <% } %>
+    </div>
+
+    <div class="max-w-xs">
+      <label for="top_k" class="label">Top-k por query</label>
+      <select id="top_k" name="top_k" class="field [&>option]:bg-ink-dark">
+        <% for (let k = 1; k <= 10; k++) { %>
+          <option value="<%= k %>" <%= topK === k ? 'selected' : '' %>><%= k %></option>
+        <% } %>
+      </select>
+    </div>
+
+    <div class="pt-2">
+      <button type="submit" class="btn-primary" data-submit>
+        <span data-submit-label>Ejecutar comparativa</span>
+        <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+        </svg>
+      </button>
+    </div>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

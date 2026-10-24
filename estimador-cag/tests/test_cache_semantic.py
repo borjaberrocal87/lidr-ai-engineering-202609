@@ -99,15 +99,22 @@ def _row(distance: float, result: EstimationResult | None = None) -> dict[str, A
 
 
 def test_bucket_includes_version_and_enums() -> None:
-    bucket = EstimationSemanticCache.bucket_for(_request(), "v2")
+    bucket = EstimationSemanticCache.bucket_for(_request(), "v2", "gpt-4o-mini")
 
-    assert bucket == "v2:web_saas:medium:phases_table"
+    assert bucket == "v2:web_saas:medium:phases_table:gpt-4o-mini"
+
+
+def test_bucket_partitions_by_model() -> None:
+    first = EstimationSemanticCache.bucket_for(_request(), "v1", "gpt-4o-mini")
+    second = EstimationSemanticCache.bucket_for(_request(), "v1", "gpt-4o")
+
+    assert first != second
 
 
 def test_lookup_returns_hit_above_threshold() -> None:
     cache = _cache(index=_FakeIndex([_row(0.05)]))
 
-    hit = cache.lookup(_request(), "v1")
+    hit = cache.lookup(_request(), "v1", "gpt-4o-mini")
 
     assert hit is not None
     assert hit.total_cost_eur == 2000
@@ -118,20 +125,20 @@ def test_lookup_returns_hit_above_threshold() -> None:
 def test_lookup_misses_below_threshold() -> None:
     cache = _cache(index=_FakeIndex([_row(0.5)]))
 
-    assert cache.lookup(_request(), "v1") is None
+    assert cache.lookup(_request(), "v1", "gpt-4o-mini") is None
 
 
 def test_lookup_misses_on_empty_index() -> None:
     cache = _cache(index=_FakeIndex([]))
 
-    assert cache.lookup(_request(), "v1") is None
+    assert cache.lookup(_request(), "v1", "gpt-4o-mini") is None
 
 
 def test_lookup_log_only_never_returns_hit() -> None:
     index = _FakeIndex([_row(0.01)])
     cache = _cache(log_only=True, index=index)
 
-    assert cache.lookup(_request(), "v1") is None
+    assert cache.lookup(_request(), "v1", "gpt-4o-mini") is None
     assert len(index.queries) == 1
 
 
@@ -139,11 +146,11 @@ def test_store_loads_payload_with_ttl() -> None:
     index = _FakeIndex()
     cache = _cache(index=index)
 
-    cache.store(_request(), _result(), "v1")
+    cache.store(_request(), _result(), "v1", "gpt-4o-mini")
 
     [(payload, ttl)] = index.loaded
     assert ttl == 3600
-    assert payload[0]["bucket"] == "v1:web_saas:medium:phases_table"
+    assert payload[0]["bucket"] == "v1:web_saas:medium:phases_table:gpt-4o-mini"
     assert isinstance(payload[0]["embedding"], bytes)
     assert "summary" in payload[0]["result_json"]
 
@@ -151,7 +158,7 @@ def test_store_loads_payload_with_ttl() -> None:
 def test_store_swallows_errors() -> None:
     cache = _cache(index=_FakeIndex(boom=True))
 
-    cache.store(_request(), _result(), "v1")  # no debe lanzar
+    cache.store(_request(), _result(), "v1", "gpt-4o-mini")  # no debe lanzar
 
 
 def test_similarity_accepts_both_shapes() -> None:
@@ -184,7 +191,7 @@ def test_lookup_degrades_when_query_fails() -> None:
     cache = _cache(index=_FakeIndex(query_boom=True))
 
     # Un índice desalineado (size mismatch) no debe propagar la excepción.
-    assert cache.lookup(_request(), "v1") is None
+    assert cache.lookup(_request(), "v1", "gpt-4o-mini") is None
 
 
 def test_to_bytes_returns_float32_bytes() -> None:
@@ -204,7 +211,7 @@ def test_service_uses_semantic_cache(monkeypatch) -> None:
     expected = _result()
 
     class _FakeSemantic:
-        def lookup(self, request: Any, version: str) -> EstimationResult:
+        def lookup(self, request: Any, version: str, model: str) -> EstimationResult:
             return expected
 
         def store(self, *args: Any, **kwargs: Any) -> None:

@@ -1,0 +1,74 @@
+<%- include('../partials/head', { title: 'Ajustes' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-4xl mx-auto py-12 px-4">
+  <div class="mb-6">
+    <h1 class="text-3xl font-bold tracking-tighter text-white">Ajustes de modelos</h1>
+    <p class="text-white/60 text-sm mt-1">
+      Los cambios se aplican en la siguiente llamada LLM, sin editar .env ni recrear contenedores.
+    </p>
+  </div>
+
+  <% if (notice) { %>
+    <div class="p-4 mb-6 rounded-md bg-brand/15 border border-brand text-brand-soft">
+      <%= notice %>
+    </div>
+  <% } %>
+
+  <% if (error) { %>
+    <div class="p-4 mb-6 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <% if (catalog) { %>
+    <form method="post" action="/ai-settings" class="space-y-6" data-form-loading>
+      <% knobs.forEach(function (knob) { const item = catalog.models[knob.key]; const options = catalog.available_models.slice(); if (item.overridden && !options.includes(item.effective)) { options.push(item.effective); } %>
+        <div class="p-4 rounded-md bg-ink/30 border border-white/10">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <label for="<%= knob.key %>" class="label mb-0">
+                <%= knob.label %>
+                <% if (item.overridden) { %>
+                  <span class="badge ml-1">override</span>
+                <% } %>
+              </label>
+              <p class="text-white/50 text-xs mt-1"><%= knob.description %></p>
+            </div>
+            <span class="text-white/40 text-xs whitespace-nowrap">
+              Por defecto: <span class="text-white/70"><%= item.default %></span>
+            </span>
+          </div>
+          <select id="<%= knob.key %>" name="<%= knob.key %>" class="field mt-3 [&>option]:bg-ink-dark">
+            <option value="" <%= item.overridden ? '' : 'selected' %>>
+              Por defecto (.env) — <%= item.default %>
+            </option>
+            <% options.forEach(function (model) { %>
+              <option value="<%= model %>" <%= item.effective === model && item.overridden ? 'selected' : '' %>>
+                <%= model %>
+              </option>
+            <% }); %>
+          </select>
+        </div>
+      <% }); %>
+
+      <div class="p-4 rounded-md bg-ink/30 border border-white/10">
+        <p class="label mb-0">Modelo de embeddings</p>
+        <p class="text-white/70 text-sm mt-1"><%= catalog.embedding_model %></p>
+        <p class="text-white/40 text-xs mt-1"><%= catalog.embedding_model_note %></p>
+      </div>
+
+      <div class="pt-2">
+        <button type="submit" class="btn-primary" data-submit>
+          <span data-submit-label>Guardar modelos</span>
+          <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+          </svg>
+        </button>
+      </div>
+    </form>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>
