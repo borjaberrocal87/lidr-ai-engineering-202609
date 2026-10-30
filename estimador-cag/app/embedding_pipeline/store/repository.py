@@ -11,11 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from pgvector.sqlalchemy import HALFVEC
+from sqlalchemy import Select, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.embedding_pipeline.schemas import EmbeddedChunk
-from app.embedding_pipeline.store.models import ChunkRow, DocumentRow
+from app.embedding_pipeline.store.models import EMBEDDING_DIMENSIONS, ChunkRow, DocumentRow
 
 # El chunker estructural emite un chunk por componente. El vocabulario es
 # consultable gracias al índice sobre ``chunk_type`` (filtros del directo).
@@ -35,7 +36,48 @@ class ChunkMatch:
 
 
 class ChunkStore:
-    """CRUD y búsqueda por similitud sobre ``documents``/``chunks``."""
+    """CRUD y búsqueda por similitud sobre ``documents``/``chunks``.
+
+    ``use_halfvec`` activa la variante de media precisión para la distancia:
+    la columna sigue siendo ``vector(1536)``, pero la query castea la expresión
+    a ``halfvec(1536)`` para que Postgres pueda usar el índice HNSW construido
+    sobre ``(embedding::halfvec(1536))``. Está apagado por defecto porque, sin
+    ese índice, el cast por fila puede empeorar el plan.
+    """
+
+    def __init__(self, *, use_halfvec: bool = False) -> None:
+        self._use_halfvec = use_halfvec
+
+    @property
+    def search_mode(self) -> str:
+        """Nombre del modo de búsqueda, útil para logs y benchmarks."""
+        return "halfvec" if self._use_halfvec else "vector"
+
+    def _distance_expression(self, query_vector: list[float]) -> Any:
+        """Expresión de distancia coseno alineada con el índice activo."""
+        if self._use_halfvec:
+            return cast(
+                ChunkRow.embedding,
+                HALFVEC(EMBEDDING_DIMENSIONS),
+            ).cosine_distance(query_vector)
+        return ChunkRow.embedding.cosine_distance(query_vector)
+
+    def _search_statement(self, query_vector: list[float], k: int) -> Select[Any]:
+        """SELECT k-NN reutilizable por la API y por los benchmarks."""
+        distance = self._distance_expression(query_vector)
+        return (
+            select(
+                ChunkRow.id.label("chunk_id"),
+                ChunkRow.document_id.label("document_id"),
+                ChunkRow.chunk_type.label("chunk_type"),
+                ChunkRow.content.label("content"),
+                ChunkRow.metadata_.label("metadata_"),
+                distance.label("distance"),
+            )
+            .where(ChunkRow.embedding.is_not(None))
+            .order_by(distance)
+            .limit(k)
+        )
 
     async def find_document_id(self, session: AsyncSession, source_path: str) -> int | None:
         """Id del documento ya ingerido desde ``source_path``, o ``None``.
@@ -99,20 +141,7 @@ class ChunkStore:
         Un operador y una operator class distintos hacen que Postgres ignore el
         índice en silencio.
         """
-        distance = ChunkRow.embedding.cosine_distance(query_vector)
-        stmt = (
-            select(
-                ChunkRow.id.label("chunk_id"),
-                ChunkRow.document_id.label("document_id"),
-                ChunkRow.chunk_type.label("chunk_type"),
-                ChunkRow.content.label("content"),
-                ChunkRow.metadata_.label("metadata_"),
-                distance.label("distance"),
-            )
-            .where(ChunkRow.embedding.is_not(None))
-            .order_by(distance)
-            .limit(k)
-        )
+        stmt = self._search_statement(query_vector, k)
         rows = (await session.execute(stmt)).mappings().all()
         return [
             ChunkMatch(
