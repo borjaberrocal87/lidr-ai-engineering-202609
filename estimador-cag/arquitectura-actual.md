@@ -380,3 +380,92 @@ Todos están anclados al trace de la sección 2.
   presupuesto.
 - **HNSW/halfvec no es el cuello de botella:** con 60 chunks y `search_time_ms ≈ 556` (incluyendo el
   embedding), el índice no explica la mala calidad; el problema es de query y de contexto.
+
+---
+
+## 4. Propuesta de evolución arquitectónica
+
+Misma arquitectura de tres capas. Se añaden cinco cajas nuevas (rojo) dentro del servicio IA,
+encadenadas entre la transcripción y una estimación. La ingesta, el store y `/search` actuales
+(verde) se conservan y se reutilizan; no se reescribe el pipeline de embeddings ni el `ChunkStore`.
+
+```mermaid
+flowchart TB
+    subgraph FE["① Frontend / presentación"]
+        UI["Streamlit + vistas de cliente-web"]
+    end
+
+    subgraph BIZ["② Backend de negocio"]
+        AIClient["cliente-web / frontend client<br/>cliente HTTP"]
+    end
+
+    subgraph AI["③ Servicio IA — estimator-cag (FastAPI)"]
+        direction TB
+
+        EpRag["🆕 RAG Orchestrator<br/>entrada transcripción → estimación"]
+
+        QU["🆕 Query Understanding<br/>transcripción → ProjectBrief<br/>+ canonical_query"]
+
+        Retr["🆕 Metadata-filtered Retriever<br/>extiende SemanticRetriever:<br/>WHERE sector/type/scale + k-NN"]
+
+        Embed["OpenAIEmbedder<br/>(reutilizado)"]
+        Store[("ChunkStore / pgvector<br/>documents + chunks<br/>(reutilizado)")]
+
+        Rollup["🆕 Budget Rollup<br/>budget_id → project_summary,<br/>total_estimated_hours,<br/>component_count"]
+
+        Asm["🆕 Context Assembler<br/>reagrupa chunks por budget_id<br/>+ adjunta totales del padre"]
+
+        Gen["🆕 Grounded Generation<br/>EstimationService + LLMWrapper<br/>→ EstimationResult + citas"]
+
+        Est["EstimationResponse<br/>(reutilizado)"]
+
+        EpIngest["POST /api/v1/embeddings/ingest<br/>(existente)"]
+        EpSearch["POST /api/v1/search<br/>(existente)"]
+    end
+
+    UI --> AIClient --> EpRag --> QU
+    QU -->|"brief + canonical_query"| Retr
+    Retr -->|"embed_one"| Embed
+    Retr -->|"filtros + k-NN"| Store
+    Store -->|"top-k chunks + metadata"| Retr
+    Retr -->|"chunks filtrados"| Asm
+    Rollup -->|"totales por budget_id"| Asm
+    Asm -->|"contexto fundamentado"| Gen
+    Gen --> Est --> AIClient
+
+    EpIngest --> Store
+    EpIngest -.->|"al ingerir: rollup"| Rollup
+    EpSearch -.->|"sigue disponible"| Retr
+
+    classDef done fill:#e8f5e9,stroke:#2e7d32,stroke-width:1px;
+    classDef new fill:#ffebee,stroke:#c62828,stroke-width:2px;
+
+    class Embed,Store,Est,EpIngest,EpSearch done;
+    class EpRag,QU,Retr,Rollup,Asm,Gen new;
+```
+
+**Responsabilidad de cada caja nueva.**
+
+- **RAG Orchestrator:** punto de entrada único para la transcripción; coordina las etapas y devuelve
+  una estimación, no chunks. En esta fase es solo una caja: no se implementa.
+- **Query Understanding:** convierte la transcripción en un `ProjectBrief` (tipo de proyecto, sector,
+  features, restricciones) y una `canonical_query` en el idioma/registro del corpus. Ataca los
+  Fallos 1 y 2.
+- **Metadata-filtered Retriever:** usa el brief para filtrar por sector, tipo de proyecto y escala
+  antes del k-NN; reutiliza `OpenAIEmbedder` y `ChunkStore`. Ataca el Fallo 3.
+- **Budget Rollup:** materializa por `budget_id` el `project_summary`, el `total_estimated_hours` y el
+  número de componentes. Se alimenta al ingerir (o se reconstruye desde la fuente) y es lo que hoy
+  falta en `documents.metadata`. Ataca el Fallo 5.
+- **Context Assembler:** reagrupa los chunks por presupuesto, adjunta el rollup y produce un contexto
+  acotado y citable para la generación. Ataca los Fallos 4 y 5.
+- **Grounded Generation:** reutiliza `EstimationService` / `LLMWrapper` / `EstimationResult` para
+  emitir una estimación validada y referenciada a los presupuestos recuperados. Ataca el Fallo 4.
+
+**Párrafo de cierre.** *Query Understanding* recibe la transcripción y emite un `ProjectBrief` y una
+`canonical_query`; el *Metadata-filtered Retriever* usa ese brief para filtrar y recuperar chunks con
+el embedder y el store actuales; *Budget Rollup* aporta los totales que el chunk no tiene; el
+*Context Assembler* reagrupa y ensambla el contexto; *Grounded Generation* reutiliza
+`EstimationService` para producir un `EstimationResult` citado. El dato que fluye es: transcripción →
+brief/query → chunks filtrados → contexto con totales → estimación. **La pieza más crítica es Query
+Understanding**: si el brief es malo, el filtro y la generación amplifican el error que ya muestra el
+trace (cuatro chunks del mismo presupuesto sobredimensionado). Es la primera que construiría.
