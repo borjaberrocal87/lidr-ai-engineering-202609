@@ -88,8 +88,8 @@ estimador-cag/
 │   └── versions/0002_session8_pgvector.py
 ├── data/                        # Catálogo, corpus semilla (S6), budgets_sample.json (S7) y evidencia (S8)
 │   └── output/session08/output_examples.txt
-├── docs/                        # Documentación de subsistemas (ingesta, stress, Chunking Lab, pgvector…)
-├── scripts/                     # Preflight/demos S6; compare.py y compare_chunkers.py (S7); query_examples.py (S8)
+├── docs/                        # Documentación de subsistemas (ingesta, stress, Chunking Lab, pgvector, RAG Ops…)
+├── scripts/                     # Preflight/demos S6; comparativas S7; query_examples S8; rag_ops (índices y operación)
 ├── specs/
 │   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
 │   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
@@ -505,6 +505,27 @@ ausencia deliberada de índice vectorial— están justificadas en
 
 Evidencia real del corpus:
 [`data/output/session08/output_examples.txt`](data/output/session08/output_examples.txt).
+
+### Sesión 8 en vivo — índices y operación
+
+El pre-ejercicio mide el **sequential scan** a propósito. La sesión en vivo añade
+la otra mitad: índice **HNSW**, índice **halfvec** opcional, benchmarks de
+latencia y `ef_search`, y auditoría/mantenimiento de índices. Todo vive en
+`scripts/rag_ops/`:
+
+```bash
+docker compose exec api python -m scripts.rag_ops.baseline_latency
+docker compose exec api python -m scripts.rag_ops.ef_search_sweep
+docker compose exec api python -m scripts.rag_ops.index_compare
+docker compose exec api python -m scripts.rag_ops.index_status
+docker compose exec api python -m scripts.rag_ops.corpus_seed 100
+```
+
+La búsqueda con halfvec es **opt-in** (`SEARCH_USE_HALFVEC=false` por defecto):
+actívala solo después de crear `chunks_embedding_halfvec_idx`. El flujo completo,
+el SQL, el preflight opcional de 30.000 chunks y el entregable de `ef_search`
+están en
+[`docs/sesion-8-live-indexacion-vectorial.md`](docs/sesion-8-live-indexacion-vectorial.md).
 
 ## Configuración de modelos en runtime
 
