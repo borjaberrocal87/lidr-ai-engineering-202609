@@ -47,5 +47,5 @@ ORDER BY i.indexrelname, op.opcname;
 --
 -- Complementos fuera de psql:
 --   · pg_stat_statements para ranking de queries por tiempo acumulado.
---   · El evento estructurado rag_search_done / embedding.search.end del
---     servicio, que incluye search_mode y search_time_ms.
+--   · El evento estructurado embedding.search.end del servicio, que incluye
+--     search_mode y search_time_ms.
