@@ -1,0 +1,24 @@
+Reunión de descubrimiento — Proyecto "Banca móvil"
+Cliente: Vera Ordóñez (CTO, Pagos Meridiano)
+Consultor: equipo de estimación
+Fecha: primera reunión
+
+[00:00:11] Consultor: Gracias por el tiempo, Vera. Cuéntanos qué queréis construir y para cuándo.
+
+[00:00:24] Vera: Vamos al grano, que tengo otra reunión a y media. Somos una fintech, Pagos Meridiano. Queremos el backend de una aplicación de banca móvil. La fase uno es autenticación y cumplimiento normativo: es lo que nos está bloqueando con el regulador.
+
+[00:01:02] Consultor: Cuando dices autenticación, ¿qué nivel necesitáis?
+
+[00:01:09] Vera: OAuth 2.0 completo. Authorization code flow y refresh tokens, con sesiones gestionadas por JWT. Somos multi-tenant, así que el aislamiento de tokens por cliente es crítico. Y rate limiting por cliente desde el primer día. No es negociable.
+
+[00:01:46] Consultor: ¿Y la parte de cumplimiento?
+
+[00:01:53] Vera: PSD2 y open banking. Necesitamos los endpoints de información de cuentas y de iniciación de pagos conformes con PSD2 y con el estándar de Berlin Group. Eso incluye SCA, autenticación reforzada de cliente, y un módulo de gestión de consentimientos. Sin eso no salimos a producción.
+
+[00:02:38] Consultor: ¿Qué stack tenéis en casa?
+
+[00:02:45] Vera: El equipo es de Ruby on Rails, PostgreSQL y Redis para cachés y colas. Preferimos seguir con eso. Más adelante queremos un libro mayor de transacciones con escritura idempotente y conciliación diaria, pero eso es fase dos. Ahora céntrate en autenticación y PSD2.
+
+[00:03:28] Consultor: Entonces: sector financiero, Rails sobre PostgreSQL y Redis, OAuth 2.0 con JWT y PSD2 con SCA y consentimientos como alcance de la fase uno.
+
+[00:03:40] Vera: Exacto. Si me pasáis una estimación con fases y coste de aquí a una semana, arrancamos a final de mes. Cualquier duda me escribís. Me tengo que ir, gracias.
