@@ -69,6 +69,7 @@ class SemanticRetriever:
             query=query[:80],
             k=k,
             results=len(response.results),
+            search_mode=self._store.search_mode,
             search_time_ms=elapsed_ms,
         )
         return response

@@ -296,7 +296,7 @@ def get_embedder() -> OpenAIEmbedder | None:
 @lru_cache
 def get_chunk_store() -> ChunkStore:
     """Capa de acceso async, sin estado, sobre documents/chunks."""
-    return ChunkStore()
+    return ChunkStore(use_halfvec=get_settings().search_use_halfvec)
 
 
 @lru_cache

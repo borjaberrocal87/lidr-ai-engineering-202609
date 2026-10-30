@@ -132,6 +132,19 @@ services:
       POSTGRES_USER: estimator
       POSTGRES_PASSWORD: estimator
       POSTGRES_DB: estimator
+    # Sesión 8 (directo) — tuning para builds de HNSW. Los builds paralelos
+    # usan memoria compartida, de ahí shm_size. Los valores son conservadores
+    # para desarrollo; en producción escalan con la RAM del host (regla rápida:
+    # shared_buffers ~25% de RAM, effective_cache_size ~75%, y
+    # maintenance_work_mem lo que necesite un build sin ahogar al resto).
+    shm_size: 1gb
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=1536MB
+      -c work_mem=64MB
+      -c maintenance_work_mem=512MB
+      -c max_parallel_maintenance_workers=2
     ports:
       - "${ESTIMATOR_POSTGRES_PORT:-5433}:5432"
     volumes:
