@@ -298,3 +298,85 @@ Respuesta real. Se abrevia el campo `query` por legibilidad; el resto es literal
 > del presupuesto padre ni el resumen del proyecto: solo el componente y sus horas. Aunque uno
 > fuese perfecto, devuelve un **componente suelto**, no un presupuesto con el que fundamentar coste
 > y plazo.
+
+---
+
+## 3. Diagnóstico: cinco fallos identificados
+
+Todos están anclados al trace de la sección 2.
+
+### Fallo 1 — La transcripción se usa como query, y una transcripción no es una query
+
+- **Problema observado:** embeber los 2813 caracteres de `02_ambiguous.txt` produce un vector que
+  mezcla tienda física, fidelización, panel, pago, correo y la anécdota de Francia. El top-5 cae
+  entre `0.6110` y `0.6430` (Δ ≈ 0.032): ningún chunk domina porque la query es la media de varias
+  intenciones.
+- **Causa probable:** no existe ninguna etapa entre la transcripción y `embed_one`. Se embebe el
+  texto crudo tal cual; `SemanticRetriever` asume que la entrada ya es una consulta limpia y
+  enfocada.
+- **Propuesta de solución:** una etapa de **comprensión / normalización de query** que destile la
+  transcripción en un brief estructurado (tipo de proyecto, sector, features, restricciones) y una
+  consulta canónica antes de recuperar.
+
+### Fallo 2 — Desajuste de idioma y registro entre la transcripción y el corpus
+
+- **Problema observado:** la transcripción es español conversacional (“vender por internet”,
+  “pagar con tarjeta”, “un panel con el café”); los chunks son inglés técnico (“Cart and checkout
+  service”, “Product catalog API”, “Storefront PWA”). El match llega por términos de superficie, y
+  las señales específicas del cliente —fidelización por puntos, correo de confirmación, stock— no
+  aparecen representadas en el top-5.
+- **Causa probable:** un único modelo de embedding aplicado a query y corpus heterogéneos (idioma y
+  registro distintos), sin normalización del lado de la query ni un vocabulario compartido.
+- **Propuesta de solución:** reformular la transcripción a una **spec canónica en el mismo idioma y
+  registro técnico que el corpus** antes de embeber (encaja con la etapa de comprensión del Fallo 1).
+
+### Fallo 3 — Recuperación sin filtros de metadata: el top-k se concentra en un presupuesto sobredimensionado
+
+- **Problema observado:** cuatro de los cinco chunks son de `BUD-2024-005` (460 h) y el quinto de
+  `BUD-2024-008`; no aparece `BUD-2024-017` (MVP de 160 h), que es el que más se parece a la escala
+  real de la tienda. Todos son ecommerce, pero el sistema no distingue sector, tipo de proyecto ni
+  tamaño.
+- **Causa probable:** `ChunkStore.search` hace k-NN coseno sobre los 60 chunks sin ninguna cláusula
+  `WHERE`. La metadata (`client_sector`, `main_technology`, `estimated_hours`) se persiste pero **no
+  se usa para filtrar**; tampoco hay diversidad por `budget_id`.
+- **Propuesta de solución:** un **retriever con pre-filtro por metadata** (sector, tipo de proyecto y
+  escala inferidos del brief) y una política de diversidad/rollup por presupuesto antes de construir
+  el contexto.
+
+### Fallo 4 — No existe augmentation + generation: el flujo muere en `SearchResponse`
+
+- **Problema observado:** la última salida viva del sistema (paso 2) es una lista de cinco chunks con
+  distancias. No hay coste, plazo, fases ni estimación. El objetivo del proyecto —transcripción →
+  estimación fundamentada— **no se alcanza**.
+- **Causa probable:** falta por completo el wiring de **augmentation + generation**. `EstimationService`
+  existe, pero vive en el camino CAG y no recibe los chunks recuperados; `/search` termina en el
+  retriever.
+- **Propuesta de solución:** un **ensamblador de contexto** que convierta los chunks en un contexto
+  fundamentado y una **etapa de generación** que reutilice `EstimationService` / `LLMWrapper` para
+  producir un `EstimationResult` validado, con referencia a los presupuestos usados.
+
+### Fallo 5 — La granularidad de componente pierde el rollup de coste/horas del presupuesto
+
+- **Problema observado:** cada hit es un componente suelto (`CART-002` 140 h, `CATALOG-001` 150 h,
+  `RECO-003` 110 h, `STORE-004` 60 h, `RET-001` 140 h), no el presupuesto completo. El total de
+  `BUD-2024-005` (460 h) no aparece en ningún chunk; la metadata del documento solo guarda
+  `budget_id`, `client_sector` y `year`, y el chunk no lleva `project_summary` ni
+  `total_estimated_hours`.
+- **Causa probable:** `JSONStructuralChunker` produce un chunk por componente —bueno para recuperar
+  con precisión—, pero no hay chunk ni paso que reconstruya el nivel “presupuesto” (totales, resumen,
+  número de componentes).
+- **Propuesta de solución:** persistir o materializar el **rollup del presupuesto**
+  (`project_summary`, `total_estimated_hours`, `component_count`) y un **ensamblador de contexto**
+  que reagrupe los chunks por `budget_id` y adjunte los totales del padre antes de generar.
+
+### Otros (menor prioridad)
+
+- **`k=5` fijo sin umbral de relevancia:** `/search` devuelve cinco resultados aunque todos sean
+  mediocres; no hay corte por distancia mínima. Riesgo de “recuperar basura con confianza”.
+- **Dos caminos de ingesta desconectados:** `app/ingestion/` (catálogo, jobs, PII) y la ingesta RAG
+  de presupuestos no comparten pipeline; el primero no alimenta `documents` / `chunks`.
+- **Idempotencia solo por `source_path`:** dos `source_path` distintos pueden persistir el mismo
+  `budget_id` (pasó con `manual-test::BUD-2024-001` antes de limpiar el corpus). No hay unicidad por
+  presupuesto.
+- **HNSW/halfvec no es el cuello de botella:** con 60 chunks y `search_time_ms ≈ 556` (incluyendo el
+  embedding), el índice no explica la mala calidad; el problema es de query y de contexto.
