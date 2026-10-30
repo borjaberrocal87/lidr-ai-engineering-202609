@@ -385,7 +385,7 @@ Todos están anclados al trace de la sección 2.
 
 ## 4. Propuesta de evolución arquitectónica
 
-Misma arquitectura de tres capas. Se añaden cinco cajas nuevas (rojo) dentro del servicio IA,
+Misma arquitectura de tres capas. Se añaden seis cajas nuevas (rojo) dentro del servicio IA,
 encadenadas entre la transcripción y una estimación. La ingesta, el store y `/search` actuales
 (verde) se conservan y se reutilizan; no se reescribe el pipeline de embeddings ni el `ChunkStore`.
 
