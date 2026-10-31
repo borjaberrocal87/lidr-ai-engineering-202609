@@ -1,185 +1,153 @@
-# Propuesta de TFM — Traductor de fútbol consistente con IA
-
-30 de octubre de 2026 · Borja Berrocal
+# Servicio de traducción asistida consistente con IA
 
 ## Resumen de la propuesta
 
-Propongo como trabajo de fin de máster un servicio que traduce contenido de fútbol del español al inglés, al árabe y al chino de forma **consistente**: la misma frase, con la misma configuración, se traduce siempre igual. Debe respetar un glosario validado y no alterar nunca marcadores, minutos, fechas ni nombres de jugadores.
+Propongo como trabajo de fin de máster un servicio de traducción asistida para contenido editorial especializado —texto, HTML, JSON y DOCX— del español al inglés, al árabe y al chino. 
 
-Lo desarrollaré desde cero en un repositorio nuevo, tomando el estimador del máster como guía de arquitectura y patrones. Mi intención es que cada módulo del máster aporte una pieza con una función real en el producto, y no añadir técnicas solo para cubrir el temario.
+El sistema sugiere, para cada segmento, la traducción ya realizada más fiable del corpus y el traductor la valida o la modifica; cuando no hay una sugerencia adecuada, genera una propuesta. 
 
-Calculo unas **10 semanas** de trabajo a tiempo parcial. Con este documento quiero que valides si el planteamiento y el alcance son adecuados para el TFM antes de empezar. Al final dejo las preguntas concretas que necesito resolver contigo.
+La sugerencia se resuelve en cascada —exacta, difusa o generación— con su puntuación de confianza y su procedencia; las correcciones aprobadas alimentan la memoria y un panel mide aceptación, tiempo y errores. 
+
+Todo debe ser **consistente** —la misma frase, con la misma configuración, se sugiere siempre igual—, respetar un glosario validado y no alterar nunca cifras, fechas, unidades ni nombres propios. 
+
+**El objetivo es aumentar la velocidad de traducción actual, que hoy se hace a mano, sin perder el control del traductor.**
+
+Parto de un **corpus inicial de unas 400.000 traducciones ya realizadas**, que usaré como memoria de traducción tras un proceso de curaduría. Eso me permite centrar el TFM en el sistema de IA —recuperación, generación, agentes, evaluación y operación— en lugar de en la recolección masiva de datos.
+
+Lo desarrollaré desde cero en un repositorio nuevo, tomando el estimador del máster como guía de arquitectura y patrones. Mi intención es que cada módulo del programa aporte una pieza con una función real en el producto, y no añadir técnicas solo para cubrir el temario.
+
+Con este documento quiero que el mentor valide si el planteamiento y el alcance son adecuados para el TFM antes de empezar.
 
 ## Motivación y problema
 
-El contenido de fútbol se publica cada día en muchos idiomas: crónicas, previas, fichas de jugadores, noticias de club. Al traducirlo con herramientas genéricas aparecen siempre los mismos problemas:
+Hoy las traducciones se realizan a mano, texto a texto. El equipo dedica tiempo a redactar de nuevo segmentos que ya se tradujeron en el pasado, y cada traductor resuelve los mismos términos de forma distinta. El cuello de botella no es solo la calidad: es la velocidad.
+
+La oportunidad es convertir el corpus de ~400.000 traducciones en una memoria activa. Para cada segmento, el sistema sugiere la traducción ya realizada más fiable y el traductor la valida o la modifica; si no hay una sugerencia adecuada, el sistema genera una propuesta nueva. El objetivo no es sustituir al traductor, sino quitarle el trabajo repetitivo y darle una base fiable sobre la que decidir.
+
+El contenido editorial especializado se publica cada día en muchos idiomas: artículos, informes, fichas de producto y documentación. Al traducirlo con herramientas genéricas aparecen siempre los mismos problemas:
 
 - **Inconsistencia:** la misma expresión se traduce de formas distintas en días distintos.
-- **Terminología:** el traductor no conoce el vocabulario propio del fútbol ni el estilo de la casa.
-- **Nombres:** en árabe y en chino un mismo jugador puede transcribirse de varias formas, y el lector percibe el error enseguida.
-- **Datos:** un marcador, un minuto (45+2') o una fecha alterados convierten una noticia en falsa.
+- **Terminología:** el traductor no conoce el vocabulario propio del dominio ni el estilo de la casa.
+- **Nombres:** en árabe y en chino un mismo nombre propio o una misma entidad puede transcribirse de varias formas, y el lector percibe el error enseguida.
+- **Datos:** una cifra, una fecha o una unidad alteradas convierten un texto en falso.
 
-El resultado es que alguien acaba revisando todo a mano. Elijo árabe y chino a propósito: son dos escrituras no latinas, una de ellas de derecha a izquierda, y ahí es donde fallan las soluciones genéricas. Eso hace el problema más interesante y la evaluación más exigente.
+Sin una memoria fiable, el traductor acaba reescribiendo lo que ya estaba bien y revisando a mano lo que el sistema no entiende. Elijo árabe y chino a propósito: son dos escrituras no latinas, una de ellas de derecha a izquierda, y ahí es donde fallan las soluciones genéricas. Eso hace el problema más interesante y la evaluación más exigente.
 
-Creo que es un buen caso para el TFM porque es un problema real, con un criterio de éxito medible (consistencia, glosario, integridad de datos) y que obliga a combinar casi todo lo visto en el máster.
+Ese corpus cambia el punto de partida: el problema deja de ser «conseguir datos» y pasa a ser «convertir esos datos en una memoria fiable». La calidad, la alineación, la deduplicación, la licencia de uso y la separación entre memoria y evaluación son ahora parte central del trabajo.
+
+Creo que es un buen caso para el TFM porque es un problema real, con un criterio de éxito medible (consistencia, glosario, integridad de datos y tiempo de traducción) y que obliga a combinar casi todo lo visto en el máster.
 
 ## Objetivos del trabajo
 
-**Objetivo general.** Diseñar, construir, desplegar y evaluar un sistema de traducción con IA para contenido de fútbol que sea consistente, respete la terminología y no altere los datos, aplicando las arquitecturas vistas en el máster.
+**Objetivo general.** Diseñar, construir, desplegar y evaluar un sistema de traducción asistida con IA para contenido editorial especializado que sugiera traducciones ya realizadas, genere propuestas cuando no haya una sugerencia adecuada, sea consistente, respete la terminología, no altere los datos y acelere el trabajo del traductor, aplicando las arquitecturas vistas en el máster.
 
 **Objetivos específicos y cómo los mediré**
 
-| Objetivo                | Criterio de éxito                                                                                          |
-|-------------------------|------------------------------------------------------------------------------------------------------------|
-| Consistencia            | 100 % de salidas idénticas para la misma entrada y configuración                                           |
-| Terminología            | ≥ 95 % de términos del glosario usados correctamente, en cada idioma                                       |
-| Integridad de datos     | 0 marcadores, minutos, fechas o nombres alterados en el conjunto de prueba                                 |
-| Calidad                 | Igual o mejor que un traductor genérico en mi conjunto de prueba, medido por par de idiomas                |
-| Coste y latencia        | Coste por 1.000 palabras y latencia visibles y dentro de los límites que fijo en el apartado de evaluación |
-| Decisiones justificadas | Cada elección técnica importante respaldada por un experimento A/B                                         |
+| Objetivo | Criterio de éxito |
+|---|---|
+| Consistencia | 100 % de salidas idénticas para la misma entrada y configuración |
+| Terminología | ≥ 95 % de términos del glosario usados correctamente, en cada idioma |
+| Integridad de datos | 0 cifras, fechas, unidades o nombres alterados en el conjunto de prueba |
+| Calidad | Igual o mejor que un traductor genérico en mi conjunto de prueba, medido por par de idiomas |
+| Velocidad | ≥ 30 % menos tiempo de revisión que traducir desde cero, medido en un piloto con traductores |
+| Aceptación de sugerencias | ≥ 60 % aceptadas sin cambios o con cambios menores en el piloto |
+| Calibración de confianza | La aceptación crece por tramo (exacta > difusa > generación) en el piloto |
+| Aprovechamiento del corpus | Memoria construida sobre el corpus curado, con trazabilidad de procedencia y sin fuga hacia el conjunto de prueba |
+| Coste y latencia | Coste por 1.000 palabras y latencia visibles y dentro de los límites que fijo en el apartado de evaluación |
+| Decisiones justificadas | Cada elección técnica importante respaldada por un experimento A/B |
 
-No pretendo sustituir al traductor humano: el sistema marca lo dudoso y lo envía a revisión.
+No pretendo sustituir al traductor humano: el sistema sugiere, marca lo dudoso y deja la decisión final a la persona.
 
-## Alcance: qué voy a construir y qué dejo fuera
+## Alcance
 
-He recortado el alcance con un criterio: cada funcionalidad debe resolver un problema del producto **y** demostrar un tema del máster. Lo que no cumple las dos cosas se queda fuera.
+Cada funcionalidad debe resolver un problema del producto y demostrar un tema del máster.
 
 **Lo que voy a construir**
 
-1. **Traducción consistente** de texto, HTML y JSON de español a inglés, árabe y chino simplificado, con caché exacta por frase y protección de cifras y nombres.
-2. **Memoria de traducción** alimentada con contenido de fútbol ya traducido de webs oficiales, con búsqueda híbrida.
-3. **Glosario y registro de entidades**: términos de fútbol y jugadores, clubes, estadios y competiciones con su grafía oficial en cada idioma.
-4. **Control de calidad** automático: cifras comparadas por valor (también con dígitos árabes y fechas en formato chino), glosario, nombres y tipografía propia de cada idioma.
-5. **Grafo de agentes** traductor → control de calidad → crítico, con estado persistente y parada para revisión humana cuando no converge.
-6. **Refinamiento conversacional**: el usuario pide cambios ("más informal", "usa *clean sheet*") y el sistema los recuerda durante la sesión.
-7. **Interfaz ligera** con cuatro pantallas: traducir, refinar, revisar y glosario.
-8. **Guardarraíles, evaluación, A/B y observabilidad**, y despliegue reproducible.
+1. **Traducción asistida consistente**: para cada segmento, el sistema sugiere la traducción ya realizada más fiable o genera una propuesta, y el traductor la valida o modifica. Soporta texto, HTML, JSON y DOCX de español a inglés, árabe y chino simplificado, con caché exacta por frase y protección de cifras y nombres.
+2. **Soporte DOCX de extremo a extremo**: segmentación de párrafos, tablas, encabezados y notas; preservación de estilos, saltos y numeración; reconstrucción del documento traducido y validación de que no se pierde contenido.
+3. **Curaduría del corpus inicial** de ~400.000 traducciones: inventario, deduplicación, filtrado de calidad, normalización, comprobación de alineación, licencia de uso y separación en memoria, validación y prueba.
+4. **Motor de sugerencias en cascada**: coincidencia exacta → coincidencia difusa → generación → revisión humana, con puntuación de confianza, procedencia y motivo visibles para el traductor.
+5. **Bucle de feedback**: las correcciones aprobadas se incorporan a la memoria de traducción y al glosario, con estado de aprobación y trazabilidad.
+6. **Panel del revisor**: aceptación de sugerencias, distancia de edición, tiempo por segmento y términos que más fallan.
+7. **Glosario y registro de entidades**: términos del dominio y entidades (organizaciones, productos, personas y lugares) con su grafía oficial en cada idioma.
+8. **Control de calidad** automático: cifras comparadas por valor (también con dígitos árabes y fechas en formato chino), glosario, nombres, tipografía propia de cada idioma y consistencia entre segmentos de un mismo documento.
+9. **Grafo de agentes** traductor → control de calidad → crítico, con estado persistente, supervisor con permisos mínimos y parada para revisión humana cuando no converge.
+10. **Refinamiento conversacional**: el usuario pide cambios ("más informal", "usa un término concreto del glosario") y el sistema los recuerda durante la sesión.
+11. **Interfaz ligera** con seis pantallas: traducir, refinar, revisar, glosario, panel del revisor y estado de evaluación.
+12. **Guardarraíles, evaluación, A/B, observabilidad y despliegue reproducible**, con un arnés de evaluación que pueda ejecutarse contra el sistema desplegado.
 
-**Lo que dejo fuera, y por qué**
+## Flujo de sugerencia y feedback
 
-| Fuera de alcance                                                                              | Motivo                                                                                 |
-|-----------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------|
-| Más idiomas o variantes regionales                                                            | Tres destinos ya cubren los casos difíciles                                            |
-| Otros deportes                                                                                | El fútbol, acotado a una liga, ya da un glosario y un registro de jugadores abarcables |
-| DOCX, XLIFF, importación TMX/TBX                                                              | Trabajo de conversión de formatos que no añade temas del máster                        |
-| Sugerencias SEO, investigación terminológica automática, localización de tablas de resultados | Interesantes, pero cada una sería un proyecto en sí; las dejo como líneas futuras      |
-| Varios clientes, SSO, conector con un CMS real                                                | Aportan complejidad de producto, no de IA                                              |
+1. **Coincidencia exacta.** Si el segmento ya existe en la memoria con el mismo contexto, se devuelve tal cual.
+2. **Coincidencia difusa.** Si no, se recuperan los segmentos más próximos y se propone el mejor por encima de un umbral de confianza.
+3. **Generación.** Si no hay una sugerencia fiable, el modelo traduce con el glosario y los ejemplos recuperados.
+4. **Revisión humana.** El traductor acepta, modifica o rechaza. La decisión, el tiempo y la corrección quedan registrados.
+5. **Feedback.** Las correcciones aprobadas se incorporan a la memoria y al glosario; el panel mide aceptación, tiempo y errores.
 
-Una decisión que quiero destacar: **no usaré caché semántica para traducir**, aunque el estimador sí la usa. Devolver la traducción de una frase parecida es un error ("el Betis ganó 2-1" frente a "el Betis perdió 2-1"). Lo demostraré con un experimento en la evaluación.
+## Corpus inicial y estrategia de datos
+
+El corpus de ~400.000 traducciones es el activo principal del proyecto y, a la vez, su principal riesgo. No lo indexaré tal cual: primero lo auditaré y lo convertiré en un conjunto con procedencia y calidad conocidas.
 
 ## Cómo cubre los módulos del máster
 
-He comprobado que cada módulo queda cubierto por al menos una funcionalidad imprescindible del proyecto.
+He comprobado que cada módulo del programa queda cubierto por al menos una funcionalidad imprescindible del proyecto.
 
-| Módulo                                                        | Qué implemento                                                                                                                                       | Por qué lo necesita el producto                                                         |
-|---------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
-| Fundamentos: comunicación con LLMs y APIs                     | Cliente LLM propio con salida estructurada, temperature = 0, modelo fijado, respaldo entre proveedores y registro de coste; prompts versionados      | Sin control fino del modelo no hay consistencia                                         |
-| CAG: contexto, conversación, memoria                          | Caché exacta por frase; sesión de refinamiento con memoria de indicaciones y compresión del historial                                                | La caché garantiza la consistencia; la conversación permite ajustar sin reescribir      |
-| Data-driven AI: preprocesado, embeddings, BBDD vectoriales    | Rastreo de webs de fútbol, limpieza, alineación de frases es–en–ar–zh con embeddings, carga en pgvector                                              | Aprovecha traducciones ya publicadas como conocimiento                                  |
-| RAG: recuperación básica y avanzada, evaluación               | Memoria de traducción con búsqueda híbrida (vectorial + trigramas, fusión RRF, reranker); glosario por coincidencia exacta; métricas de recuperación | Le da al modelo ejemplos y restricciones de cómo traducir en esta casa                  |
-| Agentes: grafos, estado, errores, multi-agente                | Grafo LangGraph traductor → control de calidad → crítico, estado persistente en Postgres e interrupción para revisión humana                         | Corrige errores de sentido que las reglas no ven y deja decidir a una persona lo dudoso |
-| LLMOps: guardarraíles, A/B, evaluación, observabilidad, coste | Guardarraíl contra instrucciones escondidas en el texto, conjunto de prueba, A/B de variantes, trazas y coste en Logfire, despliegue con CI          | Permite demostrar con datos que funciona y cuánto cuesta                                |
+| Qué implemento en el TFM | Por qué lo necesita el producto |
+|---|---|
+| Cliente LLM propio con salida estructurada, temperature = 0, modelo fijado, respaldo entre proveedores, prompts versionados con Jinja2 y registro de coste | Sin control fino del modelo no hay consistencia |
+| Caché exacta por frase; sesión de refinamiento con memoria de indicaciones y compresión del historial; prueba de estrés de la caché | La caché garantiza la consistencia; la conversación permite ajustar sin reescribir |
+| Curaduría del corpus de ~400.000 traducciones; segmentación y chunking; embeddings; persistencia en pgvector con índice HNSW y, si procede, *halfvec* | Convierte traducciones ya publicadas en conocimiento recuperable y fiable |
+| Memoria de traducción multi-índice (memoria, glosario, entidades); routing de consultas; expansión y descomposición; búsqueda híbrida vectorial + trigramas; fusión RRF; reranker; decaimiento temporal; evaluación con recall@k, nDCG y RAGAS | Sugiere al traductor la traducción ya realizada más fiable y le da al modelo ejemplos y restricciones de cómo traducir en esta casa |
+| Cascada de sugerencia con confianza (exacta → difusa → generación → revisión) y explicación de procedencia | Ahorra coste y latencia, y el traductor entiende por qué recibe esa sugerencia |
+| Patrón Actor-Critic-Boss; grafo LangGraph con estado persistente en Postgres y checkpointing; interrupción y reanudación para revisión humana; supervisor con permisos mínimos y auditoría de decisiones | Valida la sugerencia, corrige errores de sentido que las reglas no ven y deja decidir a una persona lo dudoso |
+| Bucle de feedback: las correcciones aprobadas actualizan memoria y glosario | Reduce correcciones repetidas y mejora la consistencia con el uso |
+| Panel del revisor: aceptación, distancia de edición, tiempo por segmento y términos fallidos | Convierte la mejora de velocidad en una métrica operativa |
+| Guardarraíles de entrada y salida; golden set y arnés de evaluación por HTTP con puerta de regresión; dashboard de latencia, coste y errores desde los logs; CI/CD; contenedores; despliegue en EC2 con TLS; token de servicio; *health* y *readiness* | Permite demostrar con datos que funciona, cuánto cuesta y cómo se opera |
 
 ## Arquitectura propuesta
 
-Replico la organización del estimador porque ya resuelve los problemas que aquí reaparecen, pero escribo todo el código desde cero.
-
 ```mermaid
 flowchart TB
-    web["web · FastAPI + Jinja2 + HTMX<br/>única capa pública · usuarios y roles"]
+    web["web pública · FastAPI + Jinja2 + HTMX<br/>única capa pública · usuarios y roles"]
     subgraph priv["Red privada · ai-service (FastAPI) y almacenes"]
         direction LR
-        g["Guardarraíles y segmentación"] --> c["Caché exacta (CAG)"] --> r["Memoria + glosario (RAG híbrido)"] --> a["Grafo de agentes<br/>traducir · QA · crítico"]
-        c --> redis[("Redis")]
-        r --> pg[("Postgres + pgvector<br/>memoria, glosario, estado")]
+        g["Guardarraíles y segmentación"] --> c["Caché exacta (CAG)"] --> r["Memoria + glosario<br/>RAG híbrido · cascada de confianza"] --> a["Grafo de agentes<br/>traducir · QA · crítico · supervisor"]
+        c --> redis[("Redis<br/>caché, idempotencia, límites")]
+        r --> pg[("Postgres + pgvector + pg_trgm<br/>memoria, glosario, entidades, estado, feedback")]
         a --> llm["Proveedores LLM<br/>trazas a Logfire"]
+        corpus[("Corpus curado<br/>~400.000 traducciones")] --> r
+        a --> eval["Arnés de evaluación<br/>golden set y dashboard"]
+        fb["Bucle de feedback<br/>memoria y glosario"] --> r
+        fb --> pg
+        panel["Panel del revisor<br/>aceptación · tiempo · errores"] --> eval
     end
-    web -->|token de servicio| g
+    web -->|X-Service-Token| g
+    web -->|acepta / corrige| fb
+    web --> panel
 ```
 
-arquitectura propuesta · 2 capas, 4 pasos de traducción
+arquitectura propuesta · 2 servicios, 3 capas conceptuales, cascada de sugerencia y feedback
 
-- **Dos capas.** Una capa web ligera (FastAPI con Jinja2 y HTMX), que es la única pública, y un ai-service privado con toda la lógica de IA y las claves de los proveedores. El navegador nunca habla con el servicio de IA.
-- **Capas internas.** Como en el estimador, las piezas de IA (caché, recuperación, glosario, agentes, conversación) no se importan entre sí y solo se combinan en un conductor, TranslationService. Lo dejaré documentado en un ARCHITECTURE.md propio.
-- **Tecnología.** Python, FastAPI, LiteLLM + Instructor, LangGraph, PostgreSQL con pgvector y pg_trgm, Redis, Docker Compose, CI con GitHub Actions y Logfire para observabilidad.
+**Dos servicios, tres capas conceptuales.** Una capa web/pública (FastAPI con Jinja2 y HTMX) que hace de backend de negocio, un ai-service privado con toda la lógica de IA y las claves de los proveedores, y los almacenes. El navegador nunca habla con el servicio de IA.
 
-| Patrón del estimador                        | Cómo lo adapto                                                       |
-|---------------------------------------------|----------------------------------------------------------------------|
-| Caché exacta con SHA-256                    | Por frase, incluyendo idiomas y versión de glosario, prompt y modelo |
-| Caché semántica                             | No la uso para traducir                                              |
-| Búsqueda híbrida vectorial + texto completo | Vectorial + trigramas, más adecuado para frases casi iguales         |
-| Guardarraíl de PII que bloquea              | Enmascara emails y teléfonos y conserva los nombres de jugadores     |
-| Grafo LangGraph con estado en Postgres      | Añado la parada para revisión humana                                 |
+**Cascada y confianza.** El motor no llama siempre al modelo: primero busca coincidencia exacta y difusa; solo genera cuando la confianza no alcanza el umbral. Cada sugerencia guarda su procedencia, su puntuación y el motivo.
+
+**Feedback y medición.** Las correcciones aprobadas vuelven a la memoria y al glosario; el panel del revisor mide aceptación, distancia de edición y tiempo por segmento.
 
 ## Cómo voy a evaluar el resultado
 
-Quiero que la evaluación sea el núcleo de la defensa: cada decisión técnica debe estar respaldada por un número.
-
-**Conjunto de prueba.** 450 frases (150 por par: es→en, es→ar, es→zh) de crónicas, previas y fichas, con traducción de referencia revisada por hablantes nativos, términos esperados y cifras y nombres anotados. Incluye unos 30 casos trampa: frases casi iguales con significado distinto, textos con instrucciones escondidas y frases cargadas de marcadores y minutos.
-
-**Métricas**, siempre por par de idiomas:
-
-| Métrica                                | Objetivo                                         |
-|----------------------------------------|--------------------------------------------------|
-| chrF (y COMET en una muestra)          | ≥ traductor genérico                             |
-| Adherencia al glosario                 | ≥ 95 %                                           |
-| Integridad de cifras y nombres         | 100 %                                            |
-| Consistencia                           | 100 %                                            |
-| Recall@5 de la memoria de traducción   | ≥ 85 %                                           |
-| Precisión del crítico                  | ≥ 70 %                                           |
-| Resistencia a instrucciones escondidas | 100 % de casos trampa traducidos sin obedecerlas |
-| Coste                                  | \< 0,10 USD por 1.000 palabras y idioma          |
-| Latencia                               | \< 30 s para una crónica de 500 palabras (p95)   |
+**Métricas de la cascada y del feedback.** Cobertura por tramo (exacta, difusa, generación, revisión), calibración de la confianza (aceptación por tramo), distancia de edición por sugerencia aceptada, tiempo por segmento y porcentaje de correcciones reutilizadas.
 
 **Experimentos A/B que haré**
 
-1. Sin memoria de traducción frente a con memoria.
+1. Sin memoria de traducción frente a con memoria; y memoria con el corpus completo frente a una muestra curada.
 2. Búsqueda solo vectorial frente a híbrida, con y sin reranker.
-3. Con y sin crítico: cuánta calidad añade y cuánto cuesta.
-4. Dos modelos para traducir, uno de gama media y otro ligero.
-5. Caché exacta frente a semántica en los casos trampa.
-
-## Planificación
-
-Diez semanas. Sigo el orden de los módulos del máster y cada semana termina con algo que funciona y se puede medir.
-
-| Semana | Hito                          | Entregable                                                                                                            |
-|--------|-------------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| 1      | Esqueleto                     | Repositorio con las dos capas, Docker Compose, Postgres/pgvector, Redis, CI y ARCHITECTURE.md                         |
-| 2      | Cliente LLM y datos de prueba | Cliente LLM; glosario inicial (≈ 300 términos), registro de ≈ 500 jugadores y clubes, conjunto de prueba y línea base |
-| 3      | Traducción consistente        | Servicio de traducción con caché exacta y protección de cifras; test de consistencia; interfaz mínima                 |
-| 4      | Datos                         | Ingesta de webs de fútbol, alineación de frases y carga en pgvector                                                   |
-| 5      | RAG                           | Memoria híbrida y glosario en el prompt; primeras métricas y A/B                                                      |
-| 6      | Agentes (1)                   | Grafo con control de calidad, crítico y estado persistente                                                            |
-| 7      | Agentes (2)                   | Revisión humana dentro del grafo y pantalla de revisión                                                               |
-| 8      | Conversación                  | Refinamiento con memoria de sesión                                                                                    |
-| 9      | LLMOps                        | Guardarraíles, A/B completos, trazas y dashboard en Logfire, despliegue                                               |
-| 10     | Cierre                        | Informe de evaluación, memoria del TFM, demo y margen para imprevistos                                                |
-
-Si voy justo de tiempo, recortaré en este orden: compresión del historial de conversación, reranker, extracción automática de términos, contexto entre frases y tamaño del conjunto de prueba (de 150 a 100 frases por par). Ninguno de estos recortes deja un módulo sin cubrir.
-
-## Riesgos y plan B
-
-| Riesgo                                                                                                            | Plan B                                                                                                                  |
-|-------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| No encuentro suficiente contenido de fútbol traducido a los cuatro idiomas con condiciones de uso que lo permitan | Lo resuelvo en la semana 1; si falta, completo la memoria con traducciones propias revisadas                            |
-| No consigo revisores nativos de árabe y chino                                                                     | Los busco antes de la semana 2; si no aparecen, reduzco el conjunto de prueba de esos pares y lo indico como limitación |
-| Un mismo jugador tiene varias transcripciones                                                                     | Tomo como referencia la grafía de la web del club o la liga en ese idioma                                               |
-| El modelo rinde peor en árabe y chino                                                                             | Lo mido por par y lo documento; es un resultado válido del trabajo, no un fallo                                         |
-| La base técnica desde cero me lleva más de dos semanas                                                            | Uso la estructura del estimador como plantilla de diseño y mantengo la interfaz al mínimo                               |
-| El crítico genera falsos positivos                                                                                | Máximo dos iteraciones; si no aporta calidad, se desactiva y lo justifico con el A/B                                    |
-
-## Lo que necesito que me valides
-
-Antes de empezar me gustaría tu opinión sobre estos puntos:
-
-- [ ] **Validez del tema:** ¿es un proyecto adecuado como TFM del máster?
-- [ ] **Alcance:** ¿te parece realista en 10 semanas, o recortarías o añadirías algo?
-- [ ] **Cobertura del temario:** ¿consideras suficiente cómo cubro cada módulo, sobre todo agentes y LLMOps?
-- [ ] **Desarrollo desde cero:** ¿es correcto usar el estimador solo como guía de arquitectura, sin reutilizar su código?
-- [ ] **Tres idiomas destino:** ¿mantengo inglés, árabe y chino, o empiezo con dos para reducir riesgo?
-- [ ] **Descartar la caché semántica:** ¿te parece una decisión bien justificada?
-- [ ] **Evaluación:** ¿son suficientes las métricas y los experimentos A/B para la defensa?
-- [ ] **Entregables:** ¿qué espera el tribunal además del código y la demo (memoria escrita, formato, extensión)?
-
-Gracias por revisarlo. Puedes comentar directamente sobre el documento.
+3. Índice único frente a multi-índice con routing y expansión de consulta.
+4. Con y sin crítico: cuánta calidad añade y cuánto cuesta.
+5. Dos modelos para traducir, uno de gama media y otro ligero.
+6. Caché exacta frente a semántica en los casos trampa.
+7. Corpus con y sin decaimiento temporal (frescura de la traducción).
+8. Flujo con sugerencias del corpus frente a traducción manual desde cero (tiempo y aceptación).
+9. Cascada (exacta → difusa → generación) frente a generación directa: calidad, coste y latencia.
+10. Con y sin bucle de feedback: aceptación, distancia de edición y tiempo a lo largo del piloto.
