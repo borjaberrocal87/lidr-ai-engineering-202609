@@ -1,21 +1,5 @@
 # Diagnóstico arquitectónico — Sesión 09 (pre-work)
 
-Estado del servicio IA `estimator-cag` al cierre de la Sesión 08, comportamiento observado al
-pasarle una transcripción cruda, fallos concretos y propuesta de evolución hasta cerrar el bucle
-transcripción → estimación.
-
-> **Cómo está escrito este documento.** Las observaciones van en español; los comandos, payloads y
-> nombres de campo van en inglés. El trace de la sección 2 es reproducible: los comandos están
-> puestos tal cual se ejecutan y la salida real está pegada en los bloques de respuesta.
-
-> **Nota de fidelidad.** El enunciado describe el servicio IA con nombres genéricos (`ingest/`,
-> `embedding_pipeline/`, `storage/`). El repo real los implementa así: `app/ingestion/` para la
-> ingesta batch offline, `app/embedding_pipeline/` para chunking, embeddings, ingest y retrieval, y
-> `app/embedding_pipeline/store/` para el acceso a pgvector. Este documento describe la arquitectura
-> **real** de este repo, no la del enunciado.
-
----
-
 ## 1. Diagrama de la arquitectura actual (cierre S08)
 
 Tres capas. El servicio IA está bajado un nivel. El borde amarillo marca el último eslabón vivo:
@@ -461,7 +445,7 @@ flowchart TB
 - **Grounded Generation:** reutiliza `EstimationService` / `LLMWrapper` / `EstimationResult` para
   emitir una estimación validada y referenciada a los presupuestos recuperados. Ataca el Fallo 4.
 
-**Párrafo de cierre.** *Query Understanding* recibe la transcripción y emite un `ProjectBrief` y una
+*Query Understanding* recibe la transcripción y emite un `ProjectBrief` y una
 `canonical_query`; el *Metadata-filtered Retriever* usa ese brief para filtrar y recuperar chunks con
 el embedder y el store actuales; *Budget Rollup* aporta los totales que el chunk no tiene; el
 *Context Assembler* reagrupa y ensambla el contexto; *Grounded Generation* reutiliza
