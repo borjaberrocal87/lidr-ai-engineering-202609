@@ -1,0 +1,112 @@
+==============================================================================
+STEP 1 — embedding of the full transcript
+==============================================================================
+transcript      : examples/transcripts/02_ambiguous.txt
+model           : text-embedding-3-small
+characters      : 2813
+dimensionality  : 1536
+L2 norm         : 0.999817
+first component : 0.006599
+last component  : 0.019318
+
+==============================================================================
+STEP 2 — POST /api/v1/search  (k=5, query = full transcript)
+==============================================================================
+search_time_ms  : 556
+results         : 5
+
+  rank  chunk_id  distance  sector        budget_id       content
+     1        17    0.6110  ecommerce     BUD-2024-005    [Project: Headless e-commerce storefront with personalized recommendations] [Client sector: ecommerce | Year: 2024 | Main tech: node] Compon
+     2        16    0.6113  ecommerce     BUD-2024-005    [Project: Headless e-commerce storefront with personalized recommendations] [Client sector: ecommerce | Year: 2024 | Main tech: node] Compon
+     3        18    0.6338  ecommerce     BUD-2024-005    [Project: Headless e-commerce storefront with personalized recommendations] [Client sector: ecommerce | Year: 2024 | Main tech: node] Compon
+     4        19    0.6368  ecommerce     BUD-2024-005    [Project: Headless e-commerce storefront with personalized recommendations] [Client sector: ecommerce | Year: 2024 | Main tech: node] Compon
+     5        27    0.6430  ecommerce     BUD-2024-008    [Project: Fashion returns management and resale portal] [Client sector: ecommerce | Year: 2023 | Main tech: dotnet] Component: Returns porta
+
+--- raw JSON ---
+{
+  "query": "Reunión exploratoria — sin título claro todavía\nCliente: Ramón Sáez (gerente, Ultramarinos La Plazuela — tienda de productos gourmet)\nConsultor: equipo de estimación\nFecha: primera toma de contacto\n\n[00:00:09] Consultor: Buenas, Ramón. Cuéntame, ¿qué os ronda por la cabeza?\n\n[00:00:16] Ramón: Pues mira, llevamos tiempo dándole vueltas y no sé muy bien por dónde empezar; por eso os hemos llamado. Tenemos la tienda física de toda la vida, la abrió mi madre en el ochenta y siete. Conservas, vinos, aceite, embutidos, esas cosas. Vemos que el mundo va por otro lado y hay que dar el salto, pero de tecnología no tenemos ni idea, te lo digo ya.\n\n[00:01:03] Consultor: Sin problema, para eso estamos. ¿Qué te gustaría conseguir?\n\n[00:01:10] Ramón: A ver, lo ideal sería vender por internet, eso seguro. Que la gente entre, vea los productos y compre, ¿no? Pero también... mi hija, que de esto sabe más que yo, dice que lo importante hoy es fidelizar. Que un cliente que repite vale más que diez que vienen una vez. Y yo pienso, pues igual algo de puntos, o un club, no sé, que la gente acumule y luego canjee. Eso me gustaría. Aunque tampoco quiero liarlo mucho al principio, ¿eh?\n\n[00:02:04] Consultor: Vale. ¿Y cómo te imaginas el día a día gestionándolo?\n\n[00:02:11] Ramón: Pues eso es lo otro. Yo necesito ver qué se vende. Un panel, algo donde yo entre por la mañana con el café y vea los pedidos del día, lo que más se mueve, el stock... que ahora lo llevo en un cuaderno, te lo juro. Mi mujer dice que parezco del siglo pasado. Algo visual, con sus gráficas, para tomar decisiones. Eso lo veo clarísimo, lo del panel de control.\n\n[00:03:00] Ramón: Ah, y oye, una cosa importante: que la gente pueda pagar con tarjeta, claro. Eso es fundamental, que el pago sea fácil y seguro, que no se me vayan en el último paso. He oído que mucha gente llena el carrito y luego no paga, y eso no puede ser.\n\n[00:03:39] Consultor: Totalmente. ¿Tenéis volumen previsto, mercados, algo de eso?\n\n[00:03:46] Ramón: Uf, pues no sabría decirte. España de momento, supongo. Aunque un primo en Francia me dice que allí los productos españoles se venden solos, así que quién sabe, igual más adelante. Pero no me hagas mucho caso con eso. Y mira, también pensaba... no sé si es mucho pedir, pero estaría bien mandar un correo cuando alguien compra, para que sepa que va su pedido. Detalles, ¿sabes? Que el cliente se sienta atendido como en la tienda de siempre.\n\n[00:04:34] Ramón: En fin, que tampoco quiero marearos. Que sé que esto es un mundo. Lo que necesito es que me digáis vosotros, que sois los que sabéis, qué se puede hacer y más o menos cuánto cuesta. Yo de presupuestos de software ni idea, ¿eh? Decidme un número y vemos.\n\n[00:05:01] Consultor: Tranquilo, Ramón, lo recogemos y te volvemos con una propuesta. Gracias.\n",
+  "k": 5,
+  "search_time_ms": 556,
+  "results": [
+    {
+      "chunk_id": 17,
+      "document_id": 5,
+      "chunk_type": "budget_component",
+      "content": "[Project: Headless e-commerce storefront with personalized recommendations]\n[Client sector: ecommerce | Year: 2024 | Main tech: node]\n\nComponent: Cart and checkout service\nDescription: Stateless cart service with promotion engine, tax calculation and a checkout orchestration that integrates the payment provider.\nTech stack: node, redis, postgresql\nComplexity: high\nEstimated hours: 140",
+      "distance": 0.6109539013398573,
+      "metadata": {
+        "year": 2024,
+        "budget_id": "BUD-2024-005",
+        "complexity": "high",
+        "component_id": "CART-002",
+        "client_sector": "ecommerce",
+        "estimated_hours": 140,
+        "main_technology": "node"
+      }
+    },
+    {
+      "chunk_id": 16,
+      "document_id": 5,
+      "chunk_type": "budget_component",
+      "content": "[Project: Headless e-commerce storefront with personalized recommendations]\n[Client sector: ecommerce | Year: 2024 | Main tech: node]\n\nComponent: Product catalog API\nDescription: GraphQL catalog API with faceted search, inventory availability and multi-currency pricing backed by Elasticsearch.\nTech stack: node, graphql, elasticsearch\nComplexity: medium\nEstimated hours: 150",
+      "distance": 0.6112637500742237,
+      "metadata": {
+        "year": 2024,
+        "budget_id": "BUD-2024-005",
+        "complexity": "medium",
+        "component_id": "CATALOG-001",
+        "client_sector": "ecommerce",
+        "estimated_hours": 150,
+        "main_technology": "node"
+      }
+    },
+    {
+      "chunk_id": 18,
+      "document_id": 5,
+      "chunk_type": "budget_component",
+      "content": "[Project: Headless e-commerce storefront with personalized recommendations]\n[Client sector: ecommerce | Year: 2024 | Main tech: node]\n\nComponent: Personalized recommendations\nDescription: Collaborative-filtering recommendations served from a feature store and exposed as a low-latency API for product and cart pages.\nTech stack: node, redis\nComplexity: medium\nEstimated hours: 110",
+      "distance": 0.6337974829718546,
+      "metadata": {
+        "year": 2024,
+        "budget_id": "BUD-2024-005",
+        "complexity": "medium",
+        "component_id": "RECO-003",
+        "client_sector": "ecommerce",
+        "estimated_hours": 110,
+        "main_technology": "node"
+      }
+    },
+    {
+      "chunk_id": 19,
+      "document_id": 5,
+      "chunk_type": "budget_component",
+      "content": "[Project: Headless e-commerce storefront with personalized recommendations]\n[Client sector: ecommerce | Year: 2024 | Main tech: node]\n\nComponent: Storefront PWA\nDescription: Progressive web app storefront consuming the headless APIs with server-side rendering for SEO.\nTech stack: next_js, react\nComplexity: low\nEstimated hours: 60",
+      "distance": 0.6368338148364694,
+      "metadata": {
+        "year": 2024,
+        "budget_id": "BUD-2024-005",
+        "complexity": "low",
+        "component_id": "STORE-004",
+        "client_sector": "ecommerce",
+        "estimated_hours": 60,
+        "main_technology": "node"
+      }
+    },
+    {
+      "chunk_id": 27,
+      "document_id": 8,
+      "chunk_type": "budget_component",
+      "content": "[Project: Fashion returns management and resale portal]\n[Client sector: ecommerce | Year: 2023 | Main tech: dotnet]\n\nComponent: Returns portal\nDescription: Self-service returns portal with label generation, reason capture and automatic restock or resale routing.\nTech stack: dotnet, sqlserver\nComplexity: medium\nEstimated hours: 140",
+      "distance": 0.6430103802568091,
+      "metadata": {
+        "year": 2023,
+        "budget_id": "BUD-2024-008",
+        "complexity": "medium",
+        "component_id": "RET-001",
+        "client_sector": "ecommerce",
+        "estimated_hours": 140,
+        "main_technology": "dotnet"
+      }
+    }
+  ]
+}
