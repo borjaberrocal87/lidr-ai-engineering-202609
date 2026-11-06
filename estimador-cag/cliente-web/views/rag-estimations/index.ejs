@@ -1,0 +1,65 @@
+<%- include('../partials/head', { title: 'RAG Estimations' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-5xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">RAG Estimations</h1>
+      <p class="text-white/60 text-sm mt-1">
+        Transcripción → brief → retrieval → contexto → estimación grounded → verificación.
+      </p>
+    </div>
+    <a href="/rag-estimations/new" class="btn-primary">Nueva estimación RAG</a>
+  </div>
+
+  <% if (runs.length === 0) { %>
+    <div class="p-6 rounded-md bg-ink/30 border border-white/10 text-white/70">
+      Aún no hay runs. Crea el primero con una transcripción de reunión.
+    </div>
+  <% } else { %>
+    <div class="rounded-md border border-white/10 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink/40 text-white/70">
+          <tr>
+            <th class="text-left p-3 font-bold tracking-tight">Fecha</th>
+            <th class="text-left p-3 font-bold tracking-tight">Transcripción</th>
+            <th class="text-left p-3 font-bold tracking-tight">Estado</th>
+            <th class="text-left p-3 font-bold tracking-tight">Paso</th>
+            <th class="text-right p-3 font-bold tracking-tight">Días</th>
+            <th class="text-right p-3 font-bold tracking-tight">Confianza</th>
+            <th class="text-right p-3 font-bold tracking-tight"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-white/10">
+          <% runs.forEach(function (run) { %>
+            <tr>
+              <td class="p-3 align-top text-white/70 tabular-nums whitespace-nowrap">
+                <%= formatDate(run.createdAt) %>
+              </td>
+              <td class="p-3 align-top text-white/80 max-w-md">
+                <%= run.transcriptPreview %>
+              </td>
+              <td class="p-3 align-top">
+                <span class="badge <%= run.verified ? 'badge-success' : '' %>"><%= run.status %></span>
+              </td>
+              <td class="p-3 align-top text-white/70"><%= run.currentStep %></td>
+              <td class="p-3 align-top text-right text-white/80 tabular-nums">
+                <%= run.estimate?.total_engineer_days ?? '—' %>
+              </td>
+              <td class="p-3 align-top text-right text-white/80">
+                <%= run.estimate?.confidence ?? '—' %>
+              </td>
+              <td class="p-3 align-top text-right whitespace-nowrap">
+                <a href="/rag-estimations/<%= run.id %>" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+                  Abrir →
+                </a>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

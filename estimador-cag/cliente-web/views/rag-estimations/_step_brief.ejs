@@ -1,0 +1,90 @@
+<%
+  const brief = run.brief || {};
+  const scaleOptions = ['small', 'medium', 'large', 'unknown'];
+%>
+
+<div class="space-y-6">
+  <div class="p-4 rounded-md bg-ink/30 border border-white/10">
+    <p class="text-sm text-white/70">
+      Revisa el brief extraído de la transcripción. Puedes corregirlo antes de buscar
+      presupuestos históricos; el texto de búsqueda es el que se embebe.
+    </p>
+  </div>
+
+  <% if (!run.brief) { %>
+    <div class="p-4 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      Todavía no hay brief. Re-ejecuta la extracción.
+    </div>
+  <% } %>
+
+  <form method="post" action="/rag-estimations/<%= run.id %>/brief" class="space-y-5" data-form-loading>
+    <input type="hidden" name="save" value="1" />
+    <div>
+      <label for="functionality" class="label">Funcionalidad</label>
+      <textarea id="functionality" name="functionality" rows="4" class="field"><%= brief.functionality || '' %></textarea>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div>
+        <label for="technologies" class="label">Tecnologías (separadas por comas)</label>
+        <input id="technologies" name="technologies" class="field" value="<%= (brief.technologies || []).join(', ') %>" />
+      </div>
+      <div>
+        <label for="sector" class="label">Sector</label>
+        <input id="sector" name="sector" class="field" value="<%= brief.sector || '' %>" />
+      </div>
+      <div>
+        <label for="scale" class="label">Escala</label>
+        <select id="scale" name="scale" class="field [&>option]:bg-ink-dark">
+          <% scaleOptions.forEach(function (option) { %>
+            <option value="<%= option %>" <%= (brief.scale || 'unknown') === option ? 'selected' : '' %>>
+              <%= option %>
+            </option>
+          <% }); %>
+        </select>
+      </div>
+      <div>
+        <label for="country" class="label">País</label>
+        <input id="country" name="country" class="field" value="<%= brief.country || '' %>" />
+      </div>
+      <div>
+        <label for="regulations" class="label">Regulaciones (separadas por comas)</label>
+        <input id="regulations" name="regulations" class="field" value="<%= (brief.regulations || []).join(', ') %>" />
+      </div>
+      <div>
+        <label for="constraints" class="label">Restricciones (separadas por comas)</label>
+        <input id="constraints" name="constraints" class="field" value="<%= (brief.constraints || []).join(', ') %>" />
+      </div>
+    </div>
+
+    <div>
+      <label for="retrieval_text" class="label">Texto de búsqueda</label>
+      <textarea id="retrieval_text" name="retrieval_text" rows="3" class="field"><%= run.retrievalText || '' %></textarea>
+      <p class="text-white/50 text-xs mt-1">
+        Se compone a partir de la funcionalidad, tecnologías, sector, país y regulaciones.
+      </p>
+    </div>
+
+    <div class="flex items-center gap-4 pt-2">
+      <button type="submit" class="btn-primary" data-submit>
+        <span data-submit-label>Guardar brief</span>
+        <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+        </svg>
+      </button>
+      <a href="/rag-estimations/<%= run.id %>?step=retrieval" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+        Ir al retrieval →
+      </a>
+    </div>
+  </form>
+
+  <form method="post" action="/rag-estimations/<%= run.id %>/brief" class="pt-2 border-t border-white/10" data-form-loading>
+    <p class="text-white/50 text-xs mt-4 mb-2">
+      Si la transcripción cambió, vuelve a extraer el brief con el LLM (sobrescribe los cambios).
+    </p>
+    <button type="submit" class="text-sm font-bold tracking-tight text-brand hover:text-brand-soft" data-submit>
+      <span data-submit-label>Re-extraer brief</span>
+    </button>
+  </form>
+</div>

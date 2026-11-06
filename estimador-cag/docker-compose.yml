@@ -167,6 +167,11 @@ services:
       ESTIMATOR_API_BASE_URL: http://api:8000
       DATABASE_URL: postgres://estimator:estimator@postgres:5432/estimator_web
       NODE_ENV: production
+      # Sesión 9: el wizard debe enviar las mismas claves que la API.
+      RAG_RETRIEVAL_API_KEY: ${RETRIEVAL_API_KEY:-dev-retrieval-key}
+      RAG_ESTIMATE_API_KEY: ${ESTIMATE_API_KEY:-dev-estimate-key}
+      RAG_TIMEOUT_MS: 120000
+      RAG_GENERATE_TIMEOUT_MS: 300000
     depends_on:
       api:
         condition: service_started

@@ -6,6 +6,11 @@ El prompt no vive en el código: se compone con **plantillas Jinja2 versionadas*
 
 Además del endpoint transaccional, la **sesión 5** añade **memoria conversacional**: `POST /api/v1/sessions/{session_id}/estimate` mantiene una ventana deslizante de turnos y unos `project_metadata` (hechos del proyecto) separados del historial, y acepta **adjuntos PDF/DOCX** que se extraen localmente y enriquecen la transcripción.
 
+La **sesión 9** cierra el bucle RAG: una transcripción de reunión entra y sale
+una estimación en **engineer-days** con módulos, tareas y **citas** a
+presupuestos históricos. Si el contexto no alcanza, el sistema declara
+`confidence="insufficient"` en vez de inventar cifras.
+
 ## Alcance
 
 El contexto CAG son los ejemplos few-shot de `app/foundation/prompts/estimation/v1/examples.j2`, inyectados en el system prompt en cada llamada. Sin base de datos ni retrieval: es una decisión, no deuda pendiente.
@@ -40,6 +45,8 @@ estimador-cag/
 │   ├── generation/              # Las tres arquitecturas + substrato conversacional
 │   │   ├── cag/                 # exact.py · semantic.py
 │   │   ├── rag/                 # chunking/ · embedding/ · analysis/ · store/ · ingest_service.py
+│   │   │                        # brief_extractor · retriever filtrado · context_builder
+│   │   │                        # grounding · grounded_estimator · idempotency · stage_logging
 │   │   ├── agentic/             # boss.py · critic.py
 │   │   └── conversation/        # models.py · store.py · compression/ · tier_resolver.py
 │   ├── ingestion/               # Pipeline batch offline de fuentes (S06)
@@ -486,6 +493,49 @@ el SQL, el preflight opcional de 30.000 chunks y el entregable de `ef_search`
 están en
 [`docs/sesion-8-live-indexacion-vectorial.md`](docs/sesion-8-live-indexacion-vectorial.md).
 
+## Sesión 9 — RAG end-to-end sobre transcripciones
+
+La S09 convierte una **transcripción** en una estimación grounded:
+
+```text
+transcripción → brief → embedding → retrieval filtrado → contexto <source>
+              → generación → validación de citas → coherencia → idempotencia
+```
+
+- **Comprensión**: `app/generation/rag/brief_extractor.py` destila un
+  `ProjectBrief` y compone el texto de búsqueda. No se embebe la transcripción
+  cruda.
+- **Retrieval**: filtros de sector/año/tipo en SQL, umbral de distancia y
+  `low_confidence` como soft-fail (`store/repository.py`,
+  `retriever.py`).
+- **Aumentación**: chunks completos envueltos en `<source id="…">`, truncados
+  por presupuesto de tokens (`context_builder.py`).
+- **Generación**: `GroundedEstimate` con módulos → tareas, citas, supuestos y
+  `confidence`, usando prompts versionados en
+  `app/foundation/prompts/rag_estimation/v1/`.
+- **Guardas**: un reintento correctivo por citas inventadas y una reparación de
+  coherencia antes de rechazar (`grounding.py`, `grounded_estimator.py`).
+
+Endpoints nuevos (prefijo `/api/v1`):
+
+| Método | Ruta | Auth |
+|---|---|---|
+| POST | `/retrieval/search` | `X-API-Key` retrieval |
+| POST | `/estimate/from-transcript` | `X-API-Key` estimate |
+| POST | `/estimate/stages/brief` | `X-API-Key` estimate |
+| POST | `/estimate/stages/retrieve` | `X-API-Key` estimate |
+| POST | `/estimate/stages/assemble` | `X-API-Key` estimate |
+| POST | `/estimate/stages/generate` | `X-API-Key` estimate |
+
+El cliente Node incorpora el wizard **`/rag-estimations`**: persiste cada etapa
+en `rag_estimations`, permite re-ejecutar una etapa aislada y verifica/edita
+módulos y tareas antes de guardar. El corpus task-level se genera con
+`uv run python scripts/build_task_corpus.py --generate-only` y se ingiere con
+`--ingest`.
+
+Detalles, configuración, contrato y límites en
+[`docs/sesion-9-fundamentos-rag-tecnicas-recuperacion.md`](docs/sesion-9-fundamentos-rag-tecnicas-recuperacion.md).
+
 ## Configuración de modelos en runtime
 
 Los knobs de modelo (`PRIMARY_MODEL`, `FALLBACK_MODEL`, `CRITIC_MODEL`,
@@ -519,6 +569,10 @@ historial persistido) y **`/ai-settings`** (ajustes de modelos en runtime). La
 navbar enlaza ambas pantallas y muestra el modelo primario efectivo. El corpus
 de la comparativa se copia en `cliente-web/data/` para que la imagen Docker no
 dependa de la raíz del repo; un test comprueba que la copia coincide.
+
+Desde la sesión 9 incorpora **`/rag-estimations`**, el wizard de cinco etapas
+(brief → retrieval → contexto → estimación → verificación) con persistencia en
+`rag_estimations` y edición humana de módulos/tareas.
 
 ```bash
 cd cliente-web
@@ -675,9 +729,10 @@ Los tests mockean los proveedores LLM (no hacen llamadas reales) y cubren:
 - el baseline de estrés: métricas de presupuesto y drift (`tests/test_stress_metrics.py`) y el runner de campaña end-to-end con wrapper falso (`tests/test_stress_runner.py`);
 - las estrategias de chunking y el comparador: estrategias offline, LLM/Anthropic falsos, estadísticos y top-k (`tests/test_chunking_strategies.py`, `tests/test_embedding_compare.py`);
 - la persistencia vectorial y la búsqueda: contrato del ingest persistente, 409 de duplicado, validaciones, ranking y errores de configuración con dobles (`tests/test_embedding_endpoint.py`, `tests/test_search_endpoint.py`);
-- los overrides de modelo en runtime: store Redis con fakeredis, validaciones del endpoint, camino directo del wrapper y partición de la caché semántica (`tests/test_runtime_config.py`, `tests/test_config_endpoint.py`, `tests/test_llm_wrapper_runtime.py`).
+- los overrides de modelo en runtime: store Redis con fakeredis, validaciones del endpoint, camino directo del wrapper y partición de la caché semántica (`tests/test_runtime_config.py`, `tests/test_config_endpoint.py`, `tests/test_llm_wrapper_runtime.py`);
+- el RAG end-to-end de la S09: schemas, extracción/fallback del brief, ensamblado y presupuesto de contexto, citas inventadas y coherencia, pipeline con idempotencia/soft-fail/reintentos, retrieval filtrado, auth por API key, rate limiting, endpoints por etapa y corpus task-level (`tests/test_rag_*.py`, `tests/test_brief_extractor.py`, `tests/test_context_builder.py`, `tests/test_grounding.py`, `tests/test_retrieval_filtered.py`, `tests/test_task_corpus.py`).
 
-El cliente de negocio tiene su propia batería (Node): `cd cliente-web && npm test` (rutas de Express, clientes HTTP, corpus sincronizado, Chunking Lab y Ajustes con dobles).
+El cliente de negocio tiene su propia batería (Node): `cd cliente-web && npm test` (rutas de Express, clientes HTTP, corpus sincronizado, Chunking Lab, Ajustes y wizard RAG con dobles).
 
 ## Calidad y CI
 

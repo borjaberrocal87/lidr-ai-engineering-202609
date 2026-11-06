@@ -46,9 +46,11 @@ from app.ingestion.parsers.registry import ParserRegistry, default_registry
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+    from tiktoken import Encoding
 
     from app.domain.estimation_service import EstimationService
     from app.domain.ports.ingestion import TextPseudonymizer
+    from app.generation.rag.idempotency import IdempotencyStore
     from app.ingestion.pii import ConsistentPseudonymizer
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -429,3 +431,26 @@ def build_chunkers(names: list[str]) -> list[Chunker]:
             raise KeyError(name)
         chunkers.append(factory())
     return chunkers
+
+
+# --- Sesión 9 — RAG end-to-end ------------------------------------------------
+
+
+@lru_cache
+def get_idempotency_store() -> IdempotencyStore:
+    """Caché de idempotencia de estimaciones (Redis con fallback en memoria)."""
+    from app.generation.rag.idempotency import IdempotencyStore
+
+    return IdempotencyStore.from_settings(get_settings())
+
+
+@lru_cache
+def get_token_encoder() -> Encoding:
+    """Encoder de tokens usado por el presupuesto de contexto.
+
+    ``cl100k_base`` es el tokenizador de la familia GPT-4/GPT-5, alineado con
+    ``text-embedding-3-small`` y los modelos de generación configurados.
+    """
+    import tiktoken
+
+    return tiktoken.get_encoding("cl100k_base")

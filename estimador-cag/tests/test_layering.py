@@ -119,6 +119,10 @@ def test_only_the_composition_root_and_bridges_import_dependencies() -> None:
         APP / "dependencies.py",
         APP / "domain" / "estimation_service.py",
         APP / "domain" / "streaming_service.py",
+        # Conductores del pipeline RAG (Sesión 9): igual que los servicios de
+        # dominio, orquestan infraestructura resuelta por el composition root.
+        APP / "generation" / "rag" / "brief_extractor.py",
+        APP / "generation" / "rag" / "grounded_estimator.py",
     }
     for path in (APP / "api").rglob("*.py"):
         allowed.add(path)

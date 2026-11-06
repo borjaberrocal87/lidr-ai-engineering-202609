@@ -21,10 +21,12 @@ import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Literal, TypeVar
 
 import litellm
 import structlog
+from litellm.exceptions import Timeout as LiteLLMTimeout
 from litellm.router import Router
 from openai import OpenAIError
 from pydantic import BaseModel, ValidationError
@@ -52,6 +54,8 @@ _DATE_SUFFIX = re.compile(r"-\d{8}$")
 
 # Coste por 1M de tokens (USD). Actualízalo cuando cambien los precios.
 MODEL_COSTS: dict[str, dict[str, float]] = {
+    "gpt-5": {"input": 1.25, "output": 10.00},
+    "gpt-5-mini": {"input": 0.25, "output": 2.00},
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
     "gpt-4o": {"input": 2.50, "output": 10.00},
     "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
@@ -99,6 +103,43 @@ def provider_from_model(model: str) -> Provider:
     return "custom"
 
 
+@lru_cache(maxsize=64)
+def _supported_params(model: str) -> frozenset[str] | None:
+    """Parámetros que LiteLLM acepta para ``model`` (``None`` = desconocido).
+
+    Se cachea por nombre de modelo: la consulta es local (tabla de LiteLLM) y
+    se repite en cada llamada del pipeline RAG.
+    """
+    try:
+        params = litellm.get_supported_openai_params(model=_normalise_model_name(model))
+    except Exception:
+        return None
+    return frozenset(params) if params is not None else None
+
+
+def _allows_temperature(model: str, temperature: float | None) -> bool:
+    """True si ``temperature`` puede enviarse tal cual al modelo.
+
+    La familia gpt-5 (y los modelos de razonamiento o1/o3/o4) solo admite
+    ``temperature=1``; con cualquier otro valor se omite y se usa el default
+    del proveedor. Para modelos desconocidos mantenemos el comportamiento
+    histórico (se envía).
+    """
+    if temperature is None:
+        return False
+    canonical = _canonical_model_name(model)
+    if canonical.startswith(("gpt-5", "o1", "o3", "o4")):
+        return temperature == 1.0
+    params = _supported_params(_normalise_model_name(model))
+    return params is None or "temperature" in params
+
+
+def _allows_reasoning_effort(model: str) -> bool:
+    """True solo si el modelo declara soportar ``reasoning_effort``."""
+    params = _supported_params(_normalise_model_name(model))
+    return params is not None and "reasoning_effort" in params
+
+
 def _estimate_cost(model: str, tokens_in: int, tokens_out: int) -> float:
     base = _normalise_model_name(model)
     costs = MODEL_COSTS.get(base) or MODEL_COSTS.get(model) or {"input": 0.0, "output": 0.0}
@@ -119,6 +160,53 @@ def _extract_delta(chunk: Any) -> str:
     return content or ""
 
 
+_STRICT_UNSUPPORTED_KEYS = {
+    "default",
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "multipleOf",
+    "minLength",
+    "maxLength",
+    "pattern",
+    "format",
+    "minItems",
+    "maxItems",
+    "uniqueItems",
+    "examples",
+}
+
+
+def _normalise_strict_schema(schema: Any) -> Any:
+    """Adapta un JSON Schema de Pydantic al subconjunto estricto de OpenAI.
+
+    OpenAI exige ``additionalProperties: false`` y que **todas** las propiedades
+    figuren en ``required`` para cada objeto. Además rechaza palabras clave de
+    validación que Pydantic emite (``minimum``, ``default``, ``maxLength``…);
+    las quitamos del schema enviado al proveedor. La validación real sigue
+    ocurriendo después con Pydantic.
+    """
+    if isinstance(schema, list):
+        return [_normalise_strict_schema(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    result = {
+        key: _normalise_strict_schema(value)
+        for key, value in schema.items()
+        if key not in _STRICT_UNSUPPORTED_KEYS
+    }
+
+    if result.get("type") == "object" or "properties" in result:
+        properties = result.get("properties")
+        if isinstance(properties, dict):
+            result["additionalProperties"] = False
+            result["required"] = list(properties.keys())
+
+    return result
+
+
 def _response_format(mode: str, response_model: type[BaseModel]) -> dict[str, Any] | None:
     """Traduce el modo de salida estructurada al `response_format` de LiteLLM."""
     if mode == "json_schema":
@@ -126,7 +214,7 @@ def _response_format(mode: str, response_model: type[BaseModel]) -> dict[str, An
             "type": "json_schema",
             "json_schema": {
                 "name": response_model.__name__,
-                "schema": response_model.model_json_schema(),
+                "schema": _normalise_strict_schema(response_model.model_json_schema()),
                 "strict": True,
             },
         }
@@ -277,7 +365,7 @@ class LLMWrapper:
         }
         if stream:
             kwargs["stream"] = True
-        if temperature is not None and provider != "anthropic":
+        if provider != "anthropic" and _allows_temperature(target_model, temperature):
             kwargs["temperature"] = temperature
         kwargs.update(self._litellm_target(target_model, provider))
         return kwargs
@@ -403,7 +491,11 @@ class LLMWrapper:
         if stream:
             kwargs["stream"] = True
         # Anthropic ignora `temperature` en este proyecto (su SDK no lo acepta).
-        if temperature is not None and self._active_primary_provider() != "anthropic":
+        # Además, gpt-5/o1/o3/o4 solo aceptan temperature=1: si el valor
+        # configurado no encaja, se omite en vez de romper la llamada.
+        if self._active_primary_provider() != "anthropic" and _allows_temperature(
+            self.primary_model, temperature
+        ):
             kwargs["temperature"] = temperature
         return kwargs
 
@@ -612,12 +704,14 @@ class LLMWrapper:
         max_tokens: int,
         max_retries: int = 2,
         model_override: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> tuple[StructuredModel, dict[str, Any]]:
         """Llamada estructurada a partir de un system + user prompt.
 
         Envuelve `complete_structured_messages` para no duplicar la lógica de
         esquema/reintento/fallback. `model_override` permite usar un modelo
         distinto del principal (p. ej. el extractor de metadata).
+        `reasoning_effort` se reenvía a los modelos de razonamiento (gpt-5).
         """
         return self.complete_structured_messages(
             messages=[
@@ -629,6 +723,7 @@ class LLMWrapper:
             max_tokens=max_tokens,
             max_retries=max_retries,
             model_override=model_override,
+            reasoning_effort=reasoning_effort,
         )
 
     def complete_structured_messages(
@@ -640,6 +735,7 @@ class LLMWrapper:
         max_tokens: int,
         max_retries: int = 2,
         model_override: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> tuple[StructuredModel, dict[str, Any]]:
         """Llamada estructurada con un array `messages` completo (sesión 5).
 
@@ -683,14 +779,20 @@ class LLMWrapper:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     max_retries=max_retries,
+                    reasoning_effort=reasoning_effort,
                 )
             except LLMProviderError as exc:
                 last_error = exc
                 if index < len(candidates) - 1:
+                    cause = exc.__cause__
                     logger.warning(
                         "llm.structured.fallback",
                         failed_model=model,
                         fallback_model=candidates[index + 1][0],
+                        error_type=type(exc).__name__,
+                        error=str(exc)[:200],
+                        cause_type=type(cause).__name__ if cause is not None else None,
+                        cause=str(cause)[:200] if cause is not None else None,
                     )
                     continue
                 raise
@@ -709,6 +811,7 @@ class LLMWrapper:
         temperature: float | None,
         max_tokens: int,
         max_retries: int,
+        reasoning_effort: str | None = None,
     ) -> tuple[StructuredModel, dict[str, Any]]:
         """Un proveedor: llama, valida y re-promptea ante errores de esquema."""
         target = self._litellm_target(model, provider)
@@ -726,12 +829,14 @@ class LLMWrapper:
 
         for attempt in range(max_retries + 1):
             response = self._completion_with_schema(
+                model=model,
                 target=target,
                 provider=provider,
                 messages=conversation,
                 response_model=response_model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
             )
             usage = getattr(response, "usage", None)
             input_tokens += getattr(usage, "prompt_tokens", 0) or 0
@@ -790,22 +895,34 @@ class LLMWrapper:
     def _completion_with_schema(
         self,
         *,
+        model: str,
         target: dict[str, Any],
         provider: Provider,
         messages: list[dict[str, str]],
         response_model: type[StructuredModel],
         temperature: float | None,
         max_tokens: int,
+        reasoning_effort: str | None = None,
     ) -> Any:
-        """Intenta JSON schema → JSON mode → prompt libre según soporte del proveedor."""
+        """Intenta JSON schema → JSON mode → prompt libre según soporte del proveedor.
+
+        Los parámetros opcionales se filtran por modelo: gpt-5/o1/o3/o4 solo
+        admiten ``temperature=1`` y los modelos sin razonamiento (gpt-4o-mini)
+        rechazan ``reasoning_effort``. Un timeout NO degrada el formato de
+        salida: se relanza para no multiplicar la espera por tres.
+        """
         kwargs: dict[str, Any] = {
             "messages": messages,
             "max_tokens": max_tokens,
             "timeout": self.timeout,
             "num_retries": self.num_retries,
         }
-        if temperature is not None and provider != "anthropic":
+        if provider != "anthropic" and _allows_temperature(model, temperature):
             kwargs["temperature"] = temperature
+        # Los modelos de razonamiento (familia gpt-5) aceptan este parámetro;
+        # LiteLLM lo reenvía y traduce `max_tokens` a `max_completion_tokens`.
+        if reasoning_effort is not None and _allows_reasoning_effort(model):
+            kwargs["reasoning_effort"] = reasoning_effort
 
         last_exc: Exception | None = None
         for mode in ("json_schema", "json_object", "none"):
@@ -815,6 +932,15 @@ class LLMWrapper:
                     **kwargs,
                     response_format=_response_format(mode, response_model),
                 )
+            except (LiteLLMTimeout, TimeoutError) as exc:
+                logger.warning(
+                    "llm.structured.timeout",
+                    mode=mode,
+                    provider=provider,
+                    model=model,
+                    error=str(exc)[:160],
+                )
+                raise LLMProviderError(f"Timeout del proveedor LLM '{provider}'.") from exc
             except Exception as exc:  # se degrada el modo de salida
                 last_exc = exc
                 if mode == "none":

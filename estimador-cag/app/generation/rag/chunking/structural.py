@@ -24,11 +24,13 @@ from app.generation.rag.schemas import Budget, BudgetComponent, Chunk
 
 def render_component_text(budget: Budget, component: BudgetComponent) -> str:
     """Parent context header + component detail. This is what gets embedded."""
+    module_line = f"Module: {component.module}\n" if component.module else ""
     return (
         f"[Project: {budget.project_summary}]\n"
         f"[Client sector: {budget.client_metadata.sector} | "
         f"Year: {budget.year} | Main tech: {budget.main_technology}]\n"
         f"\n"
+        f"{module_line}"
         f"Component: {component.name}\n"
         f"Description: {component.description}\n"
         f"Tech stack: {', '.join(component.tech_stack)}\n"
@@ -63,7 +65,7 @@ def serialize_budget(budget: Budget) -> str:
 
 def component_metadata(budget: Budget, component: BudgetComponent) -> dict[str, str | int]:
     """Filterable metadata that travels with a component-level chunk."""
-    return {
+    metadata: dict[str, str | int] = {
         "budget_id": budget.budget_id,
         "component_id": component.component_id,
         "client_sector": budget.client_metadata.sector,
@@ -72,6 +74,11 @@ def component_metadata(budget: Budget, component: BudgetComponent) -> dict[str, 
         "complexity": component.complexity,
         "estimated_hours": component.estimated_hours,
     }
+    # El corpus task-level añade el módulo funcional; el corpus de componentes
+    # no lo trae y no queremos ensuciar su metadata histórica.
+    if component.module:
+        metadata["module"] = component.module
+    return metadata
 
 
 class JSONStructuralChunker(Chunker):

@@ -52,6 +52,7 @@ class RagIngestService:
         source_path: str,
         document_type: str,
         budget: Budget,
+        chunk_type: str = "budget_component",
     ) -> IngestResponse:
         started = time.perf_counter()
 
@@ -87,6 +88,7 @@ class RagIngestService:
                     "year": budget.year,
                 },
                 embedded_chunks=embedded,
+                chunk_type=chunk_type,
             )
             # 5. El commit ocurre al salir del `session.begin()`.
 

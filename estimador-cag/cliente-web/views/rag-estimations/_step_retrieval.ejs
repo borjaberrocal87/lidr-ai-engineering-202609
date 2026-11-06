@@ -1,0 +1,143 @@
+<%
+  const retrieval = run.retrieval || null;
+  const chunks = retrieval?.chunks || [];
+  const queryText = run.retrievalText || run.brief?.functionality || '';
+  const topKs = [3, 5, 10, 15, 20, 30];
+%>
+
+<div class="space-y-8">
+  <form method="post" action="/rag-estimations/<%= run.id %>/retrieve" class="space-y-5" data-form-loading>
+    <div>
+      <label for="query_text" class="label">Texto de búsqueda</label>
+      <textarea id="query_text" name="query_text" rows="3" class="field"><%= queryText %></textarea>
+      <p class="text-white/50 text-xs mt-1">
+        Se embebe y se compara contra los presupuestos históricos. Editable para afinar el retrieval.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div>
+        <label for="top_k" class="label">Candidatos (top-k)</label>
+        <select id="top_k" name="top_k" class="field [&>option]:bg-ink-dark">
+          <% topKs.forEach(function (value) { %>
+            <option value="<%= value %>" <%= filters.top_k === value ? 'selected' : '' %>><%= value %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div>
+        <label for="distance_threshold" class="label">Umbral de distancia</label>
+        <input
+          id="distance_threshold"
+          name="distance_threshold"
+          type="number"
+          step="0.05"
+          min="0"
+          max="2"
+          class="field"
+          value="<%= filters.distance_threshold %>"
+        />
+        <p class="text-white/50 text-xs mt-1">Menor = más exigente. 0.6 es el valor recomendado.</p>
+      </div>
+      <div>
+        <label for="sectors" class="label">Sectores (separados por comas)</label>
+        <input id="sectors" name="sectors" class="field" placeholder="finance, healthcare" />
+      </div>
+      <div>
+        <label for="chunk_types" class="label">Tipos de chunk (separados por comas)</label>
+        <input id="chunk_types" name="chunk_types" class="field" placeholder="historical_task, budget_component" />
+      </div>
+      <div>
+        <label for="project_year_min" class="label">Año mínimo</label>
+        <input id="project_year_min" name="project_year_min" type="number" class="field" placeholder="2022" />
+      </div>
+      <div>
+        <label for="project_year_max" class="label">Año máximo</label>
+        <input id="project_year_max" name="project_year_max" type="number" class="field" placeholder="2026" />
+      </div>
+    </div>
+
+    <div class="pt-2">
+      <button type="submit" class="btn-primary" data-submit>
+        <span data-submit-label>Ejecutar retrieval</span>
+        <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+        </svg>
+      </button>
+    </div>
+  </form>
+
+  <% if (retrieval) { %>
+    <div class="border-t border-white/10 pt-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-bold tracking-tight text-white">Chunks recuperados</h2>
+        <span class="text-xs text-white/60">
+          <%= retrieval.candidates_evaluated %> candidatos evaluados
+        </span>
+      </div>
+
+      <% if (retrieval.low_confidence) { %>
+        <div class="p-4 mb-4 rounded-md border border-brand bg-brand/10 text-brand-soft">
+          Ningún chunk superó el umbral. Puedes bajar el umbral, cambiar el texto o continuar:
+          el generador producirá una estimación con confianza insuficiente.
+        </div>
+      <% } %>
+
+      <% if (chunks.length === 0) { %>
+        <div class="p-4 rounded-md bg-ink/30 border border-white/10 text-white/70">
+          Sin resultados.
+        </div>
+      <% } else { %>
+        <div class="rounded-md border border-white/10 overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-ink/40 text-white/70">
+              <tr>
+                <th class="text-left p-3 font-bold tracking-tight">Id</th>
+                <th class="text-left p-3 font-bold tracking-tight">Sector</th>
+                <th class="text-left p-3 font-bold tracking-tight">Año</th>
+                <th class="text-left p-3 font-bold tracking-tight">Tipo</th>
+                <th class="text-right p-3 font-bold tracking-tight">Distancia</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-white/10">
+              <% chunks.forEach(function (chunk) { %>
+                <tr>
+                  <td class="p-3 align-top text-white/90 font-mono text-xs"><%= chunk.id %></td>
+                  <td class="p-3 align-top text-white/70"><%= chunk.sector || '—' %></td>
+                  <td class="p-3 align-top text-white/70 tabular-nums"><%= chunk.project_year ?? '—' %></td>
+                  <td class="p-3 align-top text-white/70"><%= chunk.chunk_type %></td>
+                  <td class="p-3 align-top text-right text-white/70 tabular-nums">
+                    <%= Number(chunk.distance).toFixed(4) %>
+                  </td>
+                </tr>
+                <tr>
+                  <td colspan="5" class="px-3 pb-3 align-top">
+                    <p class="text-white/50 text-xs"><%= chunk.content.slice(0, 320) %></p>
+                  </td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+
+        <form method="post" action="/rag-estimations/<%= run.id %>/assemble" class="mt-5 flex items-end gap-4" data-form-loading>
+          <div class="max-w-xs">
+            <label for="max_context_tokens" class="label">Presupuesto de contexto (tokens)</label>
+            <input
+              id="max_context_tokens"
+              name="max_context_tokens"
+              type="number"
+              min="256"
+              max="64000"
+              class="field"
+              placeholder="30000"
+            />
+          </div>
+          <button type="submit" class="btn-primary" data-submit>
+            <span data-submit-label>Ensamblar contexto</span>
+          </button>
+        </form>
+      <% } %>
+    </div>
+  <% } %>
+</div>

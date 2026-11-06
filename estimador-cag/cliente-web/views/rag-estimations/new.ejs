@@ -1,0 +1,71 @@
+<%- include('../partials/head', { title: 'Nueva estimación RAG' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-3xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">Nueva estimación RAG</h1>
+      <p class="text-white/60 text-sm mt-1">
+        Pega la transcripción de la reunión. El primer paso extrae un brief estructurado.
+      </p>
+    </div>
+    <a href="/rag-estimations" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+      ← Historial
+    </a>
+  </div>
+
+  <% if (error) { %>
+    <div class="p-4 mb-6 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <form method="post" action="/rag-estimations" class="space-y-5" data-form-loading>
+    <div>
+      <div class="flex items-center justify-between mb-1">
+        <label for="transcript" class="label">Transcripción</label>
+        <label class="text-xs font-bold tracking-tight text-brand hover:text-brand-soft cursor-pointer">
+          Subir .txt
+          <input type="file" accept=".txt,text/plain" class="hidden" data-upload />
+        </label>
+      </div>
+      <textarea
+        id="transcript"
+        name="transcript"
+        rows="14"
+        class="field"
+        placeholder="Pega la transcripción de la reunión: objetivos, funcionalidades, tecnologías, sector, país, regulaciones y restricciones…"
+        data-textarea
+      ><%= values.transcript || '' %></textarea>
+      <div class="flex items-center justify-between mt-1">
+        <p class="text-xs text-white/50">Mínimo 100 caracteres.</p>
+        <span class="text-xs text-white/70" data-upload-status></span>
+      </div>
+    </div>
+
+    <div>
+      <label for="idempotency_key" class="label">Clave de idempotencia (opcional)</label>
+      <input
+        id="idempotency_key"
+        name="idempotency_key"
+        class="field"
+        placeholder="reunion-cliente-2026-01"
+      />
+      <p class="text-white/50 text-xs mt-1">
+        Repetir la misma clave devuelve la estimación ya calculada (si usas el pipeline completo).
+      </p>
+    </div>
+
+    <div class="pt-2">
+      <button type="submit" class="btn-primary" data-submit>
+        <span data-submit-label>Extraer brief</span>
+        <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+        </svg>
+      </button>
+    </div>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

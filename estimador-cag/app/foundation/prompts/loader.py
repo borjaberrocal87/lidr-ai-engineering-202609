@@ -36,6 +36,7 @@ ESTIMATION_USE_CASE = "estimation"
 METADATA_EXTRACTION_USE_CASE = "metadata_extraction"
 CRITIC_USE_CASE = "critic"
 CONVERSATION_SUMMARY_USE_CASE = "conversation_summary"
+RAG_ESTIMATION_USE_CASE = "rag_estimation"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
 # Versión por defecto del prompt conversacional (sesión 5). v3 añade el bloque
@@ -139,6 +140,36 @@ def render_conversational_prompt(
         "critic_feedback": critic_feedback,
     }
     return _render_estimation_templates(version, context, reference_projects_count=0)
+
+
+def render_rag_estimation_prompt(
+    *,
+    brief: object,
+    context_block: str,
+    version: str = "v1",
+) -> tuple[str, str]:
+    """Renderiza el par (system, user) de la generación grounded (Sesión 9).
+
+    El system prompt fija la política de grounding: cada cifra debe trazar a un
+    bloque ``<source>``, no se inventan ids y, si el contexto no basta, el
+    modelo debe declarar ``confidence="insufficient"`` en vez de adivinar.
+    """
+    context = {
+        "brief": brief,
+        "context_block": context_block,
+    }
+    system = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{version}/system.j2").render(**context)
+    user = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{version}/user.j2").render(**context)
+    logger.info(
+        "prompt.rendered",
+        use_case=RAG_ESTIMATION_USE_CASE,
+        version=version,
+        system_chars=len(system),
+        user_chars=len(user),
+        system_hash=_content_hash(system),
+        user_hash=_content_hash(user),
+    )
+    return system, user
 
 
 def render_metadata_extraction_prompt(

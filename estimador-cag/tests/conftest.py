@@ -12,6 +12,7 @@ from app.dependencies import (
     get_chunker,
     get_embedder,
     get_filesystem_loader,
+    get_idempotency_store,
     get_llm_wrapper,
     get_openai_client,
     get_parser_registry,
@@ -20,6 +21,7 @@ from app.dependencies import (
     get_runtime_config,
     get_semantic_cache,
     get_semantic_retriever,
+    get_token_encoder,
 )
 from app.foundation.persistence.database import create_async_engine_from_settings
 from app.main import app
@@ -45,6 +47,8 @@ def _reset_settings_cache():
     get_chunk_store.cache_clear()
     get_rag_ingest_service.cache_clear()
     get_semantic_retriever.cache_clear()
+    get_idempotency_store.cache_clear()
+    get_token_encoder.cache_clear()
     yield
     get_settings.cache_clear()
     get_llm_wrapper.cache_clear()
@@ -63,6 +67,8 @@ def _reset_settings_cache():
     get_chunk_store.cache_clear()
     get_rag_ingest_service.cache_clear()
     get_semantic_retriever.cache_clear()
+    get_idempotency_store.cache_clear()
+    get_token_encoder.cache_clear()
 
 
 @pytest.fixture(autouse=True)
@@ -113,12 +119,14 @@ def _forbid_real_llm(monkeypatch):
     def _forbidden():
         raise RuntimeError(
             "Llamada al LLM real bloqueada en tests. Mockea "
-            "app.domain.estimation_service.get_llm_wrapper o "
-            "app.domain.streaming_service.get_llm_wrapper."
+            "app.domain.estimation_service.get_llm_wrapper, "
+            "app.domain.streaming_service.get_llm_wrapper o "
+            "app.dependencies.get_llm_wrapper."
         )
 
     monkeypatch.setattr("app.domain.estimation_service.get_llm_wrapper", _forbidden)
     monkeypatch.setattr("app.domain.streaming_service.get_llm_wrapper", _forbidden)
+    monkeypatch.setattr("app.dependencies.get_llm_wrapper", _forbidden)
 
 
 @pytest.fixture

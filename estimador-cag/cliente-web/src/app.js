@@ -8,15 +8,27 @@ import { aiSettingsRouter } from "./routes/aiSettings.js";
 import { chunkingLabRouter } from "./routes/chunkingLab.js";
 import { estimationsRouter } from "./routes/estimations.js";
 import { ingestionRouter } from "./routes/ingestion.js";
+import { ragEstimationsRouter } from "./routes/ragEstimations.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-export function createApp({ repo, estimator, ingestion, chunkingRepo, embeddings, config }) {
+export function createApp({
+  repo,
+  estimator,
+  ingestion,
+  chunkingRepo,
+  embeddings,
+  config,
+  ragEstimations,
+  ragClient,
+}) {
   const app = express();
 
   app.set("view engine", "ejs");
   app.set("views", join(here, "..", "views"));
-  app.use(express.urlencoded({ extended: false }));
+  // `extended: true` permite editar módulos/tareas anidados del wizard RAG
+  // (modules[0][tasks][1][name]). Los formularios antiguos no se ven afectados.
+  app.use(express.urlencoded({ extended: true }));
   app.use(express.static(join(here, "..", "public")));
 
   app.locals.humanize = humanize;
@@ -41,6 +53,9 @@ export function createApp({ repo, estimator, ingestion, chunkingRepo, embeddings
   }
   if (config) {
     app.use(aiSettingsRouter({ config }));
+  }
+  if (ragEstimations && ragClient) {
+    app.use(ragEstimationsRouter({ ragEstimations, ragClient }));
   }
 
   app.use((req, res) => res.status(404).render("not-found"));

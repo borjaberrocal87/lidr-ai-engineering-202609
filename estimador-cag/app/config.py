@@ -102,6 +102,8 @@ class Settings(BaseSettings):
     # Catálogo de modelos seleccionables en caliente desde Ajustes. Se filtra
     # por las API keys realmente configuradas.
     available_models: list[str] = [
+        "gpt-5",
+        "gpt-5-mini",
         "gpt-4o-mini",
         "gpt-4o",
         "claude-haiku-4-5",
@@ -133,6 +135,32 @@ class Settings(BaseSettings):
     # (``sensitivity.has_pii``) antes de marcarlas como completadas. Requiere el
     # modelo spaCy de Presidio; sólo se carga cuando hace falta.
     ingestion_pseudonymize_pii: bool = True
+
+    # Sesión 9 — RAG end-to-end sobre transcripciones.
+    # Modelo que extrae el brief estructurado de la transcripción. Barato y
+    # rápido: la calidad fina la aporta la generación grounded.
+    rag_brief_model: str = "gpt-5-mini"
+    # Presupuesto de salida del brief. Menor que el de generación: el brief es
+    # un objeto pequeño, pero los tokens de razonamiento también cuentan.
+    rag_brief_max_tokens: int = 8_192
+    # Modelo que produce la estimación final (módulos → tareas).
+    rag_generation_model: str = "gpt-5"
+    # Los modelos de razonamiento (familia gpt-5) aceptan este parámetro.
+    rag_generation_reasoning_effort: Literal["minimal", "low", "medium", "high"] = "high"
+    # Presupuesto de salida de la generación. Los tokens de razonamiento
+    # consumen parte del presupuesto, de ahí el valor alto.
+    rag_generation_max_tokens: int = 64_000
+    # Retrieval: k candidatos, umbral de distancia coseno (menor = más similar)
+    # y presupuesto de contexto en tokens.
+    rag_retrieval_top_k: int = 10
+    rag_retrieval_distance_threshold: float = 0.6
+    rag_max_context_tokens: int = 30_000
+    # TTL de la caché de idempotencia de estimaciones (segundos).
+    rag_idempotency_ttl: int = 86_400
+    # API keys de los endpoints S09. Si una clave no está configurada, su
+    # endpoint responde 401: el wizard debe enviar la cabecera X-API-Key.
+    retrieval_api_key: SecretStr | None = None
+    estimate_api_key: SecretStr | None = None
 
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None

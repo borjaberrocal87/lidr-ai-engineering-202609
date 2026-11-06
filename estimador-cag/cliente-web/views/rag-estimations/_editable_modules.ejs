@@ -1,0 +1,100 @@
+<%
+  const modules = verification?.modules || estimate?.modules || [];
+%>
+
+<div id="modules" class="space-y-4">
+  <% modules.forEach(function (module, moduleIndex) { %>
+    <fieldset class="p-4 rounded-md bg-ink/30 border border-white/10 space-y-3" data-module>
+      <div class="flex items-center gap-3">
+        <input
+          name="modules[<%= moduleIndex %>][name]"
+          value="<%= module.name %>"
+          class="field font-bold"
+          placeholder="Nombre del módulo"
+        />
+        <button type="button" data-remove-module class="text-xs font-bold tracking-tight text-red-200 hover:text-white whitespace-nowrap">
+          Quitar módulo
+        </button>
+      </div>
+
+      <input
+        name="modules[<%= moduleIndex %>][description]"
+        value="<%= module.description || '' %>"
+        class="field text-sm"
+        placeholder="Descripción del módulo (opcional)"
+      />
+
+      <div class="space-y-3" data-tasks>
+        <% module.tasks.forEach(function (task, taskIndex) { %>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start p-3 rounded-md bg-ink/40 border border-white/10" data-task>
+            <input
+              name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][name]"
+              value="<%= task.name %>"
+              class="field md:col-span-5 text-sm"
+              placeholder="Tarea"
+            />
+            <input
+              name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][description]"
+              value="<%= task.description || '' %>"
+              class="field md:col-span-3 text-sm"
+              placeholder="Detalle (opcional)"
+            />
+            <input
+              name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][engineer_days]"
+              type="number"
+              min="0"
+              value="<%= task.engineer_days %>"
+              class="field md:col-span-1 text-sm"
+              data-days
+              aria-label="Engineer days"
+            />
+            <input
+              name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][sources]"
+              value="<%= (task.sources || []).join(',') %>"
+              class="field md:col-span-2 text-sm font-mono"
+              placeholder="1,2"
+              aria-label="Source ids"
+            />
+            <div class="md:col-span-1 flex md:justify-end">
+              <button type="button" data-remove-task class="text-xs font-bold text-red-200 hover:text-white">
+                ×
+              </button>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+
+      <button type="button" data-add-task class="text-xs font-bold tracking-tight text-brand hover:text-brand-soft">
+        + Añadir tarea
+      </button>
+    </fieldset>
+  <% }); %>
+</div>
+
+<template id="module-template">
+  <fieldset class="p-4 rounded-md bg-ink/30 border border-white/10 space-y-3" data-module>
+    <div class="flex items-center gap-3">
+      <input name="modules[__MODULE__][name]" class="field font-bold" placeholder="Nombre del módulo" />
+      <button type="button" data-remove-module class="text-xs font-bold tracking-tight text-red-200 hover:text-white whitespace-nowrap">
+        Quitar módulo
+      </button>
+    </div>
+    <input name="modules[__MODULE__][description]" class="field text-sm" placeholder="Descripción del módulo (opcional)" />
+    <div class="space-y-3" data-tasks></div>
+    <button type="button" data-add-task class="text-xs font-bold tracking-tight text-brand hover:text-brand-soft">
+      + Añadir tarea
+    </button>
+  </fieldset>
+</template>
+
+<template id="task-template">
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start p-3 rounded-md bg-ink/40 border border-white/10" data-task>
+    <input name="modules[__MODULE__][tasks][__TASK__][name]" class="field md:col-span-5 text-sm" placeholder="Tarea" />
+    <input name="modules[__MODULE__][tasks][__TASK__][description]" class="field md:col-span-3 text-sm" placeholder="Detalle (opcional)" />
+    <input name="modules[__MODULE__][tasks][__TASK__][engineer_days]" type="number" min="0" value="0" class="field md:col-span-1 text-sm" data-days aria-label="Engineer days" />
+    <input name="modules[__MODULE__][tasks][__TASK__][sources]" class="field md:col-span-2 text-sm font-mono" placeholder="1,2" aria-label="Source ids" />
+    <div class="md:col-span-1 flex md:justify-end">
+      <button type="button" data-remove-task class="text-xs font-bold text-red-200 hover:text-white">×</button>
+    </div>
+  </div>
+</template>
