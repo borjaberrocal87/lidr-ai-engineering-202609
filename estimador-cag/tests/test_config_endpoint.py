@@ -67,7 +67,7 @@ def test_put_unknown_key_returns_422(client: TestClient, runtime_store) -> None:
 
 
 def test_put_model_outside_catalog_returns_422(client: TestClient, runtime_store) -> None:
-    response = client.put("/api/v1/config/models", json={"models": {"PRIMARY_MODEL": "gpt-5"}})
+    response = client.put("/api/v1/config/models", json={"models": {"PRIMARY_MODEL": "gpt-6"}})
 
     assert response.status_code == 422
 

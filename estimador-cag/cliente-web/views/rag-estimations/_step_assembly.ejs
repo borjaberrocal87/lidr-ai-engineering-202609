@@ -1,0 +1,66 @@
+<%
+  const assembly = run.assembly || null;
+%>
+
+<div class="space-y-6">
+  <% if (!assembly) { %>
+    <div class="p-4 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      Todavía no hay contexto ensamblado. Ejecuta primero el retrieval.
+    </div>
+    <a href="/rag-estimations/<%= run.id %>?step=retrieval" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+      ← Ir al retrieval
+    </a>
+  <% } else { %>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="card">
+        <p class="text-xs text-white/50 uppercase tracking-tight">Chunks conservados</p>
+        <p class="text-2xl font-bold text-white tabular-nums"><%= assembly.kept_chunks.length %></p>
+      </div>
+      <div class="card">
+        <p class="text-xs text-white/50 uppercase tracking-tight">Descartados</p>
+        <p class="text-2xl font-bold text-white tabular-nums"><%= assembly.dropped_count %></p>
+      </div>
+      <div class="card">
+        <p class="text-xs text-white/50 uppercase tracking-tight">Tokens de contexto</p>
+        <p class="text-2xl font-bold text-white tabular-nums"><%= assembly.token_count %></p>
+      </div>
+    </div>
+
+    <form method="post" action="/rag-estimations/<%= run.id %>/assemble" class="flex items-end gap-4" data-form-loading>
+      <div class="max-w-xs">
+        <label for="max_context_tokens" class="label">Re-ensamblar con presupuesto (tokens)</label>
+        <input
+          id="max_context_tokens"
+          name="max_context_tokens"
+          type="number"
+          min="256"
+          max="64000"
+          class="field"
+          placeholder="30000"
+        />
+      </div>
+      <button type="submit" class="text-sm font-bold tracking-tight text-brand hover:text-brand-soft" data-submit>
+        <span data-submit-label>Re-ensamblar</span>
+      </button>
+    </form>
+
+    <form method="post" action="/rag-estimations/<%= run.id %>/generate" class="space-y-4" data-form-loading>
+      <div>
+        <label for="context_block" class="label">Bloque de contexto (editable)</label>
+        <textarea id="context_block" name="context_block" rows="18" class="field font-mono text-xs"><%= assembly.context_block %></textarea>
+        <p class="text-white/50 text-xs mt-1">
+          Cada fuente va delimitada por &lt;source id="…"&gt;. El generador solo puede citar esos ids.
+        </p>
+      </div>
+      <div class="pt-2">
+        <button type="submit" class="btn-primary" data-submit>
+          <span data-submit-label>Generar estimación grounded</span>
+          <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+          </svg>
+        </button>
+      </div>
+    </form>
+  <% } %>
+</div>

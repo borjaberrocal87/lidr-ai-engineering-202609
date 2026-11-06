@@ -95,9 +95,13 @@ capas. Sus tres entradas y qué tocan:
 - `estimate_conversational()` — **conversation** (historial + metadata + compresión) → prompts → llm → guardrails(out).
 - `estimate_with_acb()` — **agentic** (Boss orquesta Actor + Critic sobre la conversación).
 
-Cuando RAG entre en el camino de petición (S09+), el paso de retrieval se añade **aquí**, como
-un step más del conductor, no dentro de otra capa. El conductor es también donde se unen CAG y
-RAG si una misma respuesta debe consultar caché antes de recuperar contexto.
+La S09 añade un **segundo conductor** para el endpoint de transcripción:
+`app/generation/rag/grounded_estimator.py`. No pasa por `EstimationService` porque su contrato
+de salida es distinto (`GroundedEstimate`: engineer-days, módulos → tareas y citas) y su
+pipeline es inherentemente RAG (brief → retrieval filtrado → contexto → generación). Comparte
+las piezas de `foundation/` (wrapper, prompts, logging) y el store de `generation/rag/`, pero no
+la caché CAG ni el bucle Agentic. Si en el futuro una misma respuesta debe consultar caché antes
+de recuperar contexto, la composición se hará en un conductor de dominio, no dentro de una capa.
 
 ## 5. Composition root
 
@@ -127,7 +131,9 @@ POST /api/v1/estimate
 - `app/ingestion/` es la **ingesta batch offline de fuentes**: catálogo, loaders, parsers,
   cleaning, PII, documentos y jobs. No es el camino de escritura del corpus RAG.
 - `app/generation/rag/` es el **camino RAG**: chunking, embeddings, store pgvector,
-  `RagIngestService` y `SemanticRetriever`.
+  `RagIngestService`, `SemanticRetriever` y, desde S09, el pipeline end-to-end
+  (`brief_extractor`, `context_builder`, `grounding`, `grounded_estimator`,
+  `idempotency`, `stage_logging`).
 
 Se mantienen separados a propósito. La referencia de la sesión también los separa: `ingestion/`
 es una capa propia y `generation/rag/` no la absorbe. El diagnóstico de S09 ya señalaba que
@@ -151,6 +157,11 @@ compartir un único pipeline es trabajo futuro, no un requisito del refactor.
 - **Rutas HTTP**: `/api/v1/estimate`, `/sessions/*`, `/api/v1/ingestion/*`,
   `/api/v1/embeddings/ingest`, `/api/v1/search`, `/api/v1/config/models`. El cliente Node
   (`cliente-web`) y Streamlit dependen de ellas y de la forma JSON de las respuestas.
+- **Rutas S09** (nuevas, no rompen las anteriores): `/api/v1/retrieval/search`,
+  `/api/v1/estimate/from-transcript` y `/api/v1/estimate/stages/*`.
+- **`GroundedEstimate`** (`generation/rag/schemas.py`): contrato de la estimación RAG, separado
+  de `EstimationResult`. Sus reglas de grounding (citas válidas y coherencia de insuficiencia)
+  viven en `generation/rag/grounding.py`.
 - **`EstimationResult`** (`domain/schemas/estimations.py`): el orden de campos importa para
   Instructor (`phases` antes que `total_cost_eur` / `total_duration_weeks`) y los dos
   `model_validator` (`phases_sum_matches_total`, `low_confidence_requires_out_of_scope_prefix`)
@@ -160,10 +171,11 @@ compartir un único pipeline es trabajo futuro, no un requisito del refactor.
 
 ## 10. Roadmap
 
-- Conectar RAG al camino de petición (Query Understanding + retriever filtrado + context
-  assembler) como pasos del conductor.
 - Persistir el rollup del presupuesto (`project_summary`, `total_estimated_hours`,
   `component_count`) para que la generación citada no pierda los totales del padre.
+- Añadir un reranker (cross-encoder) tras el retrieval por coseno y medir su impacto en la
+  calidad de las citas.
+- Evaluar el pipeline S09 con un golden set de transcripciones → estimaciones verificadas.
 - Si se quiere capas puras, sustituir el import perezoso de `app.dependencies` en los
   conductores por inyección explícita de un contexto de runtime.
 

@@ -1,0 +1,29 @@
+<%
+  const LABELS = {
+    brief: 'Brief',
+    retrieval: 'Retrieval',
+    assembly: 'Contexto',
+    generation: 'Estimación',
+    verification: 'Verificación',
+  };
+%>
+<nav class="mb-8" aria-label="Pasos del wizard">
+  <ol class="grid grid-cols-5 gap-2">
+    <% steps.forEach(function (step, index) { %>
+      <li>
+        <a
+          href="/rag-estimations/<%= run.id %>?step=<%= step %>"
+          class="block p-3 rounded-md border text-sm tracking-tight
+            <%= index === stepIndex
+              ? 'border-brand bg-brand/15 text-brand-soft'
+              : index < stepIndex
+                ? 'border-white/15 bg-ink/30 text-white/80'
+                : 'border-white/10 bg-ink/20 text-white/50' %>"
+        >
+          <span class="block text-xs tabular-nums"><%= index + 1 %></span>
+          <span class="block font-bold"><%= LABELS[step] %></span>
+        </a>
+      </li>
+    <% }); %>
+  </ol>
+</nav>

@@ -1,0 +1,147 @@
+<%
+  const generation = run.generation || null;
+  const estimate = generation?.estimate || null;
+  const confidenceClass = estimate?.confidence === 'high'
+    ? 'badge-success'
+    : estimate?.confidence === 'insufficient'
+      ? 'badge'
+      : 'badge';
+%>
+
+<div class="space-y-6">
+  <% if (!estimate) { %>
+    <div class="p-4 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      Todavía no hay estimación. Ensambla el contexto y lanza la generación.
+    </div>
+    <a href="/rag-estimations/<%= run.id %>?step=assembly" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+      ← Ir al contexto
+    </a>
+  <% } else { %>
+    <div class="flex flex-wrap items-center gap-3">
+      <span class="<%= confidenceClass %>"><%= estimate.confidence %></span>
+      <span class="text-sm text-white/70">
+        Total: <span class="text-white font-bold tabular-nums"><%= estimate.total_engineer_days ?? '—' %></span> engineer-days
+      </span>
+      <span class="text-sm text-white/70">
+        Duración: <span class="text-white font-bold tabular-nums"><%= estimate.duration_weeks ?? '—' %></span> semanas
+      </span>
+    </div>
+
+    <% if (fabricatedSourceIds.length) { %>
+      <div class="p-4 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+        Citas inventadas: <span class="font-mono"><%= fabricatedSourceIds.join(', ') %></span>.
+        Revisa la verificación antes de dar la estimación por buena.
+      </div>
+    <% } %>
+    <% if (coherent === false) { %>
+      <div class="p-4 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+        La estimación es incoherente con su nivel de confianza: una estimación
+        insuficiente no debe llevar cifras ni módulos.
+      </div>
+    <% } %>
+
+    <% if (estimate.insufficient_context_explanation) { %>
+      <div class="p-4 rounded-md border border-brand bg-brand/10 text-brand-soft">
+        <p class="font-bold text-white mb-1">Contexto insuficiente</p>
+        <p class="text-sm"><%= estimate.insufficient_context_explanation %></p>
+      </div>
+    <% } %>
+
+    <div class="p-4 rounded-md bg-ink/30 border border-white/10">
+      <p class="text-xs text-white/50 uppercase tracking-tight mb-1">Razonamiento</p>
+      <p class="text-sm text-white/80"><%= estimate.reasoning %></p>
+    </div>
+
+    <% if (estimate.modules.length) { %>
+      <div class="space-y-4">
+        <% estimate.modules.forEach(function (module) { %>
+          <div class="rounded-md border border-white/10 overflow-hidden">
+            <div class="px-4 py-3 bg-ink/40">
+              <p class="text-white/90 font-bold tracking-tight"><%= module.name %></p>
+              <% if (module.description) { %>
+                <p class="text-white/50 text-xs mt-1"><%= module.description %></p>
+              <% } %>
+            </div>
+            <table class="w-full text-sm">
+              <thead class="text-white/50">
+                <tr>
+                  <th class="text-left p-3 font-bold tracking-tight">Tarea</th>
+                  <th class="text-right p-3 font-bold tracking-tight">Días</th>
+                  <th class="text-left p-3 font-bold tracking-tight">Fuentes</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-white/10">
+                <% module.tasks.forEach(function (task) { %>
+                  <tr>
+                    <td class="p-3 align-top">
+                      <p class="text-white/90"><%= task.name %></p>
+                      <% if (task.description) { %>
+                        <p class="text-white/50 text-xs mt-1"><%= task.description %></p>
+                      <% } %>
+                    </td>
+                    <td class="p-3 align-top text-right text-white/80 tabular-nums"><%= task.engineer_days %></td>
+                    <td class="p-3 align-top text-white/60 font-mono text-xs">
+                      <%= task.sources.length ? task.sources.join(', ') : 'sin cita' %>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% }); %>
+      </div>
+    <% } %>
+
+    <% if (estimate.sources.length) { %>
+      <div>
+        <h2 class="text-xl font-bold tracking-tight text-white mb-3">Citas</h2>
+        <div class="rounded-md border border-white/10 overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-ink/40 text-white/70">
+              <tr>
+                <th class="text-left p-3 font-bold tracking-tight">Source id</th>
+                <th class="text-left p-3 font-bold tracking-tight">Relevancia</th>
+                <th class="text-left p-3 font-bold tracking-tight">Uso</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-white/10">
+              <% estimate.sources.forEach(function (citation) { %>
+                <tr>
+                  <td class="p-3 align-top font-mono text-xs text-white/90"><%= citation.source_id %></td>
+                  <td class="p-3 align-top text-white/70"><%= citation.relevance %></td>
+                  <td class="p-3 align-top text-white/70"><%= citation.used_for %></td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    <% } %>
+
+    <% if (estimate.assumptions.length) { %>
+      <div>
+        <h2 class="text-xl font-bold tracking-tight text-white mb-3">Supuestos</h2>
+        <div class="space-y-3">
+          <% estimate.assumptions.forEach(function (assumption) { %>
+            <div class="p-4 rounded-md bg-ink/30 border border-white/10">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="badge"><%= assumption.impact %></span>
+                <p class="text-white/90 font-bold tracking-tight"><%= assumption.description %></p>
+              </div>
+              <p class="text-white/60 text-sm"><%= assumption.rationale %></p>
+            </div>
+          <% }); %>
+        </div>
+      </div>
+    <% } %>
+
+    <div class="flex items-center gap-4 pt-2">
+      <a href="/rag-estimations/<%= run.id %>?step=verification" class="btn-primary">
+        Verificar y guardar →
+      </a>
+      <a href="/rag-estimations/<%= run.id %>?step=assembly" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+        ← Volver al contexto
+      </a>
+    </div>
+  <% } %>
+</div>

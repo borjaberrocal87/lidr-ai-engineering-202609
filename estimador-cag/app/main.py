@@ -4,11 +4,13 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
+from slowapi.errors import RateLimitExceeded
 from starlette.responses import Response
 
 from app.api import config as config_router
-from app.api import estimations, ingestion, search, sessions
+from app.api import estimations, ingestion, rag_estimation, retrieval, search, sessions
 from app.api.embeddings import router as embeddings_router
+from app.api.rate_limiting import limiter, rate_limit_handler
 from app.config import APP_NAME, settings
 from app.foundation.observability.logging import configure_logging
 
@@ -57,6 +59,9 @@ async def request_context(
 ) -> Response:
     """Propaga un `request_id` correlacionable por todas las capas."""
     request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    # `state` permite que cualquier capa (p. ej. el orquestador RAG) lea el id
+    # sin depender del contextvars de structlog.
+    request.state.request_id = request_id
     structlog.contextvars.bind_contextvars(request_id=request_id)
     try:
         response = await call_next(request)
@@ -72,6 +77,11 @@ app.include_router(ingestion.router, prefix="/api/v1")
 app.include_router(embeddings_router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
 app.include_router(config_router.router, prefix="/api/v1")
+# Sesión 9 — RAG end-to-end.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+app.include_router(retrieval.router, prefix="/api/v1")
+app.include_router(rag_estimation.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Estado del servicio")

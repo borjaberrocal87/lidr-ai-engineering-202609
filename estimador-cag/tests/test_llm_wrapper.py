@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from litellm.exceptions import Timeout as LiteLLMTimeout
 from openai import APIConnectionError
 
 from app.domain.schemas.estimations import EstimationResult
@@ -17,8 +18,11 @@ from app.foundation.llm.wrapper import (
     LLMWrapper,
     StreamMetrics,
     _estimate_cost,
+    _normalise_strict_schema,
+    _response_format,
     provider_from_model,
 )
+from app.generation.rag.schemas import GroundedEstimate
 
 
 def _fake_completion(
@@ -538,3 +542,101 @@ def test_complete_structured_custom_provider_uses_base_url(monkeypatch) -> None:
     assert seen["model"] == "openai/llama3.1:8b"
     assert seen["api_base"] == "http://localhost:11434/v1"
     assert meta["provider"] == "custom"
+
+
+def test_complete_structured_omits_temperature_for_gpt5(monkeypatch) -> None:
+    """gpt-5 solo acepta temperature=1: con 0.6 se omite en vez de fallar."""
+    wrapper = _wrapper(primary_model="gpt-5", primary_provider="openai")
+    seen: dict[str, Any] = {}
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        seen.update(kwargs)
+        return _fake_completion("gpt-5", content=_valid_result_json())
+
+    monkeypatch.setattr("app.foundation.llm.wrapper.litellm.completion", fake_completion)
+
+    wrapper.complete_structured(
+        system_prompt="sys",
+        user_message="usr",
+        response_model=EstimationResult,
+        temperature=0.6,
+        max_tokens=200,
+        reasoning_effort="high",
+    )
+
+    assert "temperature" not in seen
+    assert seen["reasoning_effort"] == "high"
+
+
+def test_complete_structured_omits_reasoning_effort_for_gpt4o_mini(monkeypatch) -> None:
+    """gpt-4o-mini no soporta reasoning_effort: se omite y se conserva temperature."""
+    wrapper = _wrapper()
+    seen: dict[str, Any] = {}
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        seen.update(kwargs)
+        return _fake_completion("gpt-4o-mini", content=_valid_result_json())
+
+    monkeypatch.setattr("app.foundation.llm.wrapper.litellm.completion", fake_completion)
+
+    wrapper.complete_structured(
+        system_prompt="sys",
+        user_message="usr",
+        response_model=EstimationResult,
+        temperature=0.2,
+        max_tokens=200,
+        reasoning_effort="high",
+    )
+
+    assert seen["temperature"] == 0.2
+    assert "reasoning_effort" not in seen
+
+
+def test_complete_structured_does_not_degrade_formats_on_timeout(monkeypatch) -> None:
+    """Un timeout no se reintenta con json_object/none: falla rápido."""
+    wrapper = _wrapper()
+    calls: list[dict[str, Any]] = []
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        calls.append(kwargs)
+        raise LiteLLMTimeout("timed out", model="gpt-4o-mini", llm_provider="openai")
+
+    monkeypatch.setattr("app.foundation.llm.wrapper.litellm.completion", fake_completion)
+
+    with pytest.raises(LLMProviderError):
+        wrapper.complete_structured(
+            system_prompt="sys",
+            user_message="usr",
+            response_model=EstimationResult,
+            temperature=0.2,
+            max_tokens=200,
+        )
+
+    assert len(calls) == 1
+
+
+def test_strict_schema_adds_additional_properties_and_all_required() -> None:
+    """OpenAI strict mode exige additionalProperties=false y todas las claves required."""
+    schema = _normalise_strict_schema(GroundedEstimate.model_json_schema())
+
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == set(schema["properties"])
+
+    for name in ("Assumption", "Citation", "EstimationModule", "EstimationTask"):
+        nested = schema["$defs"][name]
+        assert nested["additionalProperties"] is False
+        assert set(nested["required"]) == set(nested["properties"])
+
+    # Pydantic emite keywords que OpenAI strict rechaza; deben desaparecer.
+    assert "default" not in schema["properties"]["total_engineer_days"]
+    assert "minimum" not in schema["$defs"]["EstimationTask"]["properties"]["engineer_days"]
+
+
+def test_response_format_uses_the_normalised_strict_schema() -> None:
+    payload = _response_format("json_schema", GroundedEstimate)
+
+    assert payload is not None
+    schema = payload["json_schema"]["schema"]
+    assert payload["json_schema"]["strict"] is True
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == set(schema["properties"])

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pgvector.sqlalchemy import HALFVEC
-from sqlalchemy import Select, cast, select
+from sqlalchemy import Integer, Select, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.generation.rag.schemas import EmbeddedChunk
@@ -97,6 +97,7 @@ class ChunkStore:
         document_type: str,
         doc_metadata: dict[str, Any],
         embedded_chunks: list[EmbeddedChunk],
+        chunk_type: str = BUDGET_COMPONENT,
     ) -> int:
         """Inserta el documento y todos sus chunks. Sin commit.
 
@@ -115,7 +116,7 @@ class ChunkStore:
             [
                 ChunkRow(
                     document_id=document.id,
-                    chunk_type=BUDGET_COMPONENT,
+                    chunk_type=chunk_type,
                     content=chunk.text,
                     embedding=chunk.embedding,
                     metadata_=chunk.metadata,
@@ -154,3 +155,77 @@ class ChunkStore:
             )
             for row in rows
         ]
+
+    async def search_with_filters(
+        self,
+        session: AsyncSession,
+        *,
+        query_vector: list[float],
+        top_k: int = 10,
+        distance_threshold: float = 0.6,
+        sectors: list[str] | None = None,
+        project_year_min: int | None = None,
+        project_year_max: int | None = None,
+        chunk_types: list[str] | None = None,
+    ) -> tuple[list[ChunkMatch], int]:
+        """k-NN con pre-filtrado estructural y umbral de relevancia.
+
+        Los filtros estructurales (sector, año, tipo de chunk) reducen el
+        espacio de candidatos ANTES del ranking vectorial: la metadata viaja en
+        JSONB (``client_sector``, ``year``) y el tipo en la columna
+        ``chunk_type``. Cada filtro sigue el patrón "``None`` = no aplica".
+
+        Devuelve ``(matches, candidates_evaluated)``: los ``top_k`` chunks bajo
+        el umbral (distancia ascendente) y cuántos chunks pasaron los filtros
+        estructurales antes del umbral y del límite.
+        """
+        sector_col = ChunkRow.metadata_["client_sector"].astext
+        year_col = cast(ChunkRow.metadata_["year"].astext, Integer)
+
+        structural_filters = []
+        if sectors:
+            structural_filters.append(sector_col.in_(sectors))
+        if project_year_min is not None:
+            structural_filters.append(year_col >= project_year_min)
+        if project_year_max is not None:
+            structural_filters.append(year_col <= project_year_max)
+        if chunk_types:
+            structural_filters.append(ChunkRow.chunk_type.in_(chunk_types))
+
+        count_stmt = (
+            select(func.count())
+            .select_from(ChunkRow)
+            .where(ChunkRow.embedding.is_not(None))
+            .where(*structural_filters)
+        )
+        candidates_evaluated = int((await session.execute(count_stmt)).scalar_one())
+
+        distance = self._distance_expression(query_vector)
+        stmt = (
+            select(
+                ChunkRow.id.label("chunk_id"),
+                ChunkRow.document_id.label("document_id"),
+                ChunkRow.chunk_type.label("chunk_type"),
+                ChunkRow.content.label("content"),
+                ChunkRow.metadata_.label("metadata_"),
+                distance.label("distance"),
+            )
+            .where(ChunkRow.embedding.is_not(None))
+            .where(*structural_filters)
+            .where(distance <= distance_threshold)
+            .order_by(distance)
+            .limit(top_k)
+        )
+        rows = (await session.execute(stmt)).mappings().all()
+        matches = [
+            ChunkMatch(
+                chunk_id=row["chunk_id"],
+                document_id=row["document_id"],
+                chunk_type=row["chunk_type"],
+                content=row["content"],
+                distance=float(row["distance"]),
+                metadata=row["metadata_"],
+            )
+            for row in rows
+        ]
+        return matches, candidates_evaluated

@@ -6,6 +6,8 @@ Desde la sesión 6 incluye además una pantalla de **Ingesta de datos** que cons
 
 Desde la sesión 7 incorpora **`/chunking-lab`** (comparativa de las ocho estrategias de chunking, con historial persistido en `chunking_comparisons`) y **`/ai-settings`** (overrides de modelo en runtime vía `GET/PUT /api/v1/config/models`). La navbar muestra el modelo primario efectivo como badge, con caché de 15 s y degradación silenciosa si la API no responde.
 
+Desde la sesión 9 incorpora **`/rag-estimations`**, el wizard RAG de cinco etapas (brief → retrieval → contexto → estimación → verificación). Persiste cada etapa en `rag_estimations` y permite editar módulos, tareas y días antes de guardar la verificación.
+
 El look & feel replica el tema de LIDR Academy (oscuro, tipografía Helvetica, amarillo de marca `#F6DE82`, sin sombras) definido como tema de Tailwind.
 
 ## Requisitos
@@ -47,12 +49,16 @@ cliente-web/
 │   ├── corpus.js            # Carga del corpus del Chunking Lab
 │   ├── db.js                # Repositorio Postgres + repositorio en memoria
 │   ├── chunkingRepo.js      # Runs del Chunking Lab (Postgres / memoria)
+│   ├── ragEstimationClient.js # Cliente HTTP del wizard RAG (auth, timeouts, errores)
+│   ├── ragEstimationRepo.js # Runs del wizard RAG (Postgres / memoria)
 │   ├── migrate.js           # Aplica migrations/*.sql en orden
-│   └── routes/              # estimations.js, ingestion.js, chunkingLab.js, aiSettings.js
-├── views/                   # EJS (estimación, ingesta, chunking-lab, ai-settings)
+│   └── routes/              # estimations.js, ingestion.js, chunkingLab.js,
+│                            # aiSettings.js, ragEstimations.js
+├── views/                   # EJS (estimación, ingesta, chunking-lab, ai-settings,
+│                            # rag-estimations/)
 ├── data/                    # Copia del corpus (sincronizada con ../data/)
-├── public/                  # CSS compilado, JS del formulario y assets LIDR
-├── migrations/              # SQL versionado (estimaciones + chunking_comparisons)
+├── public/                  # CSS compilado, JS del formulario, JS del wizard y assets LIDR
+├── migrations/              # SQL versionado (estimaciones, chunking_comparisons, rag_estimations)
 ├── test/                    # node:test + supertest
 ├── Dockerfile
 ├── tailwind.config.js
@@ -74,6 +80,15 @@ cliente-web/
 - `GET /chunking-lab/:id` — estadísticos, coste y top-k por query.
 - `GET /ai-settings` — ajustes de modelos (effective/default/overridden).
 - `POST /ai-settings` — guarda overrides (`""` = volver al default de `.env`).
+- `GET /rag-estimations` — historial de runs RAG.
+- `GET /rag-estimations/new` — formulario de transcripción.
+- `POST /rag-estimations` — crea el run y extrae el brief.
+- `GET /rag-estimations/:id?step=brief|retrieval|assembly|generation|verification` — wizard.
+- `POST /rag-estimations/:id/brief` — guarda el brief editado o lo re-extrae.
+- `POST /rag-estimations/:id/retrieve` — retrieval filtrado (sector, año, tipo, umbral).
+- `POST /rag-estimations/:id/assemble` — ensambla el contexto con presupuesto de tokens.
+- `POST /rag-estimations/:id/generate` — genera la estimación grounded.
+- `POST /rag-estimations/:id/verify` — guarda módulos/tareas/días verificados.
 - `GET /health` — estado del servicio.
 
 ## Variables de entorno
@@ -86,6 +101,10 @@ cliente-web/
 | `CHUNKING_TIMEOUT_MS` | Timeout de `/embeddings/compare` | `600000` |
 | `CONFIG_TIMEOUT_MS` | Timeout del badge/Ajustes | `3000` |
 | `CONFIG_CACHE_TTL_MS` | TTL de la caché del badge | `15000` |
+| `RAG_RETRIEVAL_API_KEY` | API key para `/api/v1/retrieval/search` | — |
+| `RAG_ESTIMATE_API_KEY` | API key para `/api/v1/estimate/*` | — |
+| `RAG_TIMEOUT_MS` | Timeout de brief/retrieval/ensamblado | `120000` |
+| `RAG_GENERATE_TIMEOUT_MS` | Timeout de la generación grounded | `300000` |
 | `DATABASE_URL` | PostgreSQL (vacío = repositorio en memoria) | — |
 | `NODE_ENV` | Entorno | `development` |
 
@@ -95,7 +114,7 @@ cliente-web/
 npm test
 ```
 
-Los tests usan `node:test` + `supertest` con repositorios en memoria y clientes falsos: no requieren red ni base de datos. Cubren también la sincronización del corpus, los clientes de embeddings/config y las rutas de Chunking Lab y Ajustes.
+Los tests usan `node:test` + `supertest` con repositorios en memoria y clientes falsos: no requieren red ni base de datos. Cubren también la sincronización del corpus, los clientes de embeddings/config, las rutas de Chunking Lab y Ajustes, y el wizard RAG (creación, brief editable, retrieval, ensamblado, generación, verificación y mapeo de errores).
 
 Documentación completa de ambas funcionalidades:
 [`../docs/chunking-lab-y-ajustes-runtime-sesion-07.md`](../docs/chunking-lab-y-ajustes-runtime-sesion-07.md).

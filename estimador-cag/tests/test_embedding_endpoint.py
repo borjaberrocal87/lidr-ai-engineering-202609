@@ -41,12 +41,14 @@ class FakeIngestService:
         source_path: str,
         document_type: str,
         budget: Budget,
+        chunk_type: str = "budget_component",
     ) -> IngestResponse:
         self.calls.append(
             {
                 "source_path": source_path,
                 "document_type": document_type,
                 "budget": budget,
+                "chunk_type": chunk_type,
             }
         )
         if self.error is not None:

@@ -7,12 +7,15 @@ import { HttpEmbeddingsClient } from "./embeddingsClient.js";
 import { HttpEstimatorClient } from "./estimatorClient.js";
 import { HttpIngestionClient } from "./ingestionClient.js";
 import { runMigrations } from "./migrate.js";
+import { HttpRagEstimationClient } from "./ragEstimationClient.js";
+import { InMemoryRagEstimationRepo, PgRagEstimationRepo } from "./ragEstimationRepo.js";
 
 const config = loadConfig();
 
 const pool = createPool(config.databaseUrl);
 let repo;
 let chunkingRepo;
+let ragEstimations;
 if (pool) {
   try {
     await runMigrations(pool);
@@ -22,10 +25,12 @@ if (pool) {
   }
   repo = new PgEstimationRepo(pool);
   chunkingRepo = new PgChunkingRepo(pool);
+  ragEstimations = new PgRagEstimationRepo(pool);
 } else {
   console.warn("DATABASE_URL vacía: usando repositorios en memoria (sin persistencia).");
   repo = new InMemoryEstimationRepo();
   chunkingRepo = new InMemoryChunkingRepo();
+  ragEstimations = new InMemoryRagEstimationRepo();
 }
 
 const estimator = new HttpEstimatorClient({
@@ -49,6 +54,14 @@ const configClient = new HttpConfigClient({
   cacheTtlMs: config.configCacheTtlMs,
 });
 
+const ragClient = new HttpRagEstimationClient({
+  baseUrl: config.estimatorApiBaseUrl,
+  retrievalApiKey: config.ragRetrievalApiKey,
+  estimateApiKey: config.ragEstimateApiKey,
+  timeoutMs: config.ragTimeoutMs,
+  generateTimeoutMs: config.ragGenerateTimeoutMs,
+});
+
 const app = createApp({
   repo,
   estimator,
@@ -56,6 +69,8 @@ const app = createApp({
   chunkingRepo,
   embeddings,
   config: configClient,
+  ragEstimations,
+  ragClient,
 });
 
 app.listen(config.port, () => {

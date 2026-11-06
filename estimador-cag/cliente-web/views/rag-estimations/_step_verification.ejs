@@ -1,0 +1,81 @@
+<%
+  const modules = verification?.modules || estimate?.modules || [];
+  const initialTotal = modules.reduce(
+    (total, module) =>
+      total + module.tasks.reduce((partial, task) => partial + (task.engineer_days || 0), 0),
+    0,
+  );
+  const durationWeeks = verification?.duration_weeks ?? estimate?.duration_weeks ?? '';
+  const notes = verification?.notes || '';
+%>
+
+<div class="space-y-6">
+  <% if (!estimate && !verification) { %>
+    <div class="p-4 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      Todavía no hay estimación que verificar. Genera primero la estimación grounded.
+    </div>
+    <a href="/rag-estimations/<%= run.id %>?step=generation" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+      ← Ir a la estimación
+    </a>
+  <% } else { %>
+    <% if (verification) { %>
+      <div class="p-4 rounded-md bg-brand/10 border border-brand text-brand-soft">
+        Verificación guardada:
+        <span class="font-bold text-white tabular-nums"><%= verification.total_engineer_days %></span> engineer-days
+        · <span class="font-bold text-white tabular-nums"><%= verification.duration_weeks ?? '—' %></span> semanas.
+      </div>
+    <% } %>
+
+    <div class="p-4 rounded-md bg-ink/30 border border-white/10">
+      <p class="text-sm text-white/70">
+        Ajusta módulos, tareas y días. El total se recalcula al guardar; los cambios
+        quedan persistidos en el run y no vuelven a llamar al LLM.
+      </p>
+    </div>
+
+    <form method="post" action="/rag-estimations/<%= run.id %>/verify" class="space-y-6" data-form-loading>
+      <%- include('_editable_modules', { verification, estimate }) %>
+
+      <div>
+        <button type="button" id="add-module" class="text-sm font-bold tracking-tight text-brand hover:text-brand-soft">
+          + Añadir módulo
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div>
+          <label for="duration_weeks" class="label">Duración (semanas)</label>
+          <input
+            id="duration_weeks"
+            name="duration_weeks"
+            type="number"
+            min="1"
+            class="field"
+            value="<%= durationWeeks %>"
+          />
+        </div>
+        <div class="p-4 rounded-md bg-ink/30 border border-white/10">
+          <p class="text-xs text-white/50 uppercase tracking-tight">Total recalculado</p>
+          <p class="text-2xl font-bold text-white tabular-nums">
+            <span data-total-days><%= initialTotal %></span> engineer-days
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <label for="notes" class="label">Notas de verificación</label>
+        <textarea id="notes" name="notes" rows="3" class="field" placeholder="Supuestos aceptados, recortes de alcance, dudas pendientes…"><%= notes %></textarea>
+      </div>
+
+      <div class="pt-2">
+        <button type="submit" class="btn-primary" data-submit>
+          <span data-submit-label>Guardar verificación</span>
+          <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+          </svg>
+        </button>
+      </div>
+    </form>
+  <% } %>
+</div>

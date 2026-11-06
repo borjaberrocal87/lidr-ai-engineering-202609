@@ -53,6 +53,7 @@ async def ingest(
             source_path=request.source_path,
             document_type=request.document_type,
             budget=request.content,
+            chunk_type=request.chunk_type,
         )
     except DuplicateDocumentError as exc:
         # El contrato pide ``detail`` y ``document_id`` en el nivel superior,

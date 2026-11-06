@@ -7,6 +7,10 @@ export function loadConfig(env = process.env) {
     chunkingTimeoutMs: Number(env.CHUNKING_TIMEOUT_MS || 600000),
     configTimeoutMs: Number(env.CONFIG_TIMEOUT_MS || 3000),
     configCacheTtlMs: Number(env.CONFIG_CACHE_TTL_MS || 15000),
+    ragRetrievalApiKey: env.RAG_RETRIEVAL_API_KEY || "",
+    ragEstimateApiKey: env.RAG_ESTIMATE_API_KEY || "",
+    ragTimeoutMs: Number(env.RAG_TIMEOUT_MS || 120000),
+    ragGenerateTimeoutMs: Number(env.RAG_GENERATE_TIMEOUT_MS || 300000),
     nodeEnv: env.NODE_ENV || "development",
   };
 }
