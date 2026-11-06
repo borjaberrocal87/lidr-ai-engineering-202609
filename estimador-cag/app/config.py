@@ -162,6 +162,25 @@ class Settings(BaseSettings):
     retrieval_api_key: SecretStr | None = None
     estimate_api_key: SecretStr | None = None
 
+    # Session 10 — hybrid search (vector + lexical) and reranking.
+    # Default retrieval mode: "vector" reproduces the Session 9 baseline;
+    # "hybrid" fuses dense and lexical branches with RRF. Overridable per
+    # request and at runtime.
+    retrieval_search_mode: Literal["vector", "hybrid"] = "vector"
+    # Whether the cross-encoder reranks by default. Off keeps the baseline
+    # cheap; recall-then-rerank turns on per request or at runtime.
+    reranker_enabled: bool = False
+    # Multilingual cross-encoder (ES+EN), small enough for CPU at teaching
+    # latencies.
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    # Recall width before fusion/reranking: retrieve this many cheap candidates
+    # and let the cross-encoder cut them down to rerank_top_n.
+    retrieval_recall_top_k: int = 50
+    rerank_top_n: int = 5
+    # RRF smoothing constant (Cormack et al. default). Larger = a document must
+    # rank well in BOTH branches to win; smaller = a single #1 can dominate.
+    rrf_k: int = 60
+
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
 

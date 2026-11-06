@@ -125,10 +125,102 @@ class RuntimeModelConfig:
             raise ValueError(f"Clave de modelo desconocida: {key}")
 
 
+# --- Session 10: runtime overrides for the retrieval toggles -----------------
+# Same Redis-hash override pattern as the model knobs, but for the two retrieval
+# switches: search mode and reranking. Kept in a SEPARATE hash so resetting the
+# model config does not clear them and vice versa.
+RETRIEVAL_HASH_KEY = "estimator:runtime_retrieval"
+
+SEARCH_MODE_KEY = "RETRIEVAL_SEARCH_MODE"
+RERANK_KEY = "RERANKER_ENABLED"
+RETRIEVAL_KEYS: tuple[str, ...] = (SEARCH_MODE_KEY, RERANK_KEY)
+
+_VALID_SEARCH_MODES = ("vector", "hybrid")
+
+
+class RuntimeRetrievalConfig:
+    """Redis-hash-backed override store for the Session 10 retrieval toggles.
+
+    Reads degrade to the settings default if Redis is down (the pipeline keeps
+    serving exactly as .env configured it); writes re-raise so a failed override
+    is visible to the API (mapped to 503), matching RuntimeModelConfig.
+    """
+
+    def __init__(self, redis_client: redis.Redis, settings: Settings) -> None:
+        self._redis = redis_client
+        self._settings = settings
+
+    @classmethod
+    def from_url(cls, url: str, settings: Settings) -> RuntimeRetrievalConfig:
+        return cls(redis.from_url(url, decode_responses=True), settings)
+
+    def _get_raw(self, key: str) -> str | None:
+        try:
+            value = self._redis.hget(RETRIEVAL_HASH_KEY, key)
+            return str(value) if value is not None else None
+        except redis.RedisError as exc:
+            log.warning("runtime_retrieval_read_failed", key=key, error=str(exc)[:200])
+            return None
+
+    def _set_raw(self, key: str, value: str | None) -> None:
+        try:
+            if value is None:
+                self._redis.hdel(RETRIEVAL_HASH_KEY, key)
+            else:
+                self._redis.hset(RETRIEVAL_HASH_KEY, key, value)
+        except redis.RedisError as exc:
+            raise RuntimeConfigUnavailable(str(exc)) from exc
+
+    def effective_search_mode(self) -> str:
+        override = self._get_raw(SEARCH_MODE_KEY)
+        if override in _VALID_SEARCH_MODES:
+            return override
+        return self._settings.retrieval_search_mode
+
+    def effective_rerank(self) -> bool:
+        override = self._get_raw(RERANK_KEY)
+        if override is None:
+            return self._settings.reranker_enabled
+        return override.lower() == "true"
+
+    def set_search_mode(self, value: str | None) -> None:
+        if value is not None and value not in _VALID_SEARCH_MODES:
+            raise ValueError(f"Invalid search mode: {value}")
+        self._set_raw(SEARCH_MODE_KEY, value)
+
+    def set_rerank(self, value: bool | None) -> None:
+        self._set_raw(RERANK_KEY, None if value is None else str(value).lower())
+
+    def snapshot(self) -> dict[str, dict[str, str | bool]]:
+        """``{effective, default, overridden}`` per retrieval toggle."""
+        try:
+            overrides = self._redis.hgetall(RETRIEVAL_HASH_KEY)
+        except redis.RedisError as exc:
+            log.warning("runtime_retrieval_read_failed", key="*", error=str(exc)[:200])
+            overrides = {}
+        return {
+            SEARCH_MODE_KEY: {
+                "effective": self.effective_search_mode(),
+                "default": self._settings.retrieval_search_mode,
+                "overridden": SEARCH_MODE_KEY in overrides,
+            },
+            RERANK_KEY: {
+                "effective": self.effective_rerank(),
+                "default": self._settings.reranker_enabled,
+                "overridden": RERANK_KEY in overrides,
+            },
+        }
+
+
 __all__ = [
     "HASH_KEY",
     "MODEL_KEYS",
     "MODEL_KEY_TO_SETTING",
+    "RERANK_KEY",
+    "RETRIEVAL_HASH_KEY",
+    "RETRIEVAL_KEYS",
+    "SEARCH_MODE_KEY",
     "RuntimeConfigUnavailable",
     "RuntimeModelConfig",
+    "RuntimeRetrievalConfig",
 ]

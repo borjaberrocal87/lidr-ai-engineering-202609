@@ -18,7 +18,9 @@ from app.dependencies import (
     get_parser_registry,
     get_rag_ingest_service,
     get_raw_openai_client,
+    get_reranker,
     get_runtime_config,
+    get_runtime_retrieval_config,
     get_semantic_cache,
     get_semantic_retriever,
     get_token_encoder,
@@ -36,6 +38,8 @@ def _reset_settings_cache():
     get_openai_client.cache_clear()
     get_semantic_cache.cache_clear()
     get_runtime_config.cache_clear()
+    get_runtime_retrieval_config.cache_clear()
+    get_reranker.cache_clear()
     get_raw_openai_client.cache_clear()
     get_catalog.cache_clear()
     get_filesystem_loader.cache_clear()
@@ -56,6 +60,8 @@ def _reset_settings_cache():
     get_openai_client.cache_clear()
     get_semantic_cache.cache_clear()
     get_runtime_config.cache_clear()
+    get_runtime_retrieval_config.cache_clear()
+    get_reranker.cache_clear()
     get_raw_openai_client.cache_clear()
     get_catalog.cache_clear()
     get_filesystem_loader.cache_clear()

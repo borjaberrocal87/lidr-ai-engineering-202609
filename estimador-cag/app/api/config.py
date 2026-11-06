@@ -15,11 +15,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.config import Settings, get_settings, reveal_secret
-from app.dependencies import get_runtime_config
+from app.dependencies import get_runtime_config, get_runtime_retrieval_config
 from app.foundation.llm.runtime_config import (
     MODEL_KEYS,
     RuntimeConfigUnavailable,
     RuntimeModelConfig,
+    RuntimeRetrievalConfig,
 )
 from app.foundation.llm.wrapper import provider_from_model
 
@@ -40,6 +41,17 @@ class ModelUpdateRequest(BaseModel):
     """Actualización parcial: solo se tocan las claves presentes; ``null`` resetea."""
 
     models: dict[str, str | None] = Field(min_length=1)
+
+
+class RetrievalUpdateRequest(BaseModel):
+    """Partial update of the Session 10 retrieval toggles.
+
+    Only the keys present are touched; explicit ``null`` resets a knob to its
+    .env default.
+    """
+
+    search_mode: str | None = Field(default=None, description="'vector' or 'hybrid'.")
+    rerank: bool | None = Field(default=None, description="Enable cross-encoder reranking.")
 
 
 def _provider_configured(settings: Settings, provider: str) -> bool:
@@ -131,3 +143,53 @@ def update_models(
         ) from exc
 
     return _config_payload(runtime_config, settings)
+
+
+@router.get("/retrieval")
+def get_retrieval(
+    runtime_retrieval: Annotated[RuntimeRetrievalConfig, Depends(get_runtime_retrieval_config)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    """Current retrieval configuration: effective/default/overridden per toggle."""
+    return {
+        "retrieval": runtime_retrieval.snapshot(),
+        "reranker_model": settings.reranker_model,
+    }
+
+
+@router.put("/retrieval")
+def update_retrieval(
+    request: RetrievalUpdateRequest,
+    runtime_retrieval: Annotated[RuntimeRetrievalConfig, Depends(get_runtime_retrieval_config)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, Any]:
+    """Flip search mode and/or reranking at runtime — effective on the next call."""
+    sent = request.model_fields_set
+    try:
+        if "search_mode" in sent:
+            try:
+                runtime_retrieval.set_search_mode(request.search_mode)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(exc),
+                ) from exc
+            log.info(
+                "runtime_retrieval_changed",
+                key="search_mode",
+                new_value=request.search_mode,
+            )
+        if "rerank" in sent:
+            runtime_retrieval.set_rerank(request.rerank)
+            log.info("runtime_retrieval_changed", key="rerank", new_value=request.rerank)
+    except RuntimeConfigUnavailable as exc:
+        log.error("runtime_retrieval_write_failed", error=str(exc)[:200])
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Runtime config store unavailable.",
+        ) from exc
+
+    return {
+        "retrieval": runtime_retrieval.snapshot(),
+        "reranker_model": settings.reranker_model,
+    }
