@@ -42,6 +42,7 @@ COPY --from=builder --chown=app:app /app/app /app/app
 COPY --from=builder --chown=app:app /app/frontend /app/frontend
 # Sesión 6 — ingesta: datos semilla, catálogo y migraciones Alembic.
 COPY --chown=app:app data ./data
+COPY --chown=app:app evals ./evals
 COPY --chown=app:app alembic ./alembic
 COPY --chown=app:app alembic.ini ./alembic.ini
 COPY --chown=app:app scripts ./scripts

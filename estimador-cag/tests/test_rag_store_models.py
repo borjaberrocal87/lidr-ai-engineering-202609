@@ -37,4 +37,5 @@ def test_chunks_have_relational_indexes() -> None:
         "chunk_type",
         "document_id",
         "metadata",
+        "content_tsv",
     }

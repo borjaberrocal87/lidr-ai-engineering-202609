@@ -22,6 +22,27 @@ from app.generation.rag.store.models import EMBEDDING_DIMENSIONS, ChunkRow, Docu
 # consultable gracias al índice sobre ``chunk_type`` (filtros del directo).
 BUDGET_COMPONENT = "budget_component"
 
+# Session 10: text-search configuration. MUST match the generated column in
+# migration 0003. Change both places together if the corpus language changes.
+FTS_CONFIG = "english"
+
+# A lexical-only hit never entered the vector ranking, so it has no cosine
+# distance. 1.0 is a display sentinel ("far"); fusion and reranking only use the
+# ordering, never this distance.
+LEXICAL_ONLY_DISTANCE = 1.0
+
+
+def _or_tsquery_text(query_text: str) -> str:
+    """Turn free text into an OR-of-terms query for ``websearch_to_tsquery``.
+
+    ``plainto_tsquery`` joins every lexeme with AND, which is far too strict for
+    long natural-language project descriptions: a single missing word drops the
+    whole document. Keyword recall should surface documents that match *some*
+    terms; RRF and the cross-encoder handle precision afterwards. Quoted phrase
+    syntax is intentionally not supported here — the golden set uses plain text.
+    """
+    return " or ".join(query_text.split())
+
 
 @dataclass(frozen=True, slots=True)
 class ChunkMatch:
@@ -179,18 +200,12 @@ class ChunkStore:
         el umbral (distancia ascendente) y cuántos chunks pasaron los filtros
         estructurales antes del umbral y del límite.
         """
-        sector_col = ChunkRow.metadata_["client_sector"].astext
-        year_col = cast(ChunkRow.metadata_["year"].astext, Integer)
-
-        structural_filters = []
-        if sectors:
-            structural_filters.append(sector_col.in_(sectors))
-        if project_year_min is not None:
-            structural_filters.append(year_col >= project_year_min)
-        if project_year_max is not None:
-            structural_filters.append(year_col <= project_year_max)
-        if chunk_types:
-            structural_filters.append(ChunkRow.chunk_type.in_(chunk_types))
+        structural_filters = self._structural_filters(
+            sectors=sectors,
+            project_year_min=project_year_min,
+            project_year_max=project_year_max,
+            chunk_types=chunk_types,
+        )
 
         count_stmt = (
             select(func.count())
@@ -229,3 +244,111 @@ class ChunkStore:
             for row in rows
         ]
         return matches, candidates_evaluated
+
+    def _lexical_statement(
+        self,
+        *,
+        query_text: str,
+        top_k: int,
+        sectors: list[str] | None = None,
+        project_year_min: int | None = None,
+        project_year_max: int | None = None,
+        chunk_types: list[str] | None = None,
+    ) -> Select[Any]:
+        """SELECT for the lexical branch: OR tsquery + ``ts_rank_cd``.
+
+        ``websearch_to_tsquery`` receives an OR-of-terms string so a document can
+        match *some* keywords instead of all of them. For long project
+        descriptions, an AND query (``plainto_tsquery``) almost always returns
+        zero rows, which makes the hybrid branch useless. ``ts_rank_cd`` (cover
+        density) ranks by relevance: higher is better, the opposite of cosine
+        distance. ``ORDER BY ... DESC`` reflects that.
+        """
+        tsquery = func.websearch_to_tsquery(FTS_CONFIG, _or_tsquery_text(query_text))
+        rank = func.ts_rank_cd(ChunkRow.content_tsv, tsquery)
+        return (
+            select(
+                ChunkRow.id.label("chunk_id"),
+                ChunkRow.document_id.label("document_id"),
+                ChunkRow.chunk_type.label("chunk_type"),
+                ChunkRow.content.label("content"),
+                ChunkRow.metadata_.label("metadata_"),
+                rank.label("rank"),
+            )
+            .where(ChunkRow.content_tsv.op("@@")(tsquery))
+            .where(
+                *self._structural_filters(
+                    sectors=sectors,
+                    project_year_min=project_year_min,
+                    project_year_max=project_year_max,
+                    chunk_types=chunk_types,
+                )
+            )
+            .order_by(rank.desc(), ChunkRow.id.asc())
+            .limit(top_k)
+        )
+
+    async def search_lexical(
+        self,
+        session: AsyncSession,
+        *,
+        query_text: str,
+        top_k: int = 50,
+        sectors: list[str] | None = None,
+        project_year_min: int | None = None,
+        project_year_max: int | None = None,
+        chunk_types: list[str] | None = None,
+    ) -> list[ChunkMatch]:
+        """Lexical branch of hybrid search (Session 10).
+
+        Uses the same structural filters as ``search_with_filters`` so both
+        branches see the same candidate space. Returns at most ``top_k`` chunks
+        ordered by ``ts_rank_cd`` descending.
+        """
+        stmt = self._lexical_statement(
+            query_text=query_text,
+            top_k=top_k,
+            sectors=sectors,
+            project_year_min=project_year_min,
+            project_year_max=project_year_max,
+            chunk_types=chunk_types,
+        )
+        rows = (await session.execute(stmt)).mappings().all()
+        return [
+            ChunkMatch(
+                chunk_id=row["chunk_id"],
+                document_id=row["document_id"],
+                chunk_type=row["chunk_type"],
+                content=row["content"],
+                distance=LEXICAL_ONLY_DISTANCE,
+                metadata=row["metadata_"],
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    def _structural_filters(
+        *,
+        sectors: list[str] | None,
+        project_year_min: int | None,
+        project_year_max: int | None,
+        chunk_types: list[str] | None,
+    ) -> list[Any]:
+        """Predicates shared by the vector and lexical branches.
+
+        Each filter follows the ``None`` = do not apply convention. Sector and
+        year read from JSONB; chunk type reads from its own column.
+        """
+        sector_col = ChunkRow.metadata_["client_sector"].astext
+        year_col = cast(ChunkRow.metadata_["year"].astext, Integer)
+
+        filters: list[Any] = []
+        if sectors:
+            filters.append(sector_col.in_(sectors))
+        if project_year_min is not None:
+            filters.append(year_col >= project_year_min)
+        if project_year_max is not None:
+            filters.append(year_col <= project_year_max)
+        if chunk_types:
+            filters.append(ChunkRow.chunk_type.in_(chunk_types))
+        return filters

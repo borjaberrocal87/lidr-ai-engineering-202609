@@ -19,7 +19,7 @@ from openai import OpenAI
 
 from app.config import BASE_DIR, get_settings, reveal_secret
 from app.foundation.cache.backends import InMemoryCache, NullCache, RedisCache, ResponseCache
-from app.foundation.llm.runtime_config import RuntimeModelConfig
+from app.foundation.llm.runtime_config import RuntimeModelConfig, RuntimeRetrievalConfig
 from app.foundation.llm.wrapper import LLMWrapper, provider_from_model
 from app.foundation.persistence.database import get_async_session_factory
 from app.foundation.persistence.unit_of_work import UnitOfWork
@@ -38,6 +38,7 @@ from app.generation.rag.chunking.strategies import (
 from app.generation.rag.chunking.structural import JSONStructuralChunker
 from app.generation.rag.embedding.embedder import OpenAIEmbedder
 from app.generation.rag.ingest_service import RagIngestService
+from app.generation.rag.retrieval.reranker import CrossEncoderReranker
 from app.generation.rag.retriever import SemanticRetriever
 from app.generation.rag.store.repository import ChunkStore
 from app.ingestion.catalog import DataCatalog, load_catalog
@@ -75,6 +76,27 @@ def get_runtime_config() -> RuntimeModelConfig:
     """
     settings = get_settings()
     return RuntimeModelConfig.from_url(settings.redis_url, settings)
+
+
+@lru_cache
+def get_runtime_retrieval_config() -> RuntimeRetrievalConfig:
+    """Redis-backed override store for the Session 10 retrieval toggles.
+
+    Read per call so a flip in the config API takes effect on the next
+    retrieval without a restart.
+    """
+    settings = get_settings()
+    return RuntimeRetrievalConfig.from_url(settings.redis_url, settings)
+
+
+@lru_cache
+def get_reranker() -> CrossEncoderReranker:
+    """Cross-encoder reranker singleton.
+
+    Building the wrapper is cheap; the model loads lazily on the first rerank,
+    so import time and app startup stay free of torch.
+    """
+    return CrossEncoderReranker.from_settings()
 
 
 @lru_cache
@@ -329,6 +351,7 @@ def get_semantic_retriever() -> SemanticRetriever | None:
         embedder=embedder,
         session_factory=get_async_session_factory(),
         store=get_chunk_store(),
+        reranker=get_reranker(),
     )
 
 

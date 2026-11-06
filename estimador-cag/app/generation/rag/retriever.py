@@ -15,13 +15,14 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.generation.rag.embedding.embedder import OpenAIEmbedder
+from app.generation.rag.retrieval.pipeline import retrieve as retrieve_pipeline
+from app.generation.rag.retrieval.reranker import CrossEncoderReranker
 from app.generation.rag.schemas import (
     RetrievalOutcome,
-    RetrievedChunk,
     SearchHit,
     SearchResponse,
 )
-from app.generation.rag.store.repository import ChunkMatch, ChunkStore
+from app.generation.rag.store.repository import ChunkStore
 
 log = structlog.get_logger()
 
@@ -34,10 +35,12 @@ class SemanticRetriever:
         embedder: OpenAIEmbedder,
         session_factory: async_sessionmaker[AsyncSession],
         store: ChunkStore,
+        reranker: CrossEncoderReranker | None = None,
     ) -> None:
         self._embedder = embedder
         self._session_factory = session_factory
         self._store = store
+        self._reranker = reranker
 
     async def search(self, *, query: str, k: int) -> SearchResponse:
         started = time.perf_counter()
@@ -79,23 +82,46 @@ class SemanticRetriever:
         )
         return response
 
-    @staticmethod
-    def _to_retrieved_chunk(match: ChunkMatch) -> RetrievedChunk:
-        """Aplana sector/año desde el JSONB del chunk a la forma tipada S09."""
-        raw_year = match.metadata.get("year")
-        try:
-            project_year = int(raw_year) if raw_year is not None else None
-        except (TypeError, ValueError):
-            project_year = None
-        sector = match.metadata.get("client_sector")
-        return RetrievedChunk(
-            id=match.chunk_id,
-            document_id=match.document_id,
-            content=match.content,
-            sector=str(sector) if sector is not None else None,
-            project_year=project_year,
-            chunk_type=match.chunk_type,
-            distance=match.distance,
+    async def retrieve(
+        self,
+        *,
+        query_text: str,
+        search_mode: str = "vector",
+        rerank: bool = False,
+        top_k: int = 10,
+        recall_k: int = 50,
+        rerank_top_n: int = 5,
+        distance_threshold: float = 0.6,
+        rrf_k: int = 60,
+        sectors: list[str] | None = None,
+        project_year_min: int | None = None,
+        project_year_max: int | None = None,
+        chunk_types: list[str] | None = None,
+    ) -> RetrievalOutcome:
+        """Embed the query and run vector/hybrid retrieval with optional rerank.
+
+        ``search_mode`` and ``rerank`` are resolved by the caller (request →
+        runtime → settings). The reranker is injected in the constructor; when
+        ``rerank`` is True and no reranker exists, the pipeline raises.
+        """
+        query_embedding = await asyncio.to_thread(self._embedder.embed_one, query_text)
+        return await retrieve_pipeline(
+            store=self._store,
+            session_factory=self._session_factory,
+            query_embedding=query_embedding,
+            query_text=query_text,
+            search_mode=search_mode,
+            rerank=rerank,
+            top_k=top_k,
+            recall_k=recall_k,
+            rerank_top_n=rerank_top_n,
+            distance_threshold=distance_threshold,
+            rrf_k=rrf_k,
+            sectors=sectors,
+            project_year_min=project_year_min,
+            project_year_max=project_year_max,
+            chunk_types=chunk_types,
+            reranker=self._reranker,
         )
 
     async def retrieve_chunks(
@@ -108,43 +134,31 @@ class SemanticRetriever:
         project_year_min: int | None = None,
         project_year_max: int | None = None,
         chunk_types: list[str] | None = None,
+        search_mode: str = "vector",
+        rerank: bool = False,
+        recall_k: int = 50,
+        rerank_top_n: int = 5,
+        rrf_k: int = 60,
     ) -> RetrievalOutcome:
-        """Retrieval S09: filtros estructurales + umbral y soft-fail.
+        """Retrieval with optional Session 10 hybrid search and reranking.
 
-        Si ningún chunk cruza el umbral, ``low_confidence`` queda a ``True`` y
-        la lista vacía: el pipeline decide entonces generar una estimación
-        insuficiente en vez de inventar cifras.
+        The defaults (``vector``, no rerank) preserve the Session 09 behaviour
+        for the grounded orchestrator, the stage endpoints and existing callers.
+        If no chunk crosses the threshold, ``low_confidence`` is True and the
+        list is empty so the caller can short-circuit to an insufficient
+        estimate instead of inventing numbers.
         """
-        started = time.perf_counter()
-        query_vector = await asyncio.to_thread(self._embedder.embed_one, query_text)
-
-        async with self._session_factory() as session:
-            matches, candidates = await self._store.search_with_filters(
-                session,
-                query_vector=query_vector,
-                top_k=top_k,
-                distance_threshold=distance_threshold,
-                sectors=sectors,
-                project_year_min=project_year_min,
-                project_year_max=project_year_max,
-                chunk_types=chunk_types,
-            )
-
-        chunks = [self._to_retrieved_chunk(match) for match in matches]
-        outcome = RetrievalOutcome(
-            chunks=chunks,
-            low_confidence=not chunks,
-            candidates_evaluated=candidates,
-        )
-        log.info(
-            "rag.retrieval.end",
-            query=query_text[:80],
+        return await self.retrieve(
+            query_text=query_text,
+            search_mode=search_mode,
+            rerank=rerank,
             top_k=top_k,
+            recall_k=recall_k,
+            rerank_top_n=rerank_top_n,
             distance_threshold=distance_threshold,
-            chunks=len(chunks),
-            candidates_evaluated=candidates,
-            low_confidence=outcome.low_confidence,
-            search_mode=self._store.search_mode,
-            search_time_ms=int((time.perf_counter() - started) * 1000),
+            rrf_k=rrf_k,
+            sectors=sectors,
+            project_year_min=project_year_min,
+            project_year_max=project_year_max,
+            chunk_types=chunk_types,
         )
-        return outcome

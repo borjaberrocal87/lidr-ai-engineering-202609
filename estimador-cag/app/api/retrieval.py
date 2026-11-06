@@ -14,7 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.rate_limiting import limiter
 from app.api.security import require_retrieval_key
-from app.dependencies import get_semantic_retriever
+from app.config import get_settings
+from app.dependencies import get_runtime_retrieval_config, get_semantic_retriever
 from app.generation.rag.retriever import SemanticRetriever
 from app.generation.rag.schemas import RetrievalOutcome, RetrievalQuery
 
@@ -42,11 +43,21 @@ async def search(
             detail="No se pudo ejecutar el retrieval.",
         )
 
+    settings = get_settings()
+    runtime = get_runtime_retrieval_config()
+    search_mode = payload.search_mode or runtime.effective_search_mode()
+    rerank = payload.rerank if payload.rerank is not None else runtime.effective_rerank()
+
     try:
         return await retriever.retrieve_chunks(
             query_text=payload.query_text,
+            search_mode=search_mode,
+            rerank=rerank,
             top_k=payload.top_k,
+            recall_k=settings.retrieval_recall_top_k,
+            rerank_top_n=settings.rerank_top_n,
             distance_threshold=payload.distance_threshold,
+            rrf_k=settings.rrf_k,
             sectors=payload.sectors,
             project_year_min=payload.project_year_min,
             project_year_max=payload.project_year_max,
