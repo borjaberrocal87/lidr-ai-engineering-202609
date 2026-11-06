@@ -8,9 +8,9 @@ from openai import APIConnectionError
 from starlette.testclient import TestClient
 from structlog.testing import capture_logs
 
-from app.services.cache import InMemoryCache
-from app.services.errors import LLMProviderError
-from app.services.llm_wrapper import LLMWrapper
+from app.foundation.cache.backends import InMemoryCache
+from app.foundation.llm.errors import LLMProviderError
+from app.foundation.llm.wrapper import LLMWrapper
 
 
 def _fake_completion(model: str = "gpt-4o-mini", content: str = "## Estimación") -> SimpleNamespace:

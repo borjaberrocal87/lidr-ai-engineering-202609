@@ -12,9 +12,10 @@ proyecto:
 2. **Ajustes runtime**: overrides de los modelos LLM en Redis, editables desde
    la UI y aplicables en la siguiente llamada.
 
-La implementación adapta el material de referencia a nuestra arquitectura
-plana (`app/embedding_pipeline`, `app/services`, `app/routers`) y a nuestro
-cliente Node/Express. **No** se copia el refactor de capas de la referencia.
+La implementación adapta el material de referencia a nuestra arquitectura por
+capas (`app/generation/rag`, `app/foundation`, `app/api`) y a nuestro cliente
+Node/Express. El refactor de capas se aplicó después, en la rama
+`feature/pre-session-09-reorganize-into-layered-arquitecture`.
 
 ---
 
@@ -22,7 +23,7 @@ cliente Node/Express. **No** se copia el refactor de capas de la referencia.
 
 ### 1.1 Estrategias
 
-Todas implementan la interfaz `Chunker` (`app/embedding_pipeline/base.py`):
+Todas implementan la interfaz `Chunker` (`app/generation/rag/chunking/base.py`):
 
 | Estrategia | API externa | Qué hace |
 |---|---|---|
@@ -41,24 +42,27 @@ la respuesta (`ingestion_cost_usd`, `ingestion_seconds`).
 ### 1.2 Módulos
 
 ```
-app/embedding_pipeline/
-├── base.py                  # Chunker, count_tokens, emit_chunking_done
-├── structural.py            # JSONStructuralChunker + helpers de render
-├── chunker.py               # shim de compatibilidad (imports históricos)
-├── strategies/
-│   ├── fixed_size.py
-│   ├── recursive.py
-│   ├── sentence_window.py
-│   ├── semantic.py
-│   ├── propositional.py
-│   ├── contextual_retrieval.py
-│   └── hierarchical.py
+app/generation/rag/
+├── chunking/
+│   ├── base.py              # Chunker, count_tokens, emit_chunking_done
+│   ├── structural.py        # JSONStructuralChunker + helpers de render
+│   ├── chunker.py           # shim de compatibilidad (imports históricos)
+│   └── strategies/
+│       ├── fixed_size.py
+│       ├── recursive.py
+│       ├── sentence_window.py
+│       ├── semantic.py
+│       ├── propositional.py
+│       ├── contextual_retrieval.py
+│       └── hierarchical.py
 ├── analysis/
 │   ├── similarity.py        # coseno y percentiles (stdlib)
 │   └── comparison.py        # stats + top-k + memoización
+├── embedding/embedder.py    # OpenAIEmbedder (batches, reintentos, dimensions)
 ├── schemas.py               # contratos de ingesta y chunking
-├── embedder.py              # OpenAIEmbedder (batches, reintentos, dimensions)
-└── router.py                # /api/v1/embeddings/{ingest,compare}
+└── …
+
+app/api/embeddings.py        # /api/v1/embeddings/{ingest,compare}
 ```
 
 ### 1.3 Endpoint de comparación
@@ -129,11 +133,11 @@ uv run python scripts/compare_chunkers.py --models small-1536,small-768
 
 # Generar el informe Markdown
 uv run python scripts/compare_chunkers.py --strategies all --queries all \
-  --show-stats --show-cost --output app/embedding_pipeline/COMPARISON_REPORT.md
+  --show-stats --show-cost --output app/generation/rag/COMPARISON_REPORT.md
 ```
 
 El informe con las estrategias gratuitas está versionado en
-`app/embedding_pipeline/COMPARISON_REPORT.md`. El corpus vive en
+`app/generation/rag/COMPARISON_REPORT.md`. El corpus vive en
 `data/budgets_sample.json` (17 presupuestos, 60 componentes) y las queries de
 ejemplo en `data/test_queries.json`. El cliente Node mantiene una
 copia en `cliente-web/data/`; un test comprueba que ambas copias son idénticas.
@@ -202,7 +206,7 @@ PUT /api/v1/config/models
 
 ### 2.3 Store Redis
 
-`app/services/runtime_config.py` guarda los overrides en el hash
+`app/foundation/llm/runtime_config.py` guarda los overrides en el hash
 `estimator:runtime_config`. Redis es la fuente de verdad y se lee en cada
 llamada, así que:
 

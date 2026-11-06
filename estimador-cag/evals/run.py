@@ -27,9 +27,9 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.dependencies import get_session_store
+from app.domain.schemas.estimations import EstimationResult
+from app.generation.conversation.store import SessionStore
 from app.main import app
-from app.schemas.estimations import EstimationResult
-from app.sessions.store import SessionStore
 from evals.dataset import GoldenCase, load_dataset
 from evals.metrics import MetricResult, run_all_metrics
 

@@ -1,7 +1,7 @@
 """Tests del resolver de tier dinámico (sesión 5, directo)."""
 
-from app.sessions.models import ProjectMetadata
-from app.sessions.tier_resolver import Tier, resolve_tier
+from app.domain.schemas.conversation import ProjectMetadata
+from app.generation.conversation.tier_resolver import Tier, resolve_tier
 
 
 def _resolve(

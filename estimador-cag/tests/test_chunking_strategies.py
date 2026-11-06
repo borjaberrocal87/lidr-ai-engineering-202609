@@ -9,9 +9,8 @@ from typing import Any
 
 import pytest
 
-from app.embedding_pipeline.analysis.comparison import ChunkingComparator
-from app.embedding_pipeline.schemas import Budget, Chunk, EmbeddedChunk
-from app.embedding_pipeline.strategies import (
+from app.generation.rag.analysis.comparison import ChunkingComparator
+from app.generation.rag.chunking.strategies import (
     ContextualRetrievalChunker,
     FixedSizeChunker,
     HierarchicalChunker,
@@ -19,8 +18,9 @@ from app.embedding_pipeline.strategies import (
     RecursiveChunker,
     SentenceWindowChunker,
 )
-from app.embedding_pipeline.strategies import sentence_window as sentence_window_module
-from app.embedding_pipeline.structural import JSONStructuralChunker
+from app.generation.rag.chunking.strategies import sentence_window as sentence_window_module
+from app.generation.rag.chunking.structural import JSONStructuralChunker
+from app.generation.rag.schemas import Budget, Chunk, EmbeddedChunk
 
 DATASET = Path(__file__).resolve().parents[1] / "data" / "budgets_sample.json"
 

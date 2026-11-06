@@ -1,7 +1,7 @@
 """Tests del guardrail de salida `enforce_scope_response` (política filter)."""
 
-from app.guardrails.output import enforce_scope_response
-from app.schemas.estimations import EstimationResult, Phase
+from app.domain.schemas.estimations import EstimationResult, Phase
+from app.foundation.guardrails.output import enforce_scope_response
 
 
 def _high_confidence() -> EstimationResult:

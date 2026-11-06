@@ -2,108 +2,67 @@
 
 API FastAPI que recibe una **descripción de proyecto tipada** (descripción libre + tipo, nivel de detalle y formato de salida) y devuelve una estimación de software **estructurada y validada** (JSON) generada por un LLM, usando **arquitectura CAG** (Context-Augmented Generation): el contexto estático (ejemplos de estimaciones previas) se inyecta directamente en el prompt en cada llamada. Sin base de datos, sin retrieval, sin persistencia.
 
-El prompt no vive en el código: se compone con **plantillas Jinja2 versionadas** (`app/prompts/`), de modo que cambiar texto, ejemplos o reglas es cambiar un `.j2`, no refactorizar el servicio. La salida del modelo se fuerza a un **JSON schema**, se valida con **Pydantic** (con reintento ante errores) y pasa por **guardrails** de entrada y salida.
+El prompt no vive en el código: se compone con **plantillas Jinja2 versionadas** (`app/foundation/prompts/`), de modo que cambiar texto, ejemplos o reglas es cambiar un `.j2`, no refactorizar el servicio. La salida del modelo se fuerza a un **JSON schema**, se valida con **Pydantic** (con reintento ante errores) y pasa por **guardrails** de entrada y salida.
 
 Además del endpoint transaccional, la **sesión 5** añade **memoria conversacional**: `POST /api/v1/sessions/{session_id}/estimate` mantiene una ventana deslizante de turnos y unos `project_metadata` (hechos del proyecto) separados del historial, y acepta **adjuntos PDF/DOCX** que se extraen localmente y enriquecen la transcripción.
 
 ## Alcance
 
-El contexto CAG son los ejemplos few-shot de `app/prompts/estimation/v1/examples.j2`, inyectados en el system prompt en cada llamada. Sin base de datos ni retrieval: es una decisión, no deuda pendiente.
+El contexto CAG son los ejemplos few-shot de `app/foundation/prompts/estimation/v1/examples.j2`, inyectados en el system prompt en cada llamada. Sin base de datos ni retrieval: es una decisión, no deuda pendiente.
 
 El umbral para revisarla: cuando el catálogo crezca más allá de unos 15-20 ejemplos, toca migrar a una fuente vectorial (RAG). El punto de cambio está aislado en el template (`examples.j2`) y en el loader, de modo que el router y el servicio no se enteran.
 
 ## Estructura
 
-```
+La organización sigue el contrato de capas de [`ARQUITECTURA.md`](ARQUITECTURA.md): las tres
+arquitecturas de IA (CAG, RAG y Agentic) componen únicamente a través de
+`app/domain/estimation_service.py`.
+
+```text
 estimador-cag/
-├── app/                         # Backend (FastAPI): aquí vive el LLM y las claves
-│   ├── main.py                  # App FastAPI, router /api/v1, GET /health, /docs
+├── app/
+│   ├── main.py                  # App FastAPI, /health, /docs
 │   ├── config.py                # Settings (Pydantic BaseSettings) desde .env
-│   ├── logging_config.py        # Configuración de structlog (console/json)
-│   ├── routers/
-│   │   ├── estimations.py       # /estimate, /estimate/stream (SSE) y /context
-│   │   ├── sessions.py          # /sessions, /sessions/{id} y .../estimate (multipart)
-│   │   ├── ingestion.py         # /ingestion/runs y /ingestion/jobs/{id} (sesión 6)
-│   │   └── config.py            # GET/PUT /config/models (ajustes runtime)
-│   ├── schemas/
-│   │   ├── estimations.py       # Contrato HTTP (Pydantic) y enums del formulario
-│   │   ├── ingestion.py         # Contratos de la ingesta (sesión 6)
-│   │   └── observability.py     # TurnObservation del stress test (sesión 6)
-│   ├── prompts/                 # Prompts versionados (Jinja2)
-│   │   ├── loader.py            # render_estimation_prompt / render_conversational_prompt
-│   │   ├── estimation/v1/       # system.j2, user.j2, examples.j2
-│   │   └── metadata_extraction/v1/  # system.j2, user.j2 (extractor de project_metadata)
-│   ├── sessions/                # Memoria conversacional en memoria del proceso (sesión 5)
-│   │   ├── models.py            # ConversationHistory, ProjectMetadata, Session
-│   │   ├── store.py             # SessionStore (dict por session_id)
-│   │   └── metadata_extractor.py  # Segunda llamada LLM por turno
-│   ├── attachments/
-│   │   └── extractor.py         # Extracción local de texto de PDF/DOCX (camino B)
-│   ├── guardrails/
-│   │   ├── input.py             # Moderación + prompt-injection + PII
-│   │   └── output.py            # Filtro enforce_scope_response (baja confianza)
-│   ├── services/
-│   │   ├── llm_service.py       # Orquesta: guardrails, prompts, caché y wrapper
-│   │   ├── llm_wrapper.py       # Wrapper LiteLLM (fallback, caché, coste, logging, JSON schema)
-│   │   └── runtime_config.py    # Overrides de modelo en Redis (ajustes runtime)
-│   ├── ingestion/               # Ingesta de datos (sesión 6). Ver docs/ingesta-datos-sesion-06.md
-│   │   ├── catalog/             # Catálogo de fuentes (include/review/exclude)
-│   │   ├── loaders/ · parsers/  # bytes → Document (json, txt)
-│   │   ├── cleaning/            # Limpieza/validación tabular (pandas + pandera)
-│   │   ├── pii/                 # Detección/pseudonimización (Presidio + spaCy + Faker)
-│   │   └── orchestrator.py      # Caso de uso ingest_source + ensure_ingestible
-│   ├── persistence/             # Postgres sync + Alembic (S6) y motor async (S8)
-│   ├── embedding_pipeline/      # Chunking + embeddings (S7) y store pgvector (S8)
-│   │   ├── base.py              # Interfaz Chunker + helpers de tokens/logs
-│   │   ├── structural.py        # Chunker estructural y render del corpus
-│   │   ├── chunker.py           # Shim de compatibilidad de imports
-│   │   ├── strategies/          # 7 estrategias del comparador (S7 directo)
-│   │   ├── analysis/            # Coseno/percentiles + framework de comparación
-│   │   ├── embedder.py          # OpenAIEmbedder (batches, reintentos, dimensions)
-│   │   ├── schemas.py           # Contratos (Budget, Chunk, Ingest, Search…)
-│   │   ├── ingest_service.py    # chunk → embed → persist en una transacción (S8)
-│   │   ├── retriever.py         # Búsqueda k-NN por coseno (S8)
-│   │   ├── store/               # Modelos ORM y repositorio async (S8)
-│   │   └── router.py            # POST /embeddings/{ingest,compare}
-├── frontend/                    # Capa de presentación (no importa `app.*`)
-│   ├── config.py                # API_BASE_URL y timeouts
-│   ├── client.py                # Cliente HTTP (httpx) contra la API
-│   ├── models.py                # Modelos locales de respuesta
-│   ├── logging_config.py        # Logging del frontend
-│   └── streamlit_app.py         # Formulario tipado (Streamlit)
-├── cliente-web/                 # Cliente de negocio Node (Express + EJS + Tailwind + Postgres)
-│   ├── src/                     # server, app, clientes HTTP, repositorios y rutas
-│   ├── views/                   # EJS (estimación, ingesta, Chunking Lab y Ajustes)
-│   ├── data/                    # Copia del corpus para la comparativa
-│   ├── migrations/              # Estimaciones + runs del Chunking Lab
-│   ├── test/                    # node:test + supertest
-│   └── Dockerfile
-├── tests/                       # Tests con pytest (proveedores y API mockeados)
-│   └── prompts/                 # Tests de los templates (sin LLM)
-├── evals/                       # Framework de evals del estimador
-│   └── stress/                  # Baseline de estrés del CAG (sesión 6): escenarios, fixtures y métricas
-├── examples/
-│   └── transcripcion.md         # Transcripción de reunión de ejemplo (input del formulario)
-├── alembic/                     # Migraciones Alembic (S6) + pgvector (S8)
-│   └── versions/0002_session8_pgvector.py
-├── data/                        # Catálogo, corpus semilla (S6), budgets_sample.json (S7) y evidencia (S8)
-│   └── output/session08/output_examples.txt
-├── docs/                        # Documentación de subsistemas (ingesta, stress, Chunking Lab, pgvector, RAG Ops…)
-├── scripts/                     # Preflight/demos S6; comparativas S7; query_examples S8; rag_ops (índices y operación)
-├── specs/
-│   ├── sesion-2-scaffolding-fastapi.md  # Spec del backend FastAPI (sesión 2)
-│   ├── sesion-3-interfaz-conversacional-streamlit.md  # Spec de la UI (sesión 3)
-│   ├── sesion-4-formulario-tipado-prompt-jinja2.md  # Spec del formulario y prompts (sesión 4)
-│   ├── sesion-5-memoria-conversacional-adjuntos.md  # Spec de memoria y adjuntos (sesión 5)
-│   ├── sesion-6-stress-test-cag.md  # Spec del baseline de estrés del CAG (sesión 6)
-│   ├── sesion-7-pipeline-embeddings.md  # Spec del pipeline de embeddings (sesión 7)
-│   ├── sesion-8-persistencia-pgvector-busqueda-semantica.md  # Spec de pgvector y búsqueda (sesión 8)
-│   └── proveedor-openai-compatible.md  # Spec del proveedor custom (OpenAI-compatible)
-├── Dockerfile               # Build multi-stage (builder / test / runtime)
-├── docker-compose.yml       # Servicios api, ui, redis, cliente-web, postgres y estimator-postgres (pgvector)
-├── .dockerignore
+│   ├── dependencies.py          # Composition root: cablea singletons
+│   ├── foundation/              # Plomería sin opinión de arquitectura AI
+│   │   ├── llm/                 # wrapper.py · runtime_config.py · errors.py
+│   │   ├── prompts/             # loader.py + plantillas Jinja2 versionadas
+│   │   ├── guardrails/          # input.py · output.py
+│   │   ├── attachments/         # extractor.py (PDF/DOCX)
+│   │   ├── cache/               # backends.py (memoria, Redis, null)
+│   │   ├── persistence/         # database.py · models.py · repositories/ · unit_of_work.py
+│   │   └── observability/       # logging.py (structlog)
+│   ├── domain/                  # Contrato + conductor
+│   │   ├── schemas/             # estimations.py · acb.py · critic.py · conversation.py · …
+│   │   ├── ports/               # Puertos compartidos (ingesta)
+│   │   ├── estimation_service.py # ÚNICO punto de composición CAG/RAG/Agentic
+│   │   └── streaming_service.py # Camino texto libre / SSE
+│   ├── generation/              # Las tres arquitecturas + substrato conversacional
+│   │   ├── cag/                 # exact.py · semantic.py
+│   │   ├── rag/                 # chunking/ · embedding/ · analysis/ · store/ · ingest_service.py
+│   │   ├── agentic/             # boss.py · critic.py
+│   │   └── conversation/        # models.py · store.py · compression/ · tier_resolver.py
+│   ├── ingestion/               # Pipeline batch offline de fuentes (S06)
+│   │   ├── catalog/ loaders/ parsers/ cleaning/ pii/ documents/
+│   │   └── orchestrator.py
+│   └── api/                     # Transporte fino
+│       ├── estimations.py · sessions.py · ingestion.py
+│       └── search.py · embeddings.py · config.py
+├── frontend/                    # Presentación Streamlit (no importa `app.*`)
+├── cliente-web/                 # Cliente de negocio Node (Express + EJS + Postgres)
+├── tests/                       # pytest; incluye test_layering.py y test_frontend_decoupling.py
+├── evals/                       # Framework de evals y stress del CAG
+├── examples/                    # Transcripciones y trace de S09
+├── alembic/                     # Migraciones S06 + pgvector S08
+├── data/                        # Catálogo, corpus semilla y evidencias
+├── docs/                        # Documentación de subsistemas
+├── scripts/                     # Preflight, comparativas, query_examples y rag_ops
+├── specs/                       # Specs históricas de las sesiones
+├── Dockerfile
+├── docker-compose.yml
 ├── .env.example
 ├── pyproject.toml
+├── ARQUITECTURA.md              # Contrato de capas (CAG/RAG/Agentic)
 └── README.md
 ```
 
@@ -407,7 +366,7 @@ La pantalla **/ingestion** del cliente de negocio Node consume estos endpoints
 ## Pipeline de embeddings (Sesión 7)
 
 Primer paso hacia la búsqueda semántica: convertir los presupuestos históricos
-en vectores. El módulo vive en `app/embedding_pipeline/` y expone la ingesta y,
+en vectores. El módulo vive en `app/generation/rag/` y expone la ingesta y,
 desde el directo, la comparativa de estrategias. En la S7 **no se persistía
 nada**: los vectores se generaban en memoria y se devolvían por HTTP. **Desde
 la S8 el ingest persiste en pgvector** y la búsqueda semántica es real (ver la
@@ -454,7 +413,7 @@ uv run python scripts/compare.py \
 ```
 
 Los resultados de las tres parejas de validación están en
-[`app/embedding_pipeline/SANITY_CHECK.md`](app/embedding_pipeline/SANITY_CHECK.md).
+[`app/generation/rag/SANITY_CHECK.md`](app/generation/rag/SANITY_CHECK.md).
 
 ### Configuración de embeddings
 
@@ -470,7 +429,7 @@ los valores de `SANITY_CHECK.md` no serán comparables.
 El chunker estructural sigue siendo la base, pero ahora convive con **ocho
 estrategias** detrás de la misma interfaz `Chunker` (estructural, fixed size,
 recursive, sentence window, semantic, propositional, contextual retrieval y
-hierarchical). Viven en `app/embedding_pipeline/strategies/`.
+hierarchical). Viven en `app/generation/rag/chunking/strategies/`.
 
 - **Endpoint**: `POST /api/v1/embeddings/compare` devuelve estadísticos por
   estrategia (chunks, percentiles de tokens, huérfanos/obesos, coste y segundos)
@@ -485,7 +444,7 @@ hierarchical). Viven en `app/embedding_pipeline/strategies/`.
 - Las estrategias `semantic`, `propositional` y `contextual_retrieval` llaman a
   APIs externas durante la ingesta y son opt-in en la UI.
 - **Informe de referencia**:
-  [`app/embedding_pipeline/COMPARISON_REPORT.md`](app/embedding_pipeline/COMPARISON_REPORT.md)
+  [`app/generation/rag/COMPARISON_REPORT.md`](app/generation/rag/COMPARISON_REPORT.md)
   (estrategias gratuitas sobre los 17 presupuestos).
 
 Detalles, contrato completo, costes y demo en
@@ -496,7 +455,7 @@ Detalles, contrato completo, costes y demo en
 El pipeline de la S07 ya no devuelve vectores por HTTP: los persiste en Postgres
 + pgvector reutilizando `estimator-postgres` (sin servicio nuevo). La migración
 `0002_session8_pgvector` crea `documents`/`chunks`; el store async y el
-retriever viven en `app/embedding_pipeline/`, y el servicio expone
+retriever viven en `app/generation/rag/`, y el servicio expone
 `POST /api/v1/embeddings/ingest` y `POST /api/v1/search`.
 
 Las cuatro decisiones de diseño —dos tablas, metadata JSONB, distancia coseno y
@@ -593,13 +552,13 @@ Por privacidad se registran **solo metadatos**: nunca la API key ni el texto de 
 
 ## Wrapper de proveedores y caché
 
-La llamada al proveedor vive en `app/services/llm_wrapper.py`, un wrapper sobre **LiteLLM** que unifica los tres proveedores (`openai`, `anthropic` y `custom` OpenAI-compatible) y añade:
+La llamada al proveedor vive en `app/foundation/llm/wrapper.py`, un wrapper sobre **LiteLLM** que unifica los tres proveedores (`openai`, `anthropic` y `custom` OpenAI-compatible) y añade:
 
 - **Fallback**: el `Router` gestiona primario y secundario según `LLM_ROUTING_MODE`.
   - `fallback` (por defecto): el primario (`LLM_MODEL`) se usa siempre y solo se cae a `LLM_FALLBACK_MODEL` si el primario lanza una excepción tras los reintentos.
   - `balanced`: ambas deployments comparten `model_name`, así que LiteLLM reparte las peticiones entre primario y secundario (`simple-shuffle`); útil para comparar modelos.
   En ambos casos la respuesta indica `fallback_used` (en `balanced`, significa "atendido por el deployment secundario").
-- **Caché exact-match** (`app/services/cache.py`): la clave es un SHA-256 de un *material de clave* canónico —el `EstimationRequest`, la `prompt_version` y la huella (`prompt_fingerprint`) de las fuentes de esa versión— más los knobs de generación (`model`, `max_tokens`, `temperature`). El adaptador de caché no conoce la semántica del prompt: el dominio le pasa material opaco. Cualquier cambio relevante (campos del request, versión, o edición de un `.j2`) invalida la caché solo.
+- **Caché exact-match** (`app/generation/cag/exact.py`): la clave es un SHA-256 de un *material de clave* canónico —el `EstimationRequest`, la `prompt_version` y la huella (`prompt_fingerprint`) de las fuentes de esa versión— más los knobs de generación (`model`, `max_tokens`, `temperature`). El adaptador de caché no conoce la semántica del prompt: el dominio le pasa material opaco. Cualquier cambio relevante (campos del request, versión, o edición de un `.j2`) invalida la caché solo.
   - `CACHE_BACKEND=memory` (por defecto) usa una caché TTL en proceso, sin infraestructura.
   - `CACHE_BACKEND=redis` usa Redis (persistente y compartida) con `REDIS_URL`/`CACHE_TTL`.
   - `CACHE_BACKEND=none` la desactiva.
@@ -638,7 +597,7 @@ El orden del pipeline es: guardrails de entrada → caché exacta → caché sem
 El prompt ya no es un `f-string` en el código. Vive en plantillas Jinja2 con versiones en disco:
 
 ```
-app/prompts/
+app/foundation/prompts/
 ├── loader.py                 # render_estimation_prompt(request, version) -> (system, user)
 └── estimation/
     ├── v1/                   # tono directo, cifras únicas
@@ -653,7 +612,7 @@ app/prompts/
 
 Además, desde la sesión 5 (directo) existen tres casos de uso de prompt más: `estimation/v3/` (conversacional con bloque `<audiencia>` por tier y soporte de `critic_feedback`), `metadata_extraction/v1/` (extractor de `ProjectMetadata`), `critic/v1/` (auditor ACB) y `conversation_summary/v1/` (resumidor acumulativo).
 
-El `Environment` de Jinja2 usa `FileSystemLoader` sobre `app/prompts/`, `StrictUndefined` (un typo entre el contexto y la plantilla revienta en el render, no se interpola vacío) y `trim_blocks`/`lstrip_blocks` (las etiquetas de control no dejan saltos ni espacios en el prompt). `system.j2` decide el bloque de `output_format` y el de `detail_level` con `{% if %}` e incluye los ejemplos con `{% include "estimation/<versión>/examples.j2" %}`.
+El `Environment` de Jinja2 usa `FileSystemLoader` sobre `app/foundation/prompts/`, `StrictUndefined` (un typo entre el contexto y la plantilla revienta en el render, no se interpola vacío) y `trim_blocks`/`lstrip_blocks` (las etiquetas de control no dejan saltos ni espacios en el prompt). `system.j2` decide el bloque de `output_format` y el de `detail_level` con `{% if %}` e incluye los ejemplos con `{% include "estimation/<versión>/examples.j2" %}`.
 
 `render_estimation_prompt` devuelve `(system, user)` por separado, que es lo que el wrapper envía como dos mensajes (`role: "system"` y `role: "user"`). `available_estimation_versions()` lista las versiones presentes en disco.
 

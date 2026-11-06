@@ -10,8 +10,8 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.dependencies import get_rag_ingest_service
-from app.embedding_pipeline.ingest_service import DuplicateDocumentError
-from app.embedding_pipeline.schemas import Budget, IngestResponse
+from app.generation.rag.ingest_service import DuplicateDocumentError
+from app.generation.rag.schemas import Budget, IngestResponse
 from app.main import app
 
 DATASET = Path(__file__).resolve().parents[1] / "data" / "budgets_sample.json"

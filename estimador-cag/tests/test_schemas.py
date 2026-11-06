@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.estimations import (
+from app.domain.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
     EstimationResult,

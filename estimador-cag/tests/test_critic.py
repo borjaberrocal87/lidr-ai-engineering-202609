@@ -2,11 +2,11 @@
 
 from typing import Any
 
-from app.schemas.critic import CriticFeedback, CriticIssue
-from app.schemas.estimations import EstimationResult, Phase
-from app.services.critic import Critic
-from app.sessions.models import ProjectMetadata
-from app.sessions.tier_resolver import Tier
+from app.domain.schemas.conversation import ProjectMetadata
+from app.domain.schemas.critic import CriticFeedback, CriticIssue
+from app.domain.schemas.estimations import EstimationResult, Phase
+from app.generation.agentic.critic import Critic
+from app.generation.conversation.tier_resolver import Tier
 
 
 def _result() -> EstimationResult:

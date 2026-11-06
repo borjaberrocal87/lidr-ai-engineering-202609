@@ -12,7 +12,7 @@ BackgroundTask de FastAPI. Garantías:
    del puerto ``IngestionUnitOfWork``; el commit lo gobierna el caso de uso en la
    frontera de cada transición (UoW ligero).
 3. El núcleo no conoce SQLAlchemy: sólo depende de los puertos de
-   ``app.ingestion.ports``.
+   ``app.domain.ports.ingestion``.
 """
 
 from __future__ import annotations
@@ -22,13 +22,13 @@ from datetime import UTC, datetime
 
 import structlog
 
+from app.domain.ports.ingestion import IngestionUnitOfWork, TextPseudonymizer
 from app.ingestion.catalog.models import CatalogDecision, CatalogSource, DataCatalog
 from app.ingestion.documents.models import Document
 from app.ingestion.errors import SourceNotIncluded, UnknownSource
 from app.ingestion.loaders.filesystem import FileSystemLoader
 from app.ingestion.parsers.protocol import ParseContext
 from app.ingestion.parsers.registry import ParserRegistry
-from app.ingestion.ports import IngestionUnitOfWork, TextPseudonymizer
 
 log = structlog.get_logger(__name__)
 

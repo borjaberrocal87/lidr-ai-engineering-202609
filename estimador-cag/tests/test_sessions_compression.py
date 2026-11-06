@@ -2,10 +2,11 @@
 
 from typing import Any
 
-from app.sessions.compression.anchors import AnchorDetector
-from app.sessions.compression.policy import CompressionPolicy
-from app.sessions.compression.summarizer import CumulativeSummarizer, SummaryEnvelope
-from app.sessions.models import ConversationHistory, Message
+from app.domain.schemas.conversation import Message
+from app.generation.conversation.compression.anchors import AnchorDetector
+from app.generation.conversation.compression.policy import CompressionPolicy
+from app.generation.conversation.compression.summarizer import CumulativeSummarizer, SummaryEnvelope
+from app.generation.conversation.models import ConversationHistory
 
 
 class _StubSummarizer:

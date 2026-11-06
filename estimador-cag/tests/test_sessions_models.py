@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.sessions.models import ConversationHistory, Message, ProjectMetadata, Session
-from app.sessions.store import SessionNotFoundError, SessionStore
+from app.domain.schemas.conversation import Message, ProjectMetadata
+from app.generation.conversation.models import ConversationHistory, Session
+from app.generation.conversation.store import SessionNotFoundError, SessionStore
 
 
 def test_history_composes_summary_anchors_and_recent_window() -> None:

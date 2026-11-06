@@ -33,7 +33,7 @@ Antes de medir hacía falta **una** fila por turno. Hasta la sesión 5 la estima
 emitía logs sueltos (`session.estimate_received`, `llm.structured.end`,
 `history_compressed`, `summarizer_completed`); reconstruir un CSV exigía
 reconciliar cinco líneas por timestamp. Ahora cada turno emite un único evento
-agregado, definido en `app/schemas/observability.py` (`TurnObservation`):
+agregado, definido en `app/domain/schemas/observability.py` (`TurnObservation`):
 
 | Campo | Qué mide |
 | --- | --- |
@@ -51,7 +51,7 @@ agregado, definido en `app/schemas/observability.py` (`TurnObservation`):
 | `last_resolved_tier` | Tier de audiencia resuelto. |
 
 Se emite justo antes del `return` en
-`EstimationService.estimate_conversational()` (`app/services/estimation.py`), que
+`EstimationService.estimate_conversational()` (`app/domain/estimation_service.py`), que
 es el único punto con acceso a la vez al `meta` del wrapper (tokens/coste/latencia)
 y al `session.history` **tras** la compresión. Dos decisiones de esa emisión:
 
@@ -169,9 +169,9 @@ Detalle completo, tablas y lectura en [REPORT.md](../evals/stress/REPORT.md).
 
 | Pieza | Fichero |
 | --- | --- |
-| Observación del turno | `app/schemas/observability.py` |
-| Emisión + persistencia | `app/services/estimation.py` (`estimate_conversational`) |
-| Exposición en debug | `app/routers/sessions.py` (`GET /sessions/{id}`) |
+| Observación del turno | `app/domain/schemas/observability.py` |
+| Emisión + persistencia | `app/domain/estimation_service.py` (`estimate_conversational`) |
+| Exposición en debug | `app/api/sessions.py` (`GET /sessions/{id}`) |
 | Escenarios | `evals/stress/scenarios.py` |
 | Fixtures PDF | `evals/stress/fixtures/build_pdfs.py` |
 | Métricas | `evals/stress/metrics.py` |

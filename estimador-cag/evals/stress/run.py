@@ -31,8 +31,8 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app.dependencies import get_session_store
+from app.generation.conversation.store import SessionStore
 from app.main import app
-from app.sessions.store import SessionStore
 from evals.stress.fixtures.build_pdfs import build_all, marker_for
 from evals.stress.metrics import (
     CostBudgetMetric,

@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.embedding_pipeline.chunker import JSONStructuralChunker, count_tokens
-from app.embedding_pipeline.schemas import Budget
+from app.generation.rag.chunking.chunker import JSONStructuralChunker, count_tokens
+from app.generation.rag.schemas import Budget
 
 DATASET = Path(__file__).resolve().parents[1] / "data" / "budgets_sample.json"
 

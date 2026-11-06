@@ -31,10 +31,10 @@ import random
 import tiktoken
 from sqlalchemy import select, text
 
-from app.embedding_pipeline.embedder import estimate_cost_usd
-from app.embedding_pipeline.schemas import Chunk
-from app.embedding_pipeline.store.models import ChunkRow, DocumentRow
-from app.persistence.database import get_async_session_factory
+from app.foundation.persistence.database import get_async_session_factory
+from app.generation.rag.embedding.embedder import estimate_cost_usd
+from app.generation.rag.schemas import Chunk
+from app.generation.rag.store.models import ChunkRow, DocumentRow
 from scripts.rag_ops.common import (
     print_footer,
     print_header,

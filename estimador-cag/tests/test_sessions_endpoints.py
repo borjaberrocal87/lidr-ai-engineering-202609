@@ -11,12 +11,12 @@ import pytest
 
 from app.config import settings
 from app.dependencies import get_session_store
+from app.domain import estimation_service as estimation
+from app.domain.schemas.conversation import ProjectMetadata
+from app.domain.schemas.critic import CriticFeedback
+from app.domain.schemas.estimations import EstimationResult
+from app.generation.conversation.store import SessionStore
 from app.main import app
-from app.schemas.critic import CriticFeedback
-from app.schemas.estimations import EstimationResult
-from app.services import estimation
-from app.sessions.models import ProjectMetadata
-from app.sessions.store import SessionStore
 
 VALID_FORM = {
     "transcript": "We want a CRM called Nimbus built with React for the sales team.",

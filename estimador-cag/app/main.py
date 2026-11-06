@@ -6,11 +6,11 @@ import structlog
 from fastapi import FastAPI, Request
 from starlette.responses import Response
 
+from app.api import config as config_router
+from app.api import estimations, ingestion, search, sessions
+from app.api.embeddings import router as embeddings_router
 from app.config import APP_NAME, settings
-from app.embedding_pipeline.router import router as embeddings_router
-from app.logging_config import configure_logging
-from app.routers import config as config_router
-from app.routers import estimations, ingestion, search, sessions
+from app.foundation.observability.logging import configure_logging
 
 configure_logging()
 

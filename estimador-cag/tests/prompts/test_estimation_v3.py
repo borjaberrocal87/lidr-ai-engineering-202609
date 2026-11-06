@@ -1,10 +1,13 @@
 """Tests del prompt conversacional v3 (bloque <audiencia> + critic_feedback)."""
 
-from app.prompts.loader import available_estimation_versions, render_conversational_prompt
-from app.schemas.critic import CriticFeedback, CriticIssue
-from app.schemas.estimations import DetailLevel, OutputFormat, ProjectType
-from app.sessions.models import ProjectMetadata
-from app.sessions.tier_resolver import Tier
+from app.domain.schemas.conversation import ProjectMetadata
+from app.domain.schemas.critic import CriticFeedback, CriticIssue
+from app.domain.schemas.estimations import DetailLevel, OutputFormat, ProjectType
+from app.foundation.prompts.loader import (
+    available_estimation_versions,
+    render_conversational_prompt,
+)
+from app.generation.conversation.tier_resolver import Tier
 
 
 def _render(tier: object | None = None, critic_feedback: object | None = None) -> tuple[str, str]:

@@ -2,8 +2,8 @@
 
 from typing import Any
 
-from app.sessions.compression.anchors import AnchorDetector
-from app.sessions.models import Message
+from app.domain.schemas.conversation import Message
+from app.generation.conversation.compression.anchors import AnchorDetector
 
 
 def _msg(text: str) -> Message:
@@ -43,7 +43,7 @@ class _FakeWrapper:
 
 
 def test_llm_mode_uses_wrapper_classification() -> None:
-    from app.sessions.compression.anchors import _AnchorClassification
+    from app.generation.conversation.compression.anchors import _AnchorClassification
 
     wrapper = _FakeWrapper(
         classification=_AnchorClassification(is_anchor=True, reason="locked budget")

@@ -2,21 +2,21 @@
 
 from typing import Any
 
-from app.cache.semantic import (
-    EstimationSemanticCache,
-    _index_name,
-    _index_schema,
-    _similarity,
-    _slug,
-    _to_bytes,
-)
-from app.schemas.estimations import (
+from app.domain.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
     EstimationResult,
     OutputFormat,
     Phase,
     ProjectType,
+)
+from app.generation.cag.semantic import (
+    EstimationSemanticCache,
+    _index_name,
+    _index_schema,
+    _similarity,
+    _slug,
+    _to_bytes,
 )
 
 
@@ -202,7 +202,7 @@ def test_to_bytes_returns_float32_bytes() -> None:
 
 
 def test_service_uses_semantic_cache(monkeypatch) -> None:
-    from app.services import estimation
+    from app.domain import estimation_service as estimation
     from tests.conftest import FakeWrapper
 
     fake_wrapper = FakeWrapper()

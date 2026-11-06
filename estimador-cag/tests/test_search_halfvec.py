@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.dialects import postgresql
 
-from app.embedding_pipeline.store.repository import ChunkStore
+from app.generation.rag.store.repository import ChunkStore
 
 
 def _compiled(store: ChunkStore) -> str:

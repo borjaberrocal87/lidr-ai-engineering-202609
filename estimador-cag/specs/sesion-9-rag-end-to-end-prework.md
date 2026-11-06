@@ -1,5 +1,9 @@
 # Spec — Proyecto 3: RAG end-to-end (pre-work de diagnóstico arquitectónico)
 
+> **Nota de contexto.** Los paths citados en esta spec describen la estructura previa al refactor
+> de capas de `feature/pre-session-09-reorganize-into-layered-arquitecture`. La estructura vigente
+> está en [`../ARQUITECTURA.md`](../ARQUITECTURA.md).
+
 ## Objetivo
 
 La Sesión 08 cerró con un servicio IA que ya sabe hacer dos cosas: **vectorizar presupuestos

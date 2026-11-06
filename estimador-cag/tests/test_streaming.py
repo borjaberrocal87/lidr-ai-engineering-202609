@@ -1,4 +1,4 @@
-"""Tests del camino de texto libre y streaming (``app.services.streaming``)."""
+"""Tests del camino de texto libre y streaming (``app.domain.streaming_service``)."""
 
 from types import SimpleNamespace
 from typing import Any
@@ -7,26 +7,27 @@ import pytest
 from structlog.testing import capture_logs
 
 from app.config import settings
-from app.schemas.estimations import (
+from app.domain import estimation_service as estimation
+from app.domain import streaming_service as streaming
+from app.domain.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
     OutputFormat,
     ProjectType,
 )
-from app.services import estimation, streaming
-from app.services.cache import InMemoryCache
-from app.services.errors import (
-    LLMConfigurationError,
-    LLMInputError,
-    LLMProviderError,
-)
-from app.services.llm_wrapper import LLMWrapper
-from app.services.streaming import (
+from app.domain.streaming_service import (
     StreamMetrics,
     TextEstimationResult,
     generate_estimation,
     stream_estimation,
 )
+from app.foundation.cache.backends import InMemoryCache
+from app.foundation.llm.errors import (
+    LLMConfigurationError,
+    LLMInputError,
+    LLMProviderError,
+)
+from app.foundation.llm.wrapper import LLMWrapper
 from tests.conftest import FakeWrapper
 
 DESCRIPTION = "El cliente necesita una landing page con integración con HubSpot."
