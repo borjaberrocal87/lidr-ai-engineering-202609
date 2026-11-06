@@ -228,6 +228,11 @@ class RetrievedChunk(BaseModel):
     project_year: int | None = None
     chunk_type: str
     distance: float = Field(description="Distancia coseno (menor = más similar).")
+    budget_id: str | None = Field(
+        default=None,
+        description="Traceable parent budget id from JSONB metadata; used to grade "
+        "precision by budget in the Session 10 evaluation.",
+    )
 
 
 class RetrievalOutcome(BaseModel):
@@ -319,6 +324,9 @@ class RetrievalQuery(BaseModel):
     project_year_min: int | None = Field(default=None, ge=2010, le=2100)
     project_year_max: int | None = Field(default=None, ge=2010, le=2100)
     chunk_types: list[str] | None = None
+    # Session 10 overrides (None = fall back to runtime → settings).
+    search_mode: Literal["vector", "hybrid"] | None = None
+    rerank: bool | None = None
 
 
 class TranscriptEstimateRequest(BaseModel):
