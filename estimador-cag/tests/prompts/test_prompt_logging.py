@@ -2,13 +2,13 @@
 
 from structlog.testing import capture_logs
 
-from app.prompts.loader import render_estimation_prompt
-from app.schemas.estimations import (
+from app.domain.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
     OutputFormat,
     ProjectType,
 )
+from app.foundation.prompts.loader import render_estimation_prompt
 
 
 def _make_request(**overrides) -> EstimationRequest:

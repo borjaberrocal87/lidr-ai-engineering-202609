@@ -3,7 +3,7 @@
 import fakeredis
 import redis
 
-from app.services.cache import (
+from app.foundation.cache.backends import (
     InMemoryCache,
     NullCache,
     RedisCache,

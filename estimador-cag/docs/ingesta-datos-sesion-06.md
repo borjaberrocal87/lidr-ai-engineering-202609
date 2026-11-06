@@ -27,7 +27,7 @@ Este documento describe el subsistema que hace eso. Sus piezas:
 
 > **De CAG a RAG sin reescribir nada.** La ingesta es **aditiva**: no toca el
 > camino de estimación (transaccional, conversacional ni ACB). Vive en
-> `app/ingestion/` y `app/persistence/`, y su punto de entrada HTTP es un router
+> `app/ingestion/` y `app/foundation/persistence/`, y su punto de entrada HTTP es un router
 > nuevo. El CAG y el RAG conviven.
 
 ## Arquitectura y regla de dependencia
@@ -42,7 +42,7 @@ el **núcleo** no conoce infraestructura.
 | Adaptadores | Tocar el mundo exterior | `parsers/*`, `loaders/filesystem.py`, `cleaning/*`, `pii/*`, `persistence/*` |
 
 El núcleo **no importa** SQLAlchemy, Presidio, pandas, pandera, Faker ni
-`app.persistence`: depende de los puertos de `app/ingestion/ports.py`
+`app.persistence`: depende de los puertos de `app/domain/ports/ingestion.py`
 (`JobTracker`, `IngestionUnitOfWork`), que los adaptadores satisfacen
 estructuralmente. Esa frontera no es un comentario: la convierte en test
 `tests/test_ingestion_layering.py` (falla si un fichero del núcleo importa una
@@ -229,20 +229,20 @@ app/ingestion/
   architecture.py            CLI CAG/RAG/Hybrid
   orchestrator.py            caso de uso ingest_source + ensure_ingestible
   errors.py                  UnknownSource, SourceNotIncluded
-  ports.py                   JobTracker, IngestionUnitOfWork, TextPseudonymizer (Protocols)
   catalog/                   models, loader, inspect
   loaders/filesystem.py      FileSystemLoader + LoadedBlob
   parsers/                   protocol, registry, budget_json, transcript_txt, csv_records
   documents/models.py        Document, DocumentMetadata
   cleaning/                  budget_records, schemas (pandera), policy
   pii/                       analyzer, recognizers, pseudonymizer, mapping_store
-app/persistence/
+app/foundation/persistence/
   database.py                engine + SessionLocal + get_session
   models.py                  IngestionJobRow, PseudonymMappingRow
   unit_of_work.py            UnitOfWork (UoW ligero)
   repositories/              jobs, mappings
-app/routers/ingestion.py     endpoints HTTP
-app/schemas/ingestion.py     contratos Pydantic
+app/domain/ports/ingestion.py       JobTracker, IngestionUnitOfWork, TextPseudonymizer
+app/api/ingestion.py                endpoints HTTP
+app/domain/schemas/ingestion.py     contratos Pydantic
 alembic/                     env.py + versions/0001_session6_initial.py
 data/catalog/catalog.yaml    catálogo de fuentes
 data/seed/                   corpus (budgets/, transcripts/, presupuestos_extra.csv, rate_card_2024.xlsx)

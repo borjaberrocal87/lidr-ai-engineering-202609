@@ -3,13 +3,13 @@
 import pytest
 from jinja2 import TemplateNotFound
 
-from app.prompts.loader import available_estimation_versions, render_estimation_prompt
-from app.schemas.estimations import (
+from app.domain.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
     OutputFormat,
     ProjectType,
 )
+from app.foundation.prompts.loader import available_estimation_versions, render_estimation_prompt
 
 
 def _make_request(**overrides) -> EstimationRequest:

@@ -16,7 +16,7 @@ from collections.abc import Coroutine, Sequence
 from typing import Any
 
 from app.dependencies import get_embedder
-from app.embedding_pipeline.embedder import OpenAIEmbedder
+from app.generation.rag.embedding.embedder import OpenAIEmbedder
 from scripts.query_examples import QUERIES
 
 # Resultado de embeber una consulta de referencia: etiqueta, texto y vector.

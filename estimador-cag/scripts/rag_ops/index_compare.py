@@ -21,9 +21,9 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.embedding_pipeline.store.models import EMBEDDING_DIMENSIONS
-from app.embedding_pipeline.store.repository import ChunkStore
-from app.persistence.database import get_async_session_factory
+from app.foundation.persistence.database import get_async_session_factory
+from app.generation.rag.store.models import EMBEDDING_DIMENSIONS
+from app.generation.rag.store.repository import ChunkStore
 from scripts.rag_ops.common import (
     DEFAULT_K,
     Stopwatch,

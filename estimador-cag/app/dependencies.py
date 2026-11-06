@@ -17,14 +17,16 @@ import redis
 import structlog
 from openai import OpenAI
 
-from app.cache.semantic import EstimationSemanticCache
 from app.config import BASE_DIR, get_settings, reveal_secret
-from app.embedding_pipeline.base import Chunker
-from app.embedding_pipeline.embedder import OpenAIEmbedder
-from app.embedding_pipeline.ingest_service import RagIngestService
-from app.embedding_pipeline.retriever import SemanticRetriever
-from app.embedding_pipeline.store.repository import ChunkStore
-from app.embedding_pipeline.strategies import (
+from app.foundation.cache.backends import InMemoryCache, NullCache, RedisCache, ResponseCache
+from app.foundation.llm.runtime_config import RuntimeModelConfig
+from app.foundation.llm.wrapper import LLMWrapper, provider_from_model
+from app.foundation.persistence.database import get_async_session_factory
+from app.foundation.persistence.unit_of_work import UnitOfWork
+from app.generation.cag.semantic import EstimationSemanticCache
+from app.generation.conversation.store import SessionStore
+from app.generation.rag.chunking.base import Chunker
+from app.generation.rag.chunking.strategies import (
     ContextualRetrievalChunker,
     FixedSizeChunker,
     HierarchicalChunker,
@@ -33,23 +35,21 @@ from app.embedding_pipeline.strategies import (
     SemanticChunker,
     SentenceWindowChunker,
 )
-from app.embedding_pipeline.structural import JSONStructuralChunker
+from app.generation.rag.chunking.structural import JSONStructuralChunker
+from app.generation.rag.embedding.embedder import OpenAIEmbedder
+from app.generation.rag.ingest_service import RagIngestService
+from app.generation.rag.retriever import SemanticRetriever
+from app.generation.rag.store.repository import ChunkStore
 from app.ingestion.catalog import DataCatalog, load_catalog
 from app.ingestion.loaders.filesystem import FileSystemLoader
 from app.ingestion.parsers.registry import ParserRegistry, default_registry
-from app.persistence.database import get_async_session_factory
-from app.persistence.unit_of_work import UnitOfWork
-from app.services.cache import InMemoryCache, NullCache, RedisCache, ResponseCache
-from app.services.llm_wrapper import LLMWrapper, provider_from_model
-from app.services.runtime_config import RuntimeModelConfig
-from app.sessions.store import SessionStore
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
+    from app.domain.estimation_service import EstimationService
+    from app.domain.ports.ingestion import TextPseudonymizer
     from app.ingestion.pii import ConsistentPseudonymizer
-    from app.ingestion.ports import TextPseudonymizer
-    from app.services.estimation import EstimationService
 
 logger: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
@@ -117,7 +117,7 @@ def get_estimation_service() -> EstimationService:
     El import es diferido para evitar el ciclo ``dependencies ↔ estimation``
     (``estimation`` importa los getters de infraestructura de este módulo).
     """
-    from app.services.estimation import EstimationService
+    from app.domain.estimation_service import EstimationService
 
     return EstimationService()
 

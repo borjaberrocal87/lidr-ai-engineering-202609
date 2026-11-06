@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from app.attachments.extractor import (
+from app.foundation.attachments.extractor import (
     AttachmentExtractionError,
     UnsupportedAttachmentError,
     enrich_transcript,

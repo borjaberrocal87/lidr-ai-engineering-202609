@@ -139,7 +139,7 @@ def ingestion_client(tmp_path, monkeypatch):
     app.dependency_overrides[get_unit_of_work] = lambda: _InMemoryUnitOfWork()
 
     # La BackgroundTask construye su propio UnitOfWork; redirígelo también al doble.
-    monkeypatch.setattr("app.routers.ingestion.UnitOfWork", _InMemoryUnitOfWork)
+    monkeypatch.setattr("app.api.ingestion.UnitOfWork", _InMemoryUnitOfWork)
 
     # Reinicia el estado global de módulo entre tests.
     _InMemoryJobsRepo._store.clear()

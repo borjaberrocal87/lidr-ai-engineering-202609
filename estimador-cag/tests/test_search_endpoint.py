@@ -8,7 +8,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.dependencies import get_semantic_retriever
-from app.embedding_pipeline.schemas import SearchHit, SearchResponse
+from app.generation.rag.schemas import SearchHit, SearchResponse
 from app.main import app
 
 

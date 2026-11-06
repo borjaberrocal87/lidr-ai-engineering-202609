@@ -1,0 +1,1 @@
+"""Observabilidad transversal: logging structlog."""

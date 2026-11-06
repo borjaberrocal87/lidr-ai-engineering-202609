@@ -1,5 +1,9 @@
 # Diagnóstico arquitectónico — Sesión 09 (pre-work)
 
+> **Nota de contexto.** Esta es la instantánea previa al refactor de capas. Los paths del
+> diagrama y del trace corresponden a la estructura anterior; el contrato vigente vive en
+> [`ARQUITECTURA.md`](ARQUITECTURA.md).
+
 ## 1. Diagrama de la arquitectura actual (cierre S08)
 
 Tres capas. El servicio IA está bajado un nivel. El borde amarillo marca el último eslabón vivo:

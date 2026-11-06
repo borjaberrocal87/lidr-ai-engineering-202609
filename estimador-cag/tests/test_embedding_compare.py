@@ -10,7 +10,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.dependencies import get_embedder
-from app.embedding_pipeline.schemas import Chunk, EmbeddedChunk
+from app.generation.rag.schemas import Chunk, EmbeddedChunk
 from app.main import app
 
 DATASET = Path(__file__).resolve().parents[1] / "data" / "budgets_sample.json"

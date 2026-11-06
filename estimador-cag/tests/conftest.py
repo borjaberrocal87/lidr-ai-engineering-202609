@@ -21,8 +21,8 @@ from app.dependencies import (
     get_semantic_cache,
     get_semantic_retriever,
 )
+from app.foundation.persistence.database import create_async_engine_from_settings
 from app.main import app
-from app.persistence.database import create_async_engine_from_settings
 
 
 @pytest.fixture(autouse=True)
@@ -113,12 +113,12 @@ def _forbid_real_llm(monkeypatch):
     def _forbidden():
         raise RuntimeError(
             "Llamada al LLM real bloqueada en tests. Mockea "
-            "app.services.estimation.get_llm_wrapper o "
-            "app.services.streaming.get_llm_wrapper."
+            "app.domain.estimation_service.get_llm_wrapper o "
+            "app.domain.streaming_service.get_llm_wrapper."
         )
 
-    monkeypatch.setattr("app.services.estimation.get_llm_wrapper", _forbidden)
-    monkeypatch.setattr("app.services.streaming.get_llm_wrapper", _forbidden)
+    monkeypatch.setattr("app.domain.estimation_service.get_llm_wrapper", _forbidden)
+    monkeypatch.setattr("app.domain.streaming_service.get_llm_wrapper", _forbidden)
 
 
 @pytest.fixture
@@ -151,7 +151,7 @@ def estimation_payload(description: str) -> dict[str, str]:
 
 @pytest.fixture
 def estimation_request(description: str):
-    from app.schemas.estimations import (
+    from app.domain.schemas.estimations import (
         DetailLevel,
         EstimationRequest,
         OutputFormat,
@@ -218,7 +218,7 @@ class FakeWrapper:
 
 
 def _default_structured_result() -> object:
-    from app.schemas.estimations import EstimationResult, Phase
+    from app.domain.schemas.estimations import EstimationResult, Phase
 
     return EstimationResult(
         summary="Una landing page con CRM y blog para el equipo de marketing.",

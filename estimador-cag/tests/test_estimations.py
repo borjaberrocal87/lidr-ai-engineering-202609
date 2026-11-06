@@ -4,19 +4,19 @@ from collections.abc import Iterator
 import pytest
 from starlette.testclient import TestClient
 
+from app.api import estimations
 from app.config import settings
 from app.dependencies import get_estimation_service
-from app.guardrails.input import InputGuardrailViolation
-from app.main import app
-from app.routers import estimations
-from app.schemas.estimations import EstimationRequest, EstimationResult, Phase
-from app.services.errors import (
+from app.domain.estimation_service import StructuredEstimation
+from app.domain.schemas.estimations import EstimationRequest, EstimationResult, Phase
+from app.domain.streaming_service import StreamMetrics
+from app.foundation.guardrails.input import InputGuardrailViolation
+from app.foundation.llm.errors import (
     LLMConfigurationError,
     LLMInputError,
     LLMProviderError,
 )
-from app.services.estimation import StructuredEstimation
-from app.services.streaming import StreamMetrics
+from app.main import app
 
 
 class _FakeEstimationService:

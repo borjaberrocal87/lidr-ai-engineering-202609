@@ -1,6 +1,6 @@
 """Tests del harness de evals: carga del golden dataset y contrato de métricas."""
 
-from app.schemas.estimations import EstimationResult, Phase
+from app.domain.schemas.estimations import EstimationResult, Phase
 from evals.dataset import GoldenCase, load_dataset
 from evals.metrics import (
     ContentRecallMetric,

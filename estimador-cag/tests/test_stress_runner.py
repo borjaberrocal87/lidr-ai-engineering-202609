@@ -14,9 +14,9 @@ from typing import Any
 import pytest
 
 from app.config import settings
-from app.schemas.estimations import EstimationResult
-from app.services import estimation
-from app.sessions.models import ProjectMetadata
+from app.domain import estimation_service as estimation
+from app.domain.schemas.conversation import ProjectMetadata
+from app.domain.schemas.estimations import EstimationResult
 from evals.stress import run as stress_run
 
 

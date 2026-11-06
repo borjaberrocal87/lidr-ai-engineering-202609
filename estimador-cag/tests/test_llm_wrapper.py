@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 from openai import APIConnectionError
 
-from app.schemas.estimations import EstimationResult
-from app.services.cache import InMemoryCache
-from app.services.errors import LLMProviderError
-from app.services.llm_wrapper import (
+from app.domain.schemas.estimations import EstimationResult
+from app.foundation.cache.backends import InMemoryCache
+from app.foundation.llm.errors import LLMProviderError
+from app.foundation.llm.wrapper import (
     ROUTER_BALANCED_NAME,
     ROUTER_FALLBACK_NAME,
     ROUTER_PRIMARY_NAME,
@@ -394,7 +394,7 @@ def _invalid_result_json() -> str:
 def test_complete_structured_parses_valid_json(monkeypatch) -> None:
     wrapper = _wrapper()
     monkeypatch.setattr(
-        "app.services.llm_wrapper.litellm.completion",
+        "app.foundation.llm.wrapper.litellm.completion",
         lambda **kwargs: _fake_completion(
             "gpt-4o-mini", content=_valid_result_json(), input_tokens=100, output_tokens=50
         ),
@@ -427,7 +427,7 @@ def test_complete_structured_retries_on_validation_error(monkeypatch) -> None:
         conversations.append(kwargs["messages"])
         return _fake_completion("gpt-4o-mini", content=next(responses))
 
-    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+    monkeypatch.setattr("app.foundation.llm.wrapper.litellm.completion", fake_completion)
 
     result, meta = wrapper.complete_structured(
         system_prompt="sys",
@@ -448,7 +448,7 @@ def test_complete_structured_retries_on_validation_error(monkeypatch) -> None:
 def test_complete_structured_raises_after_max_retries(monkeypatch) -> None:
     wrapper = _wrapper()
     monkeypatch.setattr(
-        "app.services.llm_wrapper.litellm.completion",
+        "app.foundation.llm.wrapper.litellm.completion",
         lambda **kwargs: _fake_completion("gpt-4o-mini", content=_invalid_result_json()),
     )
 
@@ -471,7 +471,7 @@ def test_complete_structured_falls_back_to_secondary_model(monkeypatch) -> None:
             raise RuntimeError("primary down")
         return _fake_completion("claude-haiku-4-5", content=_valid_result_json())
 
-    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+    monkeypatch.setattr("app.foundation.llm.wrapper.litellm.completion", fake_completion)
 
     result, meta = wrapper.complete_structured(
         system_prompt="sys",
@@ -498,7 +498,7 @@ def test_complete_structured_degrades_response_format(monkeypatch) -> None:
             raise RuntimeError("json_schema unsupported")
         return _fake_completion("gpt-4o-mini", content=_valid_result_json())
 
-    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+    monkeypatch.setattr("app.foundation.llm.wrapper.litellm.completion", fake_completion)
 
     result, _ = wrapper.complete_structured(
         system_prompt="sys",
@@ -525,7 +525,7 @@ def test_complete_structured_custom_provider_uses_base_url(monkeypatch) -> None:
         seen.update(kwargs)
         return _fake_completion("llama3.1:8b", content=_valid_result_json())
 
-    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+    monkeypatch.setattr("app.foundation.llm.wrapper.litellm.completion", fake_completion)
 
     _, meta = wrapper.complete_structured(
         system_prompt="sys",

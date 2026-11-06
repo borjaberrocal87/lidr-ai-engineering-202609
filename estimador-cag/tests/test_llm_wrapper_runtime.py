@@ -5,9 +5,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from app.services.cache import InMemoryCache
-from app.services.llm_wrapper import LLMWrapper
-from app.services.runtime_config import RuntimeModelConfig
+from app.foundation.cache.backends import InMemoryCache
+from app.foundation.llm.runtime_config import RuntimeModelConfig
+from app.foundation.llm.wrapper import LLMWrapper
 
 
 class FakeRuntimeConfig:
@@ -78,7 +78,7 @@ def test_complete_uses_direct_litellm_call_under_override(monkeypatch) -> None:
         calls.append(kwargs)
         return _completion("gpt-4o")
 
-    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+    monkeypatch.setattr("app.foundation.llm.wrapper.litellm.completion", fake_completion)
 
     result = wrapper.complete(
         system_prompt="sys", user_message="usr", temperature=0.2, max_tokens=100
@@ -98,7 +98,7 @@ def test_complete_stream_uses_direct_path_under_override(monkeypatch) -> None:
         calls.append(kwargs)
         return _stream()
 
-    monkeypatch.setattr("app.services.llm_wrapper.litellm.completion", fake_completion)
+    monkeypatch.setattr("app.foundation.llm.wrapper.litellm.completion", fake_completion)
 
     chunks = list(
         wrapper.complete_stream(

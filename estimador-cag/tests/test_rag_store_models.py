@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from app.embedding_pipeline.store.models import (
+from app.foundation.persistence.models import Base
+from app.generation.rag.store.models import (
     EMBEDDING_DIMENSIONS,
     ChunkRow,
     DocumentRow,
 )
-from app.persistence.models import Base
 
 
 def test_store_tables_are_registered_in_the_shared_base() -> None:

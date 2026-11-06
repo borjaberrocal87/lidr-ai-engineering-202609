@@ -47,7 +47,7 @@ lo que permite re-renderizar el prompt con las correcciones entretejidas.
                           (loop con feedback)              return _synthesize_fallback
 ```
 
-Pseudocódigo del orquestador (`app/services/boss.py`):
+Pseudocódigo del orquestador (`app/generation/agentic/boss.py`):
 
 ```python
 for iteration in range(self.max_iterations):
@@ -76,7 +76,7 @@ return self._synthesize_fallback(current, feedback), trace
 ## El Critic: feedback estructurado, no prosa
 
 El Critic **nunca** devuelve texto libre. Devuelve un `CriticFeedback` validado por
-Pydantic (`app/schemas/critic.py`):
+Pydantic (`app/domain/schemas/critic.py`):
 
 - `verdict`: `accept` \| `needs_iteration` \| `reject`.
 - `issues`: hasta 12 `CriticIssue`, con `category` (`math_error`, `hallucination`,
@@ -91,7 +91,7 @@ Dos validadores impiden verdictos incoherentes:
   justifica quemar otra llamada al actor).
 - `reject` exige al menos un issue que explique el rechazo.
 
-El prompt del Critic (`app/prompts/critic/v1/system.j2`) está calibrado para evitar
+El prompt del Critic (`app/foundation/prompts/critic/v1/system.j2`) está calibrado para evitar
 falsos positivos: "ante la duda entre `accept` y `needs_iteration`, elige `accept`".
 
 ### Degradación elegante
@@ -178,13 +178,13 @@ curl -s -X POST "localhost:8000/api/v1/sessions/$SESSION/estimate-acb" \
 
 | Pieza | Fichero |
 | --- | --- |
-| Orquestador | `app/services/boss.py` |
-| Critic | `app/services/critic.py` |
-| Cableado / pipeline | `app/services/estimation.py` (`estimate_with_acb`) |
-| DTOs del Critic | `app/schemas/critic.py` |
-| Traza | `app/schemas/acb.py` |
-| Prompt del Critic | `app/prompts/critic/v1/system.j2`, `user.j2` |
-| Endpoint | `app/routers/sessions.py` (`POST /{session_id}/estimate-acb`) |
+| Orquestador | `app/generation/agentic/boss.py` |
+| Critic | `app/generation/agentic/critic.py` |
+| Cableado / pipeline | `app/domain/estimation_service.py` (`estimate_with_acb`) |
+| DTOs del Critic | `app/domain/schemas/critic.py` |
+| Traza | `app/domain/schemas/acb.py` |
+| Prompt del Critic | `app/foundation/prompts/critic/v1/system.j2`, `user.j2` |
+| Endpoint | `app/api/sessions.py` (`POST /{session_id}/estimate-acb`) |
 
 Variables de entorno: `CRITIC_MODEL` (vacío = `LLM_MODEL`) y `BOSS_MAX_ITERATIONS`
 (por defecto 2, debe ser ≥ 1). El `boss_max_iterations` es una cota dura: aunque el

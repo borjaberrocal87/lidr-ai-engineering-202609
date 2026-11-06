@@ -5,12 +5,19 @@ from typing import Any
 import pytest
 
 from app.config import settings
-from app.schemas.critic import CriticFeedback, CriticIssue
-from app.schemas.estimations import DetailLevel, EstimationResult, OutputFormat, Phase, ProjectType
-from app.services import estimation
-from app.services.boss import Boss
-from app.services.estimation import EstimationService
-from app.sessions.models import ProjectMetadata, Session
+from app.domain import estimation_service as estimation
+from app.domain.estimation_service import EstimationService
+from app.domain.schemas.conversation import ProjectMetadata
+from app.domain.schemas.critic import CriticFeedback, CriticIssue
+from app.domain.schemas.estimations import (
+    DetailLevel,
+    EstimationResult,
+    OutputFormat,
+    Phase,
+    ProjectType,
+)
+from app.generation.agentic.boss import Boss
+from app.generation.conversation.models import Session
 
 
 def _result(*, confidence_pct: int = 72, cost: int = 25_000) -> EstimationResult:
@@ -195,7 +202,7 @@ def test_estimate_with_acb_persists_single_turn(monkeypatch) -> None:
 
 
 def test_estimate_with_acb_explicit_tier_override(monkeypatch) -> None:
-    from app.sessions.tier_resolver import Tier
+    from app.generation.conversation.tier_resolver import Tier
 
     fake = _ACBFakeWrapper(drafts=[_result()], feedbacks=[_accept()])
     monkeypatch.setattr(estimation, "get_llm_wrapper", lambda: fake)

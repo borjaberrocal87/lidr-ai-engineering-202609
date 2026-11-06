@@ -6,7 +6,7 @@ import fakeredis
 import redis
 
 from app.config import settings
-from app.services.runtime_config import (
+from app.foundation.llm.runtime_config import (
     HASH_KEY,
     MODEL_KEYS,
     RuntimeModelConfig,

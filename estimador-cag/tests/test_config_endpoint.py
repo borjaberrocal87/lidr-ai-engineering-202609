@@ -10,8 +10,8 @@ from starlette.testclient import TestClient
 
 from app.config import get_settings, settings
 from app.dependencies import get_runtime_config
+from app.foundation.llm.runtime_config import RuntimeConfigUnavailable, RuntimeModelConfig
 from app.main import app
-from app.services.runtime_config import RuntimeConfigUnavailable, RuntimeModelConfig
 
 
 @pytest.fixture

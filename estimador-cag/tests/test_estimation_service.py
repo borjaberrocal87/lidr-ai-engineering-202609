@@ -5,18 +5,18 @@ from typing import Any
 import pytest
 
 from app.config import settings
-from app.schemas.estimations import (
+from app.domain import estimation_service as estimation
+from app.domain.estimation_service import EstimationService, StructuredEstimation
+from app.domain.schemas.estimations import (
     DetailLevel,
     EstimationRequest,
     OutputFormat,
     ProjectType,
 )
-from app.services import estimation
-from app.services.errors import (
+from app.foundation.llm.errors import (
     LLMConfigurationError,
     LLMProviderError,
 )
-from app.services.estimation import EstimationService, StructuredEstimation
 from tests.conftest import FakeWrapper
 
 DESCRIPTION = "El cliente necesita una landing page con integración con HubSpot."

@@ -15,10 +15,10 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import engine_from_config, pool
 from sqlalchemy.dialects.postgresql.base import ischema_names
 
-import app.embedding_pipeline.store.models  # noqa: F401 — registra S8 en Base.metadata
+import app.generation.rag.store.models  # noqa: F401 — registra S8 en Base.metadata
 from alembic import context
 from app.config import get_settings
-from app.persistence.models import Base
+from app.foundation.persistence.models import Base
 
 config = context.config
 

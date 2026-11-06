@@ -2,7 +2,7 @@
 
 El núcleo (caso de uso + modelos de dominio + puertos) no debe importar
 infraestructura: ni SQLAlchemy, ni Presidio, ni pandas/pandera, ni Faker, ni
-``app.persistence``. Sólo los adaptadores (``cleaning/``, ``pii/``,
+``app.foundation.persistence``. Sólo los adaptadores (``cleaning/``, ``pii/``,
 ``persistence/``) pueden tocar esas librerías. Este test convierte esa
 convención en un contrato ejecutable.
 """
@@ -18,7 +18,7 @@ APP = Path(__file__).resolve().parent.parent / "app"
 CORE_FILES = [
     APP / "ingestion" / "orchestrator.py",
     APP / "ingestion" / "errors.py",
-    APP / "ingestion" / "ports.py",
+    APP / "domain" / "ports" / "ingestion.py",
     APP / "ingestion" / "documents" / "models.py",
     APP / "ingestion" / "catalog" / "models.py",
     APP / "ingestion" / "parsers" / "protocol.py",
@@ -33,7 +33,7 @@ FORBIDDEN_PREFIXES = (
     "pandera",
     "faker",
     "spacy",
-    "app.persistence",
+    "app.foundation.persistence",
 )
 
 
