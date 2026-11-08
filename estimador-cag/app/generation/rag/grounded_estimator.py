@@ -95,26 +95,35 @@ def _insufficient(explanation: str) -> GroundedEstimate:
 
 
 async def _retrieve(transcript_brief: ProjectBrief) -> RetrievalOutcome:
-    """Embebe el texto de búsqueda y ejecuta el retrieval filtrado."""
-    from app.dependencies import get_semantic_retriever
+    """Embed the search text and run filtered retrieval with S10 toggles."""
+    from app.dependencies import get_runtime_retrieval_config, get_semantic_retriever
 
     retriever = get_semantic_retriever()
     if retriever is None:
-        raise RagRetrievalError("El servicio de embeddings no está configurado.")
+        raise RagRetrievalError("Embedding service is not configured.")
 
     retrieval_text = compose_retrieval_text(transcript_brief)
     sector = transcript_brief.sector.lower().strip() if transcript_brief.sector else None
     sectors = [sector] if sector in _KNOWN_SECTORS else None
 
+    runtime = get_runtime_retrieval_config()
+    search_mode = runtime.effective_search_mode()
+    rerank = runtime.effective_rerank()
+
     try:
         return await retriever.retrieve_chunks(
             query_text=retrieval_text,
+            search_mode=search_mode,
+            rerank=rerank,
             top_k=settings.rag_retrieval_top_k,
+            recall_k=settings.retrieval_recall_top_k,
+            rerank_top_n=settings.rerank_top_n,
             distance_threshold=settings.rag_retrieval_distance_threshold,
+            rrf_k=settings.rrf_k,
             sectors=sectors,
         )
     except Exception as exc:
-        raise RagRetrievalError("Falló el retrieval de presupuestos históricos.") from exc
+        raise RagRetrievalError("Historical budget retrieval failed.") from exc
 
 
 async def estimate_from_transcript(

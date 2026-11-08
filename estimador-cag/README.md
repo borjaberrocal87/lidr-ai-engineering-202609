@@ -536,6 +536,53 @@ módulos y tareas antes de guardar. El corpus task-level se genera con
 Detalles, configuración, contrato y límites en
 [`docs/sesion-9-fundamentos-rag-tecnicas-recuperacion.md`](docs/sesion-9-fundamentos-rag-tecnicas-recuperacion.md).
 
+## Sesión 10 — búsqueda híbrida y reranking
+
+La S10 ataca el falso positivo semántico (“similar pero irrelevante”) con dos
+técnicas medidas sobre un golden set:
+
+```text
+query → rama vectorial + rama léxica (tsvector/GIN) → RRF
+      → recall amplio (50) → cross-encoder → top-5
+```
+
+- **Rama léxica**: `ChunkStore.search_lexical` usa `websearch_to_tsquery` con
+  OR entre términos y `ts_rank_cd` sobre `chunks.content_tsv`; la migración
+  `0003_session10_fts` añade la columna generada y su índice GIN. La
+  configuración es `english` porque el corpus de este repo está en inglés.
+- **Fusión**: `reciprocal_rank_fusion` combina posiciones, no scores, para no
+  normalizar distancia coseno contra `ts_rank_cd`.
+- **Reranker**: `CrossEncoderReranker` carga un cross-encoder multilingüe de
+  forma perezosa y reordena solo los candidatos del recall.
+- **Toggles**: `RETRIEVAL_SEARCH_MODE` (`vector`/`hybrid`), `RERANKER_ENABLED`,
+  `RETRIEVAL_RECALL_TOP_K`, `RERANK_TOP_N` y `RRF_K`. Se pueden fijar por
+  petición, por `.env` o en caliente.
+- **Evaluación**: `evals/golden_retrieval.json` y
+  `scripts/eval_retrieval_s10.py` comparan A (vector), B (híbrida), C (vector +
+  rerank) y D (híbrida + rerank) con precisión@5 y latencia.
+
+Verificación del reranker:
+
+```bash
+docker compose exec api python -m app.generation.rag.retrieval.verify_reranker
+```
+
+Configuración en caliente:
+
+```bash
+GET /api/v1/config/retrieval
+PUT /api/v1/config/retrieval   {"search_mode": "hybrid", "rerank": true}
+```
+
+Evaluación:
+
+```bash
+docker compose exec api python scripts/eval_retrieval_s10.py
+```
+
+Detalles, resultados y conclusiones en
+[`docs/sesion-10-busqueda-hibrida-reranking.md`](docs/sesion-10-busqueda-hibrida-reranking.md).
+
 ## Configuración de modelos en runtime
 
 Los knobs de modelo (`PRIMARY_MODEL`, `FALLBACK_MODEL`, `CRITIC_MODEL`,
