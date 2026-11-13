@@ -144,8 +144,13 @@ async def estimate_one(
         reranker=reranker if rerank else None,
     )
 
+    # El umbral de distancia es la regla de "sin análogo". En híbrida, los
+    # matches léxicos llegan con LEXICAL_ONLY_DISTANCE (1.0): si no tienen un
+    # análogo vectorial suficientemente cerca, NO deben convertirse en horas.
     usable: list[RetrievedChunk] = [
-        chunk for chunk in result.chunks if chunk.estimated_hours is not None
+        chunk
+        for chunk in result.chunks
+        if chunk.estimated_hours is not None and chunk.distance <= distance_threshold
     ]
     if not usable:
         return TaskHoursEstimate(module=module, task=name, has_match=False)

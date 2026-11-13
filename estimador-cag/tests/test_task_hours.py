@@ -83,6 +83,32 @@ async def test_estimate_one_returns_neighbour_evidence(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_estimate_one_rejects_neighbours_beyond_the_distance_threshold(
+    monkeypatch,
+) -> None:
+    async def fake_retrieve(**_kwargs):
+        return RetrievalOutcome(
+            chunks=[_chunk(1, 40, distance=1.0)],
+            low_confidence=False,
+            candidates_evaluated=1,
+        )
+
+    monkeypatch.setattr("app.generation.rag.task_hours.retrieve", fake_retrieve)
+
+    estimate = await estimate_one(
+        "Auth",
+        "OAuth2 login",
+        None,
+        store=object(),
+        session_factory=object,
+        embedder=FakeEmbedder(),
+        distance_threshold=0.45,
+    )
+
+    assert estimate.has_match is False
+
+
+@pytest.mark.asyncio
 async def test_estimate_one_flags_tasks_without_hours(monkeypatch) -> None:
     async def fake_retrieve(**_kwargs):
         return RetrievalOutcome(
