@@ -20,6 +20,10 @@ class Sector(StrEnum):
     ECOMMERCE = "ecommerce"
     HEALTHCARE = "healthcare"
     INDUSTRIAL = "industrial"
+    LOGISTICS = "logistics"
+    EDUCATION = "education"
+    MEDIA = "media"
+    GOVERNMENT = "government"
 
 
 class Complexity(StrEnum):
@@ -90,7 +94,7 @@ class Chunk(BaseModel):
     text: str = Field(
         ..., description="Texto embebible: contexto del padre + detalle del componente."
     )
-    metadata: dict[str, str | int] = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict, description="Campos filtrables que no se embeben."
     )
     token_count: int = Field(..., ge=0, description="Tokens de ``text`` según tiktoken.")

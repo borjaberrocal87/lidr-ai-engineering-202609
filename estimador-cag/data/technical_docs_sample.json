@@ -1,0 +1,94 @@
+[
+  {
+    "doc_id": "DOC-AUTH-RUNBOOK",
+    "title": "Authentication Runbook",
+    "component": "auth",
+    "version": "v2.3",
+    "sections": [
+      {
+        "section_id": "SEC1",
+        "heading": "OAuth 2.0 authorization-code with PKCE",
+        "text": "Reference for the OAuth 2.0 authorization-code flow with PKCE used by web and mobile clients. Covers token issuance, refresh-token rotation, revocation on logout and the exact scopes required by the claims portal."
+      },
+      {
+        "section_id": "SEC2",
+        "heading": "PSD2 strong customer authentication",
+        "text": "How to implement PSD2 SCA for payment initiation: dynamic linking, two-factor challenges and the available exemptions. Required for regulated banking and insurance portals in the EU."
+      },
+      {
+        "section_id": "SEC3",
+        "heading": "eID and verified identity",
+        "text": "Integration notes for the Spanish eID provider: redirect flow, assertion validation, clock skew and the fallback path when the identity provider is unavailable. Never store raw identity assertions."
+      }
+    ]
+  },
+  {
+    "doc_id": "DOC-PAYMENTS-GUIDE",
+    "title": "Payments & Reconciliation Guide",
+    "component": "payments",
+    "version": "v3.1",
+    "sections": [
+      {
+        "section_id": "SEC1",
+        "heading": "Stripe Connect onboarding",
+        "text": "This section describes how to onboard marketplace sellers with Stripe Connect Express, including KYC collection, split payments and vendor payouts. Store the connected account id against the seller record and gate payouts until verification completes."
+      },
+      {
+        "section_id": "SEC2",
+        "heading": "Webhooks and idempotency",
+        "text": "All Stripe webhooks must be verified with the signing secret and processed idempotently using the event id. Reconciliation jobs compare Stripe balance transactions against the internal double-entry ledger nightly."
+      },
+      {
+        "section_id": "SEC3",
+        "heading": "Refunds and disputes",
+        "text": "Refunds are issued against the original payment intent. Disputes and chargebacks open a case that must be answered within the processor deadline; the runbook covers evidence submission and ledger adjustments."
+      }
+    ]
+  },
+  {
+    "doc_id": "DOC-SAP-INTEGRATION",
+    "title": "SAP Integration Specification",
+    "component": "integration",
+    "version": "v1.6",
+    "sections": [
+      {
+        "section_id": "SEC1",
+        "heading": "IDoc and BAPI interfaces",
+        "text": "Specification for integrating with SAP over IDoc and BAPI. Describes the message schemas for creating maintenance work orders from predictive-maintenance alerts coming out of the plant telemetry platform."
+      },
+      {
+        "section_id": "SEC2",
+        "heading": "Sensor telemetry ingestion",
+        "text": "Pattern for ingesting high-frequency sensor telemetry into a time-series store before aggregation and forwarding to SAP. Covers backpressure, replay and dead-letter handling."
+      },
+      {
+        "section_id": "SEC3",
+        "heading": "Failure handling and retries",
+        "text": "IDoc failures are retried with exponential backoff and surfaced in an operations queue. BAPI calls must be idempotent; duplicate work orders are rejected by the SAP-side correlation id."
+      }
+    ]
+  },
+  {
+    "doc_id": "DOC-OBSERVABILITY",
+    "title": "Observability Guide",
+    "component": "platform",
+    "version": "v1.2",
+    "sections": [
+      {
+        "section_id": "SEC1",
+        "heading": "Structured logs and correlation ids",
+        "text": "Every request carries a correlation id that is propagated through HTTP, background jobs and LLM calls. Logs are structured JSON so they can be queried by request id, stage and latency."
+      },
+      {
+        "section_id": "SEC2",
+        "heading": "Metrics, tracing and SLOs",
+        "text": "Metrics cover request rate, error rate, latency and retrieval stage timings. Traces follow the full pipeline; SLOs are defined per endpoint with alert thresholds and error budgets."
+      },
+      {
+        "section_id": "SEC3",
+        "heading": "Alerting and runbooks",
+        "text": "Alerts page the on-call engineer only when an SLO is at risk. Each alert links to a runbook with diagnosis steps, dashboards and rollback instructions."
+      }
+    ]
+  }
+]
