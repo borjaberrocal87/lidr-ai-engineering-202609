@@ -113,9 +113,7 @@ class CollectionsCatalog(BaseModel):
 
     @field_validator("collections")
     @classmethod
-    def _names_are_unique(
-        cls, values: list[CollectionDefinition]
-    ) -> list[CollectionDefinition]:
+    def _names_are_unique(cls, values: list[CollectionDefinition]) -> list[CollectionDefinition]:
         seen: set[Collection] = set()
         for definition in values:
             if definition.name in seen:

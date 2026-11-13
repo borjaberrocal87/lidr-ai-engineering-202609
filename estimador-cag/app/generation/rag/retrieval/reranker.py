@@ -96,21 +96,20 @@ class CrossEncoderReranker:
         )
         return [float(score) for score in scores]
 
-    def rerank(
+    def rerank_with_scores(
         self,
         query: str,
         candidates: list[Any],
         *,
         top_n: int,
         text_of: Callable[[Any], str] = lambda candidate: candidate.content,
-    ) -> list[Any]:
-        """Reorder ``candidates`` by cross-encoder score, keep the top ``top_n``.
+    ) -> list[tuple[Any, float]]:
+        """Como :meth:`rerank`, pero devuelve pares ``(candidato, score)``.
 
-        ``text_of`` extracts the document text from a candidate (default: a
-        ``.content`` attribute) so this works for ORM rows, schema objects or
-        plain dicts without coupling the reranker to any one shape. Order is
-        stable for equal scores (Python's sort is stable and the candidates keep
-        their recall order).
+        El score crudo del cross-encoder se expone para que una etapa posterior
+        (por ejemplo, la vigencia) re-pondere finalistas con un número real de
+        relevancia en vez de solo con la posición. El orden es estable para
+        scores iguales.
         """
         if not candidates:
             return []
@@ -120,4 +119,25 @@ class CrossEncoderReranker:
             key=lambda pair: pair[1],
             reverse=True,
         )
-        return [candidate for candidate, _score in ranked[:top_n]]
+        return [(candidate, float(score)) for candidate, score in ranked[:top_n]]
+
+    def rerank(
+        self,
+        query: str,
+        candidates: list[Any],
+        *,
+        top_n: int,
+        text_of: Callable[[Any], str] = lambda candidate: candidate.content,
+    ) -> list[Any]:
+        """Reordena ``candidates`` por score del cross-encoder y corta a ``top_n``.
+
+        ``text_of`` extrae el texto del candidato (por defecto ``.content``) para
+        funcionar con filas ORM, objetos de esquema o dicts sin acoplar el
+        reranker a una forma concreta. El orden es estable para scores iguales.
+        """
+        return [
+            candidate
+            for candidate, _score in self.rerank_with_scores(
+                query, candidates, top_n=top_n, text_of=text_of
+            )
+        ]

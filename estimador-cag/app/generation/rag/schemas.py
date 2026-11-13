@@ -7,6 +7,7 @@ vectores con sus estadísticas agregadas.
 
 from __future__ import annotations
 
+from datetime import date
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -236,6 +237,33 @@ class RetrievedChunk(BaseModel):
         default=None,
         description="Traceable parent budget id from JSONB metadata; used to grade "
         "precision by budget in the Session 10 evaluation.",
+    )
+    # Campos de la recuperación multifuente. Tienen default para no romper a los
+    # consumidores de la Sesión 9, que solo conocían presupuestos.
+    collection: str = Field(
+        default="budget",
+        description="Fuente de procedencia: budget / transcript / technical_doc. "
+        "Viaja con el chunk para atribución, auditoría y depuración.",
+    )
+    source_id: str | None = Field(
+        default=None,
+        description="Id trazable del documento padre en cualquier fuente "
+        "(budget_id, transcript_id, doc_id). Se usa para medir precisión.",
+    )
+    relevance_score: float | None = Field(
+        default=None,
+        description="Score final tras fusión/reranking (y vigencia), antes del corte. "
+        "Mayor = mejor. None en el camino vectorial puro.",
+    )
+    document_date: date | None = Field(
+        default=None,
+        description="Fecha usada por la vigencia (año del presupuesto o fecha de reunión). "
+        "None cuando la fuente no tiene una fecha utilizable.",
+    )
+    estimated_hours: int | None = Field(
+        default=None,
+        description="Horas históricas registradas en este chunk (componente de presupuesto "
+        "o tarea histórica). None para fuentes sin horas. Lo lee el consenso de horas.",
     )
 
 

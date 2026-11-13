@@ -8,7 +8,15 @@ from slowapi.errors import RateLimitExceeded
 from starlette.responses import Response
 
 from app.api import config as config_router
-from app.api import estimations, ingestion, rag_estimation, retrieval, search, sessions
+from app.api import (
+    estimations,
+    ingestion,
+    rag_estimation,
+    retrieval,
+    retrieval_multi_source,
+    search,
+    sessions,
+)
 from app.api.embeddings import router as embeddings_router
 from app.api.rate_limiting import limiter, rate_limit_handler
 from app.config import APP_NAME, settings
@@ -81,6 +89,7 @@ app.include_router(config_router.router, prefix="/api/v1")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 app.include_router(retrieval.router, prefix="/api/v1")
+app.include_router(retrieval_multi_source.router, prefix="/api/v1")
 app.include_router(rag_estimation.router, prefix="/api/v1")
 
 
