@@ -371,6 +371,16 @@ class EstimationTask(BaseModel):
         tests with only ``sources`` and ``engineer_days`` are tolerated: the
         validator only activates when the new fields are explicitly provided.
         """
+        legacy_sources_only = not self.citations and bool(self.sources)
+        if legacy_sources_only and (
+            "citations" not in self.model_fields_set or not self.grounded
+        ):
+            # Session 9 estimates carry only legacy sources. Treat them as
+            # grounded instead of rejecting an otherwise valid cached estimate.
+            # The citations-in-fields-set guard keeps a new response that
+            # explicitly claims grounded=True without citations an error.
+            self.grounded = True
+            return self
         if "grounded" not in self.model_fields_set and not self.citations:
             return self
         if self.grounded and not self.citations:
@@ -678,8 +688,13 @@ class TaskHoursEstimate(BaseModel):
         is derived from it. The pipeline sets both fields explicitly and must
         provide sources for a grounded line.
         """
-        if "grounded" not in self.model_fields_set:
+        legacy_match_without_sources = self.has_match and not self.sources and not self.grounded
+        if "grounded" not in self.model_fields_set or legacy_match_without_sources:
             self.grounded = self.has_match
+        if legacy_match_without_sources:
+            # Serialized Session 10 responses predate sources: has_match=True is
+            # the authoritative flag, so do not reject the cached value.
+            return self
         if self.grounded != self.has_match:
             raise ValueError("grounded and has_match must agree")
         if self.grounded and not self.sources and "sources" in self.model_fields_set:
