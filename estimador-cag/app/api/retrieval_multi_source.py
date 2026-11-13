@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from app.api.rate_limiting import limiter
 from app.api.security import require_retrieval_key
-from app.config import get_settings
+from app.config import settings
 from app.dependencies import (
     get_chunk_store,
     get_embedder,
@@ -105,6 +105,12 @@ async def multi_source(
     payload: MultiSourceRequest,
 ) -> MultiSourceResult:
     """Ejecuta el pipeline multifuente; precedencia explícito → runtime → .env."""
+    if not settings.retrieval_multi_source_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Multi-source retrieval is disabled.",
+        )
+
     embedder = get_embedder()
     if embedder is None:
         log.error("multi_source_failed", reason="embedder_unavailable")
@@ -113,7 +119,6 @@ async def multi_source(
             detail="Embedding service is not available.",
         )
 
-    settings = get_settings()
     runtime = get_runtime_retrieval_config()
     search_mode = payload.search_mode or runtime.effective_search_mode()
     rerank = payload.rerank if payload.rerank is not None else runtime.effective_rerank()
