@@ -33,6 +33,7 @@ from app.generation.rag.errors import RagPipelineError
 from app.generation.rag.grounded_estimator import (
     estimate_from_transcript,
     generate_grounded_estimate,
+    generate_structure,
 )
 from app.generation.rag.grounding import find_fabricated_citations, is_coherent_estimate
 from app.generation.rag.retriever import SemanticRetriever
@@ -46,6 +47,7 @@ from app.generation.rag.schemas import (
     GroundedGenerationRequest,
     RetrievalOutcome,
     RetrievalQuery,
+    StructureRequest,
     TranscriptEstimateRequest,
 )
 
@@ -163,6 +165,29 @@ async def assemble(
     )
 
 
+@router.post("/stages/structure", response_model=GroundedGenerationOutcome)
+@limiter.limit("15/minute")
+async def structure(
+    request: Request,
+    payload: StructureRequest,
+) -> GroundedGenerationOutcome:
+    """Etapa S10: estructura módulo→tarea SIN retrieval, fuentes ni horas.
+
+    Es una descomposición libre del brief. Devuelve el mismo contrato que
+    ``/stages/generate`` para que el wizard la parsee sin cambios; al no haber
+    fuentes, las citas siempre están limpias.
+    """
+    try:
+        estimate = await generate_structure(payload.query)
+    except RagPipelineError as exc:
+        raise _pipeline_error(exc, surface="structure") from exc
+    return GroundedGenerationOutcome(
+        estimate=estimate,
+        fabricated_source_ids=[],
+        coherent=True,
+    )
+
+
 @router.post("/stages/generate", response_model=GroundedGenerationOutcome)
 @limiter.limit("15/minute")
 async def generate(
@@ -176,7 +201,11 @@ async def generate(
     decida si re-ejecuta o corrige.
     """
     try:
-        estimate = await generate_grounded_estimate(payload.context_block, payload.brief)
+        estimate = await generate_grounded_estimate(
+            payload.context_block,
+            payload.brief,
+            include_hours=payload.include_hours,
+        )
     except RagPipelineError as exc:
         raise _pipeline_error(exc, surface="generation") from exc
     return GroundedGenerationOutcome(

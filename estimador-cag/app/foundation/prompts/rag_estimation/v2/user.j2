@@ -1,0 +1,15 @@
+<project_brief>
+Functionality: {{ brief.functionality }}
+Technologies: {{ brief.technologies | join(', ') if brief.technologies else 'n/a' }}
+Sector: {{ brief.sector or 'n/a' }}
+Scale: {{ brief.scale }}
+Country: {{ brief.country or 'n/a' }}
+Regulations: {{ brief.regulations | join(', ') if brief.regulations else 'n/a' }}
+Constraints: {{ brief.constraints | join(', ') if brief.constraints else 'n/a' }}
+</project_brief>
+
+<sources>
+{{ context_block }}
+</sources>
+
+Produce the module → task structure now. No hours.

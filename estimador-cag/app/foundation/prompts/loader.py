@@ -149,7 +149,8 @@ def render_rag_estimation_prompt(
     *,
     brief: object,
     context_block: str,
-    version: str = "v1",
+    include_hours: bool = True,
+    version: str | None = None,
 ) -> tuple[str, str]:
     """Renderiza el par (system, user) de la generación grounded (Sesión 9).
 
@@ -161,12 +162,18 @@ def render_rag_estimation_prompt(
         "brief": brief,
         "context_block": context_block,
     }
-    system = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{version}/system.j2").render(**context)
-    user = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{version}/user.j2").render(**context)
+    # v1 pide horas; v2 es la variante estructura-primero sin horas (S10).
+    resolved_version = version or ("v1" if include_hours else "v2")
+    system = _env.get_template(
+        f"{RAG_ESTIMATION_USE_CASE}/{resolved_version}/system.j2"
+    ).render(**context)
+    user = _env.get_template(
+        f"{RAG_ESTIMATION_USE_CASE}/{resolved_version}/user.j2"
+    ).render(**context)
     logger.info(
         "prompt.rendered",
         use_case=RAG_ESTIMATION_USE_CASE,
-        version=version,
+        version=resolved_version,
         system_chars=len(system),
         user_chars=len(user),
         system_hash=_content_hash(system),

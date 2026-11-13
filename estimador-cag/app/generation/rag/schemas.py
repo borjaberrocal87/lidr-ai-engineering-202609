@@ -305,7 +305,13 @@ class EstimationTask(BaseModel):
 
     name: str
     description: str | None = Field(default=None, description="Alcance en una línea.")
-    engineer_days: int = Field(ge=0)
+    engineer_days: int | None = Field(
+        default=None,
+        ge=0,
+        description="Esfuerzo en engineer-days. None en la generación estructura-primero "
+        "(S10): el LLM propone la estructura y las horas se derivan después por "
+        "búsqueda vectorial por tarea, no aquí.",
+    )
     sources: list[int] = Field(default_factory=list, description="Ids de chunk que la respaldan.")
 
 
@@ -422,6 +428,11 @@ class GroundedGenerationRequest(BaseModel):
     context_block: str = Field(min_length=1)
     brief: ProjectBrief
     kept_chunks: list[RetrievedChunk] = Field(default_factory=list)
+    include_hours: bool = Field(
+        default=True,
+        description="Cuando es False (S10), genera la estructura módulo→tarea SIN horas; "
+        "las horas se derivan después por búsqueda vectorial. True preserva S9.",
+    )
 
 
 class GroundedGenerationOutcome(BaseModel):
@@ -435,3 +446,89 @@ class GroundedGenerationOutcome(BaseModel):
     coherent: bool = Field(
         description="False cuando una estimación insuficiente aún lleva números."
     )
+
+
+# ---- Modelos de la generación estructura-primero (S10) ----------------------
+
+
+class StructureRequest(BaseModel):
+    """Payload de ``POST /api/v1/estimate/stages/structure`` (S10).
+
+    El wizard genera la estructura módulo→tarea como descomposición libre del
+    brief: sin retrieval y sin fuentes. Solo necesita el brief.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: ProjectBrief
+
+
+# ---- Modelos del consenso de horas por tarea (S10) -------------------------
+
+
+class TaskNeighbor(BaseModel):
+    """Una tarea histórica que casó con la tarea consultada (transparencia)."""
+
+    source_id: int = Field(description="Id de BD del chunk historical_task.")
+    budget_id: str | None = Field(default=None, description="Id trazable del proyecto padre.")
+    estimated_hours: int = Field(ge=0, description="Horas registradas para esa tarea histórica.")
+    distance: float = Field(
+        description="Distancia coseno a la tarea consultada (menor = más cerca)."
+    )
+
+
+class TaskHoursEstimate(BaseModel):
+    """Horas derivadas para una tarea desde el corpus histórico.
+
+    ``has_match=False`` (ningún vecino bajo el umbral) deja ``estimated_hours`` y
+    ``reliability`` a null: la UI marca la fila en rojo y la persona aporta el
+    número en el paso de validación.
+    """
+
+    module: str = Field(description="Módulo al que pertenece la tarea (eco).")
+    task: str = Field(description="Nombre de la tarea (eco).")
+    estimated_hours: int | None = Field(
+        default=None, ge=0, description="Horas del consenso ponderado, o null si no hay match."
+    )
+    reliability: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="0..1 confianza en las horas (cercanía x acuerdo entre vecinos).",
+    )
+    has_match: bool = Field(description="Si algún vecino cruzó el umbral de distancia.")
+    dispersion: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Dispersión de las horas de los vecinos (coeficiente de variación); "
+        "más alto = menos acuerdo.",
+    )
+    neighbors: list[TaskNeighbor] = Field(
+        default_factory=list, description="Tareas históricas de las que salieron las horas."
+    )
+
+
+class TaskHoursTaskInput(BaseModel):
+    """Una tarea a estimar (nombre + descripción opcional)."""
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+
+
+class TaskHoursModuleInput(BaseModel):
+    """Un módulo con sus tareas, tal y como lo revisó la persona antes de las horas."""
+
+    name: str = Field(min_length=1)
+    tasks: list[TaskHoursTaskInput] = Field(default_factory=list)
+
+
+class TaskHoursRequest(BaseModel):
+    """Payload de ``POST /api/v1/estimate/tasks/hours``."""
+
+    modules: list[TaskHoursModuleInput] = Field(min_length=1)
+
+
+class TaskHoursResult(BaseModel):
+    """Horas por tarea, en el orden en que se enviaron."""
+
+    tasks: list[TaskHoursEstimate] = Field(default_factory=list)

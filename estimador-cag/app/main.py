@@ -9,6 +9,7 @@ from starlette.responses import Response
 
 from app.api import config as config_router
 from app.api import (
+    estimate_tasks,
     estimations,
     ingestion,
     rag_estimation,
@@ -91,6 +92,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 app.include_router(retrieval.router, prefix="/api/v1")
 app.include_router(retrieval_multi_source.router, prefix="/api/v1")
 app.include_router(rag_estimation.router, prefix="/api/v1")
+app.include_router(estimate_tasks.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Estado del servicio")
