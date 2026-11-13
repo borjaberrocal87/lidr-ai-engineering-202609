@@ -132,3 +132,32 @@ def test_generate_stage_returns_grounding_signals(client: TestClient, monkeypatc
     assert response.status_code == 200
     assert response.json()["fabricated_source_ids"] == []
     assert response.json()["coherent"] is True
+
+
+def test_structure_stage_returns_a_clean_structure(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "estimate_api_key", SecretStr("estimate-secret"))
+    monkeypatch.setattr("app.dependencies.get_llm_wrapper", lambda: FakeWrapper())
+
+    response = client.post(
+        "/api/v1/estimate/stages/structure",
+        json={
+            "query": {
+                "functionality": "Claims portal with OAuth and OCR intake",
+                "technologies": ["python", "postgresql"],
+                "sector": "finance",
+                "scale": "medium",
+                "country": "ES",
+                "regulations": ["GDPR"],
+                "constraints": ["launch before summer"],
+            }
+        },
+        headers=HEADERS,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["fabricated_source_ids"] == []
+    assert body["coherent"] is True
+    assert body["estimate"]["modules"][0]["name"] == "Auth"
