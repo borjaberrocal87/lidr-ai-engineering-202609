@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.rate_limiting import limiter
 from app.api.security import require_estimate_key
-from app.config import get_settings
+from app.config import settings
 from app.dependencies import (
     get_chunk_store,
     get_embedder,
@@ -52,7 +52,6 @@ async def hours(request: Request, payload: TaskHoursRequest) -> TaskHoursResult:
             detail="Embedding service is not available.",
         )
 
-    settings = get_settings()
     runtime = get_runtime_retrieval_config()
     search_mode = runtime.effective_search_mode()
     rerank = runtime.effective_rerank()
