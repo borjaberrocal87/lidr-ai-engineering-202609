@@ -25,6 +25,7 @@ from app.generation.rag.context_builder import assemble_context, fit_chunks_to_b
 from app.generation.rag.errors import (
     IncoherentEstimateError,
     RagGenerationError,
+    RagGenerationTimeoutError,
     RagRetrievalError,
 )
 from app.generation.rag.grounding import find_fabricated_citations, is_coherent_estimate
@@ -116,18 +117,28 @@ async def generate_structure(brief: ProjectBrief) -> GroundedEstimate:
     system_prompt, user_message = render_rag_structure_prompt(brief)
 
     try:
-        estimate, _meta = await asyncio.to_thread(
-            wrapper.complete_structured,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            response_model=GroundedEstimate,
-            temperature=settings.temperature,
-            model_override=settings.rag_generation_model,
-            reasoning_effort=settings.rag_generation_reasoning_effort,
-            max_tokens=settings.rag_generation_max_tokens,
-            max_retries=0,
+        estimate, _meta = await asyncio.wait_for(
+            asyncio.to_thread(
+                wrapper.complete_structured,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                response_model=GroundedEstimate,
+                temperature=settings.temperature,
+                model_override=settings.rag_structure_model,
+                reasoning_effort=settings.rag_structure_reasoning_effort,
+                max_tokens=settings.rag_structure_max_tokens,
+                # Un paso interactivo no debe multiplicar la espera por tres:
+                # la API ya tiene un deadline duro.
+                max_retries=0,
+                num_retries=0,
+            ),
+            timeout=settings.rag_structure_timeout_seconds,
         )
         return estimate
+    except TimeoutError as exc:
+        raise RagGenerationTimeoutError(
+            "La estructura superó el tiempo máximo configurado."
+        ) from exc
     except Exception as exc:
         raise RagGenerationError("No se pudo generar la estructura.") from exc
 

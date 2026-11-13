@@ -29,7 +29,7 @@ from app.dependencies import (
 )
 from app.generation.rag.brief_extractor import compose_retrieval_text, extract_project_brief
 from app.generation.rag.context_builder import assemble_context, fit_chunks_to_budget
-from app.generation.rag.errors import RagPipelineError
+from app.generation.rag.errors import RagGenerationTimeoutError, RagPipelineError
 from app.generation.rag.grounded_estimator import (
     estimate_from_transcript,
     generate_grounded_estimate,
@@ -66,6 +66,14 @@ def _pipeline_error(exc: Exception, *, surface: str) -> HTTPException:
         error_type=type(exc).__name__,
         error=str(exc)[:300],
     )
+    if isinstance(exc, RagGenerationTimeoutError):
+        return HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=(
+                "La generación superó el tiempo máximo. Prueba con un brief más "
+                "acotado o un modelo más rápido."
+            ),
+        )
     return HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="No se pudo completar la estimación RAG.",

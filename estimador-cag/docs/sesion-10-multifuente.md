@@ -101,7 +101,12 @@ solo con evidencia.
 ## Horas por tarea
 
 La estructura se genera con `POST /api/v1/estimate/stages/structure`: módulos y
-tareas sin horas, sin fuentes y sin citas. Después, por cada tarea:
+tareas sin horas, sin fuentes y sin citas. Es un paso interactivo: usa un modelo
+rápido (`gpt-5-mini`), esfuerzo bajo y un deadline duro. Si el proveedor LLM se
+cuelga, la API responde `504` en vez de dejar la petición abierta más que el
+wizard. El prompt acota la salida a 8 módulos y 3–8 tareas por módulo, y pide los
+nombres en inglés técnico para que el corpus histórico (en inglés) pueda casar en
+el paso de horas. Después, por cada tarea:
 
 1. se compone un texto `Module + Task + description`;
 2. se embebe y se busca en `chunk_type='historical_task'`;
@@ -138,6 +143,12 @@ QUERY_MAX_SUBQUERIES=4
 ROUTER_MAX_TARGETS=3
 TASK_HOURS_TOP_K=5
 TASK_HOURS_DISTANCE_THRESHOLD=0.45
+
+# Estructura interactiva del wizard (separada de la generación grounded S9).
+RAG_STRUCTURE_MODEL=gpt-5-mini
+RAG_STRUCTURE_REASONING_EFFORT=low
+RAG_STRUCTURE_MAX_TOKENS=24000
+RAG_STRUCTURE_TIMEOUT_SECONDS=180
 ```
 
 `GET/PUT /api/v1/config/retrieval` permite cambiar en caliente `routing_enabled`,

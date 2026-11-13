@@ -150,6 +150,15 @@ class Settings(BaseSettings):
     # Presupuesto de salida de la generación. Los tokens de razonamiento
     # consumen parte del presupuesto, de ahí el valor alto.
     rag_generation_max_tokens: int = 64_000
+    # Sesión 10 — estructura interactiva (wizard). Es un paso de UI, no una
+    # generación grounded: debe responder en decenas de segundos. Usa un modelo
+    # rápido y un esfuerzo bajo por defecto, separado del S9.
+    rag_structure_model: str = "gpt-5-mini"
+    rag_structure_reasoning_effort: Literal["minimal", "low", "medium", "high"] = "low"
+    rag_structure_max_tokens: int = 24_000
+    # Deadline duro del endpoint. Si el proveedor se cuelga, la API corta y
+    # devuelve 504 en vez de dejar la petición abierta más que el wizard.
+    rag_structure_timeout_seconds: float = 180.0
     # Retrieval: k candidatos, umbral de distancia coseno (menor = más similar)
     # y presupuesto de contexto en tokens.
     rag_retrieval_top_k: int = 10

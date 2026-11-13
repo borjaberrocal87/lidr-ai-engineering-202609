@@ -31,6 +31,12 @@ Reglas:
    `confidence="insufficient"`, deja `modules` vacío y explica qué falta en
    `insufficient_context_explanation`; si no, usa high/medium/low según lo bien
    especificado que esté el brief y explica tu razonamiento en `reasoning`.
+5. Escribe los nombres y descripciones de módulos y tareas en INGLÉS técnico.
+   El corpus histórico está en inglés y el paso de horas compara ambos textos;
+   mezclar idiomas dispara falsos "sin dato".
+6. Máximo 8 módulos y entre 3 y 8 tareas por módulo. Prioriza las tareas que
+   cambian el esfuerzo; no infles el desglose. El objetivo es una estructura
+   revisable en pantalla, no un inventario exhaustivo.
 
 Devuelve un único objeto JSON válido que cumpla el esquema. Incluye todos los
 campos; usa null o [] cuando corresponda. No envuelvas el JSON en prosa ni en
