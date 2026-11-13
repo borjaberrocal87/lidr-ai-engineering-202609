@@ -35,7 +35,10 @@ from app.generation.rag.grounded_estimator import (
     generate_grounded_estimate,
     generate_structure,
 )
-from app.generation.rag.grounding import find_fabricated_citations, is_coherent_estimate
+from app.generation.rag.grounding import (
+    is_coherent_estimate,
+    verify_citations_for_chunks,
+)
 from app.generation.rag.retriever import SemanticRetriever
 from app.generation.rag.schemas import (
     BriefOutcome,
@@ -189,9 +192,11 @@ async def structure(
         estimate = await generate_structure(payload.query)
     except RagPipelineError as exc:
         raise _pipeline_error(exc, surface="structure") from exc
+    citation_report = verify_citations_for_chunks(estimate, [])
     return GroundedGenerationOutcome(
         estimate=estimate,
         fabricated_source_ids=[],
+        citation_report=citation_report,
         coherent=True,
     )
 
@@ -216,8 +221,14 @@ async def generate(
         )
     except RagPipelineError as exc:
         raise _pipeline_error(exc, surface="generation") from exc
+    citation_report = verify_citations_for_chunks(estimate, payload.kept_chunks)
     return GroundedGenerationOutcome(
         estimate=estimate,
-        fabricated_source_ids=find_fabricated_citations(estimate, payload.kept_chunks),
+        fabricated_source_ids=[
+            int(chunk_id)
+            for chunk_id in citation_report.dangling_citations
+            if chunk_id.lstrip("-").isdigit()
+        ],
+        citation_report=citation_report,
         coherent=is_coherent_estimate(estimate),
     )
