@@ -21,7 +21,7 @@ class FakeWrapper:
         self.error = error
         self.calls = 0
 
-    def complete_structured(self, **_kwargs):
+    def complete_structured(self, *, temperature, **_kwargs):
         self.calls += 1
         if self.error is not None:
             raise self.error

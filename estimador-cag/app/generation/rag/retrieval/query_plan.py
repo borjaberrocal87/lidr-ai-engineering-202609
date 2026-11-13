@@ -155,6 +155,7 @@ async def _generate(
         system_prompt=system_prompt,
         user_message=user_message,
         response_model=QueryTransformation,
+        temperature=settings.temperature,
         model_override=model or settings.query_plan_model,
         max_tokens=1500,
     )

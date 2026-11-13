@@ -163,6 +163,7 @@ async def _classify(
         system_prompt=system_prompt,
         user_message=user_message,
         response_model=RouteClassification,
+        temperature=settings.temperature,
         model_override=model or settings.router_model,
         max_tokens=1000,
     )

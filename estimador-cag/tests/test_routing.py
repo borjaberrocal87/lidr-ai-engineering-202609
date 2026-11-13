@@ -20,7 +20,7 @@ class FakeWrapper:
         self.result = result
         self.error = error
 
-    def complete_structured(self, **_kwargs):
+    def complete_structured(self, *, temperature, **_kwargs):
         if self.error is not None:
             raise self.error
         return self.result, {}
