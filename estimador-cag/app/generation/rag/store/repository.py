@@ -16,15 +16,16 @@ from sqlalchemy import Integer, Select, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.generation.rag.schemas import EmbeddedChunk
-from app.generation.rag.store.models import EMBEDDING_DIMENSIONS, ChunkRow, DocumentRow
+from app.generation.rag.store.models import (
+    EMBEDDING_DIMENSIONS,
+    FTS_REGCONFIG,
+    BudgetChunkRow,
+    DocumentRow,
+)
 
 # El chunker estructural emite un chunk por componente. El vocabulario es
 # consultable gracias al índice sobre ``chunk_type`` (filtros del directo).
 BUDGET_COMPONENT = "budget_component"
-
-# Session 10: text-search configuration. MUST match the generated column in
-# migration 0003. Change both places together if the corpus language changes.
-FTS_CONFIG = "english"
 
 # A lexical-only hit never entered the vector ranking, so it has no cosine
 # distance. 1.0 is a display sentinel ("far"); fusion and reranking only use the
@@ -74,28 +75,30 @@ class ChunkStore:
         """Nombre del modo de búsqueda, útil para logs y benchmarks."""
         return "halfvec" if self._use_halfvec else "vector"
 
-    def _distance_expression(self, query_vector: list[float]) -> Any:
+    def _distance_expression(self, query_vector: list[float], model: type = BudgetChunkRow) -> Any:
         """Expresión de distancia coseno alineada con el índice activo."""
         if self._use_halfvec:
             return cast(
-                ChunkRow.embedding,
+                model.embedding,
                 HALFVEC(EMBEDDING_DIMENSIONS),
             ).cosine_distance(query_vector)
-        return ChunkRow.embedding.cosine_distance(query_vector)
+        return model.embedding.cosine_distance(query_vector)
 
-    def _search_statement(self, query_vector: list[float], k: int) -> Select[Any]:
+    def _search_statement(
+        self, query_vector: list[float], k: int, model: type = BudgetChunkRow
+    ) -> Select[Any]:
         """SELECT k-NN reutilizable por la API y por los benchmarks."""
-        distance = self._distance_expression(query_vector)
+        distance = self._distance_expression(query_vector, model)
         return (
             select(
-                ChunkRow.id.label("chunk_id"),
-                ChunkRow.document_id.label("document_id"),
-                ChunkRow.chunk_type.label("chunk_type"),
-                ChunkRow.content.label("content"),
-                ChunkRow.metadata_.label("metadata_"),
+                model.id.label("chunk_id"),
+                model.document_id.label("document_id"),
+                model.chunk_type.label("chunk_type"),
+                model.content.label("content"),
+                model.metadata_.label("metadata_"),
                 distance.label("distance"),
             )
-            .where(ChunkRow.embedding.is_not(None))
+            .where(model.embedding.is_not(None))
             .order_by(distance)
             .limit(k)
         )
@@ -119,6 +122,7 @@ class ChunkStore:
         doc_metadata: dict[str, Any],
         embedded_chunks: list[EmbeddedChunk],
         chunk_type: str = BUDGET_COMPONENT,
+        model: type = BudgetChunkRow,
     ) -> int:
         """Inserta el documento y todos sus chunks. Sin commit.
 
@@ -135,7 +139,7 @@ class ChunkStore:
 
         session.add_all(
             [
-                ChunkRow(
+                model(
                     document_id=document.id,
                     chunk_type=chunk_type,
                     content=chunk.text,
@@ -153,6 +157,7 @@ class ChunkStore:
         *,
         query_vector: list[float],
         k: int,
+        model: type = BudgetChunkRow,
     ) -> list[ChunkMatch]:
         """Los ``k`` chunks más cercanos por distancia coseno (``<=>``).
 
@@ -163,7 +168,7 @@ class ChunkStore:
         Un operador y una operator class distintos hacen que Postgres ignore el
         índice en silencio.
         """
-        stmt = self._search_statement(query_vector, k)
+        stmt = self._search_statement(query_vector, k, model)
         rows = (await session.execute(stmt)).mappings().all()
         return [
             ChunkMatch(
@@ -188,6 +193,8 @@ class ChunkStore:
         project_year_min: int | None = None,
         project_year_max: int | None = None,
         chunk_types: list[str] | None = None,
+        model: type = BudgetChunkRow,
+        extra_filters: list | None = None,
     ) -> tuple[list[ChunkMatch], int]:
         """k-NN con pre-filtrado estructural y umbral de relevancia.
 
@@ -201,31 +208,33 @@ class ChunkStore:
         estructurales antes del umbral y del límite.
         """
         structural_filters = self._structural_filters(
+            model,
             sectors=sectors,
             project_year_min=project_year_min,
             project_year_max=project_year_max,
             chunk_types=chunk_types,
         )
+        structural_filters.extend(extra_filters or [])
 
         count_stmt = (
             select(func.count())
-            .select_from(ChunkRow)
-            .where(ChunkRow.embedding.is_not(None))
+            .select_from(model)
+            .where(model.embedding.is_not(None))
             .where(*structural_filters)
         )
         candidates_evaluated = int((await session.execute(count_stmt)).scalar_one())
 
-        distance = self._distance_expression(query_vector)
+        distance = self._distance_expression(query_vector, model)
         stmt = (
             select(
-                ChunkRow.id.label("chunk_id"),
-                ChunkRow.document_id.label("document_id"),
-                ChunkRow.chunk_type.label("chunk_type"),
-                ChunkRow.content.label("content"),
-                ChunkRow.metadata_.label("metadata_"),
+                model.id.label("chunk_id"),
+                model.document_id.label("document_id"),
+                model.chunk_type.label("chunk_type"),
+                model.content.label("content"),
+                model.metadata_.label("metadata_"),
                 distance.label("distance"),
             )
-            .where(ChunkRow.embedding.is_not(None))
+            .where(model.embedding.is_not(None))
             .where(*structural_filters)
             .where(distance <= distance_threshold)
             .order_by(distance)
@@ -254,6 +263,8 @@ class ChunkStore:
         project_year_min: int | None = None,
         project_year_max: int | None = None,
         chunk_types: list[str] | None = None,
+        model: type = BudgetChunkRow,
+        extra_filters: list | None = None,
     ) -> Select[Any]:
         """SELECT for the lexical branch: OR tsquery + ``ts_rank_cd``.
 
@@ -264,27 +275,28 @@ class ChunkStore:
         density) ranks by relevance: higher is better, the opposite of cosine
         distance. ``ORDER BY ... DESC`` reflects that.
         """
-        tsquery = func.websearch_to_tsquery(FTS_CONFIG, _or_tsquery_text(query_text))
-        rank = func.ts_rank_cd(ChunkRow.content_tsv, tsquery)
+        tsquery = func.websearch_to_tsquery(FTS_REGCONFIG, _or_tsquery_text(query_text))
+        rank = func.ts_rank_cd(model.content_tsv, tsquery)
+        filters = self._structural_filters(
+            model,
+            sectors=sectors,
+            project_year_min=project_year_min,
+            project_year_max=project_year_max,
+            chunk_types=chunk_types,
+        )
+        filters.extend(extra_filters or [])
         return (
             select(
-                ChunkRow.id.label("chunk_id"),
-                ChunkRow.document_id.label("document_id"),
-                ChunkRow.chunk_type.label("chunk_type"),
-                ChunkRow.content.label("content"),
-                ChunkRow.metadata_.label("metadata_"),
+                model.id.label("chunk_id"),
+                model.document_id.label("document_id"),
+                model.chunk_type.label("chunk_type"),
+                model.content.label("content"),
+                model.metadata_.label("metadata_"),
                 rank.label("rank"),
             )
-            .where(ChunkRow.content_tsv.op("@@")(tsquery))
-            .where(
-                *self._structural_filters(
-                    sectors=sectors,
-                    project_year_min=project_year_min,
-                    project_year_max=project_year_max,
-                    chunk_types=chunk_types,
-                )
-            )
-            .order_by(rank.desc(), ChunkRow.id.asc())
+            .where(model.content_tsv.op("@@")(tsquery))
+            .where(*filters)
+            .order_by(rank.desc(), model.id.asc())
             .limit(top_k)
         )
 
@@ -298,6 +310,8 @@ class ChunkStore:
         project_year_min: int | None = None,
         project_year_max: int | None = None,
         chunk_types: list[str] | None = None,
+        model: type = BudgetChunkRow,
+        extra_filters: list | None = None,
     ) -> list[ChunkMatch]:
         """Lexical branch of hybrid search (Session 10).
 
@@ -312,6 +326,8 @@ class ChunkStore:
             project_year_min=project_year_min,
             project_year_max=project_year_max,
             chunk_types=chunk_types,
+            model=model,
+            extra_filters=extra_filters,
         )
         rows = (await session.execute(stmt)).mappings().all()
         return [
@@ -328,6 +344,7 @@ class ChunkStore:
 
     @staticmethod
     def _structural_filters(
+        model: type = BudgetChunkRow,
         *,
         sectors: list[str] | None,
         project_year_min: int | None,
@@ -339,8 +356,8 @@ class ChunkStore:
         Each filter follows the ``None`` = do not apply convention. Sector and
         year read from JSONB; chunk type reads from its own column.
         """
-        sector_col = ChunkRow.metadata_["client_sector"].astext
-        year_col = cast(ChunkRow.metadata_["year"].astext, Integer)
+        sector_col = model.metadata_["client_sector"].astext
+        year_col = cast(model.metadata_["year"].astext, Integer)
 
         filters: list[Any] = []
         if sectors:
@@ -350,5 +367,5 @@ class ChunkStore:
         if project_year_max is not None:
             filters.append(year_col <= project_year_max)
         if chunk_types:
-            filters.append(ChunkRow.chunk_type.in_(chunk_types))
+            filters.append(model.chunk_type.in_(chunk_types))
         return filters
