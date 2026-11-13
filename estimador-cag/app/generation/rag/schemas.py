@@ -363,7 +363,7 @@ class EstimationTask(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _grounding_integrity(self) -> "EstimationTask":
+    def _grounding_integrity(self) -> EstimationTask:
         """Enforce the Session 11 line-level grounding contract.
 
         A grounded line must cite at least one source; an ungrounded line must
@@ -372,9 +372,7 @@ class EstimationTask(BaseModel):
         validator only activates when the new fields are explicitly provided.
         """
         legacy_sources_only = not self.citations and bool(self.sources)
-        if legacy_sources_only and (
-            "citations" not in self.model_fields_set or not self.grounded
-        ):
+        if legacy_sources_only and ("citations" not in self.model_fields_set or not self.grounded):
             # Session 9 estimates carry only legacy sources. Treat them as
             # grounded instead of rejecting an otherwise valid cached estimate.
             # The citations-in-fields-set guard keeps a new response that
@@ -681,7 +679,7 @@ class TaskHoursEstimate(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _grounding_integrity(self) -> "TaskHoursEstimate":
+    def _grounding_integrity(self) -> TaskHoursEstimate:
         """Keep ``grounded``, ``has_match`` and ``sources`` consistent.
 
         Legacy fixtures that only set ``has_match`` are tolerated: ``grounded``
@@ -702,9 +700,7 @@ class TaskHoursEstimate(BaseModel):
         if not self.grounded and self.sources:
             raise ValueError("an ungrounded line (grounded=False) must not carry sources")
         if not self.grounded and self.estimated_hours is not None:
-            raise ValueError(
-                "an ungrounded line (grounded=False) must leave estimated_hours null"
-            )
+            raise ValueError("an ungrounded line (grounded=False) must leave estimated_hours null")
         return self
 
 

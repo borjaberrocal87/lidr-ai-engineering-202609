@@ -262,9 +262,10 @@ async def estimate_from_transcript(
         document_mismatches=report.document_mismatches,
     )
     if report.has_dangling:
+        bad_citations = report.dangling_citations + report.document_mismatches
         feedback = (
             "Your previous answer cited sources that are not in the <sources> block or "
-            f"attributed the wrong document_id: {report.dangling_citations + report.document_mismatches}. "
+            f"attributed the wrong document_id: {bad_citations}. "
             "Copy only the id and document_id attributes that literally appear in <sources>, "
             "and use verbatim evidence from the same chunk."
         )

@@ -92,7 +92,8 @@ def render_estimate_text(estimate: GroundedEstimate) -> str:
             lines.append(f"  - {task.name}: {days} [{tag}]{suffix}")
     if estimate.assumptions:
         lines.append(
-            "Assumptions: " + "; ".join(assumption.description for assumption in estimate.assumptions)
+            "Assumptions: "
+            + "; ".join(assumption.description for assumption in estimate.assumptions)
         )
     lines.append(f"Reasoning: {estimate.reasoning}")
     return "\n".join(lines)

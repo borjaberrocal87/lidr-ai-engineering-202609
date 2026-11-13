@@ -507,9 +507,7 @@ class TaskHoursEstimate(BaseModel):
         if not self.grounded and self.sources:
             raise ValueError("an ungrounded line (grounded=False) must not carry sources")
         if not self.grounded and self.estimated_hours is not None:
-            raise ValueError(
-                "an ungrounded line (grounded=False) must leave estimated_hours null"
-            )
+            raise ValueError("an ungrounded line (grounded=False) must leave estimated_hours null")
         return self
 ```
 
@@ -1559,14 +1557,13 @@ def render_estimate_text(estimate: GroundedEstimate) -> str:
         for task in module.tasks:
             days = "n/a" if task.engineer_days is None else f"{task.engineer_days}d"
             tag = "grounded" if task.grounded else "no-data"
-            citations = ", ".join(
-                f"{ref.chunk_id}->{ref.document_id}" for ref in task.citations
-            )
+            citations = ", ".join(f"{ref.chunk_id}->{ref.document_id}" for ref in task.citations)
             suffix = f" sources=[{citations}]" if citations else ""
             lines.append(f"  - {task.name}: {days} [{tag}]{suffix}")
     if estimate.assumptions:
         lines.append(
-            "Assumptions: " + "; ".join(assumption.description for assumption in estimate.assumptions)
+            "Assumptions: "
+            + "; ".join(assumption.description for assumption in estimate.assumptions)
         )
     lines.append(f"Reasoning: {estimate.reasoning}")
     return "\n".join(lines)
@@ -1823,7 +1820,9 @@ def main() -> int:
                 for index, sample in enumerate(samples)
             ],
         }
-        Path(args.out).write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        Path(args.out).write_text(
+            json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         print(f"\nWrote {args.out}")
     return 0
 

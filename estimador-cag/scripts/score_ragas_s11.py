@@ -37,7 +37,7 @@ def _install_vertex_shims() -> None:
         import langchain_community.chat_models.vertexai  # noqa: F401
 
         return
-    except Exception:
+    except Exception:  # noqa: S110 - optional dependency probe
         pass
 
     class _Unavailable:
@@ -152,7 +152,9 @@ def main() -> int:
                 for index, sample in enumerate(samples)
             ],
         }
-        Path(args.out).write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        Path(args.out).write_text(
+            json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
         print(f"\nWrote {args.out}")
     return 0
 

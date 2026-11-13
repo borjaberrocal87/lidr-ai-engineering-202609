@@ -23,6 +23,7 @@ from app.generation.rag.schemas import (
     CitationReport,
     GroundedEstimate,
     LineCitation,
+    LineCitationStatus,
     RetrievedChunk,
 )
 
@@ -92,7 +93,7 @@ def verify_citations(
             mismatches.update(line_mismatches)
 
             if not grounded:
-                status = "insufficient"
+                status: LineCitationStatus = "insufficient"
                 insufficient_lines += 1
                 reason = "no sufficient source data"
             elif not cited:
