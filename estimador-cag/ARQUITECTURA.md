@@ -49,7 +49,7 @@ app/
 │
 ├── generation/                     # las 3 arquitecturas + substrato conversacional
 │   ├── cag/                        # exact.py + semantic.py
-│   ├── rag/                        # chunking/ + embedding/ + analysis/ + store/ + ingest_service.py
+│   ├── rag/                        # chunking/ + embedding/ + analysis/ + store/ + retrieval/ + ingest_service.py
 │   ├── agentic/                    # boss.py + critic.py
 │   └── conversation/               # models, store, metadata_extractor, tier_resolver, compression/
 │
@@ -75,6 +75,14 @@ app/
 | `api/*` | `dependencies`, `domain`, `foundation` (errores), tipos de `generation` | lógica de negocio |
 | `dependencies.py` (COMPOSITION ROOT) | cualquier cosa | (lo importan solo `api/`, `main`, los tests y los conductores) |
 | `main.py` | `api`, `config`, `foundation/observability` | — |
+
+La recuperación multifuente de la S10 (`generation/rag/retrieval/sources.py`,
+`routing.py`, `query_plan.py`, `freshness.py`, `multi_source.py` y
+`generation/rag/task_hours.py`) respeta el contrato sin excepciones nuevas:
+recibe `embedder`, `store`, `session_factory`, `llm_wrapper` y `reranker` por
+parámetro, y solo `app/api/*` (capa permitida) los resuelve desde
+`app.dependencies`. El catálogo de fuentes es datos (`data/catalog/collections.yaml`),
+no código.
 
 Tres aristas especiales, explícitas:
 
