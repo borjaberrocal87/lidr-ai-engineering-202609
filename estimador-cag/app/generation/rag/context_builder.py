@@ -24,12 +24,22 @@ class TokenEncoder(Protocol):
     def encode(self, text: str) -> list[int]: ...
 
 
+def traceable_document_id(chunk: RetrievedChunk) -> str:
+    """Return the traceable parent document id for a retrieved chunk.
+
+    Budget and historical-task chunks carry ``budget_id``; transcripts and
+    technical docs carry ``source_id``. Falling back to the DB ``document_id``
+    keeps the value non-empty for any future collection.
+    """
+    return chunk.budget_id or chunk.source_id or str(chunk.document_id)
+
+
 def render_source(chunk: RetrievedChunk) -> str:
     """Renderiza un chunk como elemento ``<source>`` autodescriptivo."""
     return (
-        f'<source id="{chunk.id}" sector="{chunk.sector}" '
-        f'project_year="{chunk.project_year}" chunk_type="{chunk.chunk_type}" '
-        f'distance="{chunk.distance:.4f}">\n'
+        f'<source id="{chunk.id}" document_id="{traceable_document_id(chunk)}" '
+        f'sector="{chunk.sector}" project_year="{chunk.project_year}" '
+        f'chunk_type="{chunk.chunk_type}" distance="{chunk.distance:.4f}">\n'
         f"{chunk.content}\n"
         f"</source>"
     )
