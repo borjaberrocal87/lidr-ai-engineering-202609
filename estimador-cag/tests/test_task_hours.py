@@ -77,9 +77,13 @@ async def test_estimate_one_returns_neighbour_evidence(monkeypatch) -> None:
     )
 
     assert estimate.has_match is True
+    assert estimate.grounded is True
     assert estimate.estimated_hours == 41
     assert len(estimate.neighbors) == 2
     assert estimate.neighbors[0].budget_id == "TASK-2022-0001"
+    assert len(estimate.sources) == 2
+    assert all(source.evidence for source in estimate.sources)
+    assert estimate.sources[0].document_id == "TASK-2022-0001"
 
 
 @pytest.mark.asyncio
@@ -106,6 +110,8 @@ async def test_estimate_one_rejects_neighbours_beyond_the_distance_threshold(
     )
 
     assert estimate.has_match is False
+    assert estimate.grounded is False
+    assert estimate.sources == []
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,7 @@ from app.generation.rag.schemas import (
     ProjectBrief,
     RetrievalOutcome,
     RetrievedChunk,
+    SourceReference,
 )
 
 
@@ -27,6 +28,7 @@ def _chunk(chunk_id: int = 1) -> RetrievedChunk:
         project_year=2024,
         chunk_type="budget_component",
         distance=0.2,
+        budget_id="BUD-2024-001",
     )
 
 
@@ -37,7 +39,21 @@ def _estimate(*, cites: list[int], confidence: str = "medium") -> GroundedEstima
         modules=[
             EstimationModule(
                 name="Authentication",
-                tasks=[EstimationTask(name="OAuth", engineer_days=10, sources=cites)],
+                tasks=[
+                    EstimationTask(
+                        name="OAuth",
+                        engineer_days=10 if cites else None,
+                        grounded=bool(cites),
+                        citations=[
+                            SourceReference(
+                                chunk_id=str(chunk_id),
+                                document_id="BUD-2024-001",
+                                evidence="OAuth",
+                            )
+                            for chunk_id in cites
+                        ],
+                    )
+                ],
             )
         ]
         if coherent

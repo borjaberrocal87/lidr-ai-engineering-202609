@@ -17,7 +17,13 @@ class CharEncoder:
         return list(range(len(text)))
 
 
-def _chunk(chunk_id: int, content: str, distance: float) -> RetrievedChunk:
+def _chunk(
+    chunk_id: int,
+    content: str,
+    distance: float,
+    *,
+    budget_id: str | None = None,
+) -> RetrievedChunk:
     return RetrievedChunk(
         id=chunk_id,
         document_id=1,
@@ -26,13 +32,14 @@ def _chunk(chunk_id: int, content: str, distance: float) -> RetrievedChunk:
         project_year=2024,
         chunk_type="budget_component",
         distance=distance,
+        budget_id=budget_id,
     )
 
 
 def test_assemble_context_wraps_each_chunk_with_its_metadata() -> None:
     block = assemble_context([_chunk(7, "OAuth backend", 0.1234)])
 
-    assert '<source id="7" sector="finance" project_year="2024"' in block
+    assert '<source id="7" document_id="1" sector="finance" project_year="2024"' in block
     assert 'chunk_type="budget_component" distance="0.1234"' in block
     assert "OAuth backend" in block
     assert block.endswith("</source>")
@@ -61,3 +68,9 @@ def test_fit_chunks_to_budget_never_splits_a_chunk() -> None:
 
 def test_empty_context_is_an_empty_string() -> None:
     assert assemble_context([]) == ""
+
+
+def test_source_uses_budget_id_as_traceable_document_id() -> None:
+    block = assemble_context([_chunk(7, "OAuth backend", 0.1234, budget_id="BUD-2024-001")])
+
+    assert 'document_id="BUD-2024-001"' in block

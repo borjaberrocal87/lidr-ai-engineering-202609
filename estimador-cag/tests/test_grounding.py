@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from app.generation.rag.grounding import find_fabricated_citations, is_coherent_estimate
+from app.generation.rag.grounding import (
+    find_fabricated_citations,
+    is_coherent_estimate,
+    verify_citations_for_chunks,
+)
 from app.generation.rag.schemas import (
     Citation,
     EstimationModule,
     EstimationTask,
     GroundedEstimate,
     RetrievedChunk,
+    SourceReference,
 )
 
 
@@ -82,3 +87,78 @@ def test_insufficient_estimate_with_numbers_is_incoherent() -> None:
 
 def test_any_other_confidence_is_coherent() -> None:
     assert is_coherent_estimate(_estimate(cites=[1], task_cites=[1], confidence="high")) is True
+
+
+def _cited_task(citations: list[SourceReference], *, grounded: bool = True) -> EstimationTask:
+    return EstimationTask(
+        name="OAuth",
+        engineer_days=5 if grounded else None,
+        grounded=grounded,
+        citations=citations,
+    )
+
+
+def _cited_estimate(*tasks: EstimationTask) -> GroundedEstimate:
+    return GroundedEstimate(
+        total_engineer_days=5,
+        modules=[EstimationModule(name="Auth", tasks=list(tasks))],
+        duration_weeks=1,
+        sources=[],
+        assumptions=[],
+        confidence="high",
+        reasoning="derived from retrieved sources",
+    )
+
+
+def test_verify_citations_accepts_real_line_citations() -> None:
+    chunk = _chunk(1).model_copy(update={"budget_id": "BUD-1"})
+    estimate = _cited_estimate(
+        _cited_task([SourceReference(chunk_id="1", document_id="BUD-1", evidence="OAuth")])
+    )
+
+    report = verify_citations_for_chunks(estimate, [chunk])
+
+    assert report.dangling_citations == []
+    assert report.grounded_lines == 1
+    assert report.verified_citations == 1
+
+
+def test_verify_citations_flags_a_planted_dangling_id() -> None:
+    estimate = _cited_estimate(
+        _cited_task([SourceReference(chunk_id="999", document_id="BUD-1", evidence="ledger")])
+    )
+
+    report = verify_citations_for_chunks(estimate, [_chunk(1)])
+
+    assert report.dangling_citations == ["999"]
+    assert report.dangling_lines == 1
+    assert report.lines[0].status == "dangling"
+
+
+def test_verify_citations_flags_a_document_mismatch() -> None:
+    chunk = _chunk(1).model_copy(update={"budget_id": "BUD-1"})
+    estimate = _cited_estimate(
+        _cited_task([SourceReference(chunk_id="1", document_id="BUD-999", evidence="OAuth")])
+    )
+
+    report = verify_citations_for_chunks(estimate, [chunk])
+
+    assert report.has_dangling is True
+    assert report.dangling_citations == []
+    assert report.document_mismatches
+
+
+def test_verify_citations_counts_insufficient_lines() -> None:
+    estimate = _cited_estimate(EstimationTask(name="Novel scope", grounded=False))
+
+    report = verify_citations_for_chunks(estimate, [])
+
+    assert report.insufficient_lines == 1
+    assert report.grounded_lines == 0
+    assert report.lines[0].status == "insufficient"
+
+
+def test_find_fabricated_citations_still_returns_legacy_ids() -> None:
+    estimate = _estimate(cites=[1, 99], task_cites=[2, 100])
+
+    assert find_fabricated_citations(estimate, [_chunk(1), _chunk(2)]) == [99, 100]
