@@ -134,9 +134,7 @@ def test_generate_stage_returns_grounding_signals(client: TestClient, monkeypatc
     assert response.json()["coherent"] is True
 
 
-def test_structure_stage_returns_a_clean_structure(
-    client: TestClient, monkeypatch
-) -> None:
+def test_structure_stage_returns_a_clean_structure(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(settings, "estimate_api_key", SecretStr("estimate-secret"))
     monkeypatch.setattr("app.dependencies.get_llm_wrapper", lambda: FakeWrapper())
 

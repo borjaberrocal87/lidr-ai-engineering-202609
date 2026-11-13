@@ -19,7 +19,7 @@ from datetime import date
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -53,7 +53,7 @@ class Collection(StrEnum):
     TECHNICAL_DOC = "technical_doc"
 
 
-_MODEL_BY_TABLE: dict[str, type] = {
+_MODEL_BY_TABLE: dict[str, type[Any]] = {
     "budget_chunks": BudgetChunkRow,
     "transcript_chunks": TranscriptChunkRow,
     "technical_doc_chunks": TechnicalDocChunkRow,
@@ -143,14 +143,14 @@ class CollectionSpec:
     collection: Collection
     label: str
     description: str
-    model: type
+    model: type[Any]
     chunk_type: str
     source_id_key: str
     date_spec: DateSpec | None = None
     filters: tuple[FilterAxis, ...] = field(default_factory=tuple)
     rule_patterns: tuple[str, ...] = field(default_factory=tuple)
 
-    def date_of(self, metadata: dict) -> date | None:
+    def date_of(self, metadata: dict[str, Any]) -> date | None:
         """Lee una fecha de esta fuente desde su metadata, o ``None``."""
         if self.date_spec is None:
             return None
@@ -197,14 +197,14 @@ class CollectionSpec:
             estimated_hours=_as_int(metadata.get("estimated_hours")),
         )
 
-    def hard_filter_clauses(self, filters: HardFilters) -> list:
+    def hard_filter_clauses(self, filters: HardFilters) -> list[Any]:
         """Cláusulas SQLAlchemy que embeben los filtros duros de la petición.
 
         Solo se emiten los ejes declarados por la fuente. Una lista vacía de
         cláusulas deja la búsqueda exactamente como si no hubiera filtros.
         """
         md = self.model.metadata_
-        clauses: list = []
+        clauses: list[Any] = []
 
         if "sectors" in self.filters and filters.sectors:
             clauses.append(md["client_sector"].astext.in_(list(filters.sectors)))
@@ -226,7 +226,7 @@ def _as_int(value: object) -> int | None:
     if value is None:
         return None
     try:
-        return int(value)  # type: ignore[arg-type]
+        return int(str(value))
     except (TypeError, ValueError):
         return None
 

@@ -69,9 +69,7 @@ def test_hours_returns_the_consensus(client: TestClient, monkeypatch) -> None:
 
     monkeypatch.setattr("app.api.estimate_tasks.estimate_all", fake_estimate_all)
 
-    response = client.post(
-        "/api/v1/estimate/tasks/hours", json=_payload(), headers=HEADERS
-    )
+    response = client.post("/api/v1/estimate/tasks/hours", json=_payload(), headers=HEADERS)
 
     assert response.status_code == 200
     body = response.json()
@@ -82,8 +80,6 @@ def test_hours_returns_the_consensus(client: TestClient, monkeypatch) -> None:
 def test_hours_rejects_empty_modules(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(settings, "estimate_api_key", SecretStr("estimate-secret"))
 
-    response = client.post(
-        "/api/v1/estimate/tasks/hours", json={"modules": []}, headers=HEADERS
-    )
+    response = client.post("/api/v1/estimate/tasks/hours", json={"modules": []}, headers=HEADERS)
 
     assert response.status_code == 422

@@ -63,9 +63,7 @@ class RetrievalUpdateRequest(BaseModel):
     search_mode: str | None = Field(default=None, description="'vector' or 'hybrid'.")
     rerank: bool | None = Field(default=None, description="Enable cross-encoder reranking.")
     # Sesión 10 — etapas de la recuperación multifuente.
-    routing_enabled: bool | None = Field(
-        default=None, description="Enable collection routing."
-    )
+    routing_enabled: bool | None = Field(default=None, description="Enable collection routing.")
     query_plan_enabled: bool | None = Field(
         default=None, description="Enable query expansion/decomposition."
     )

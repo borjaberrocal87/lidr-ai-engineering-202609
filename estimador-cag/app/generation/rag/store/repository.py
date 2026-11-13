@@ -75,7 +75,9 @@ class ChunkStore:
         """Nombre del modo de búsqueda, útil para logs y benchmarks."""
         return "halfvec" if self._use_halfvec else "vector"
 
-    def _distance_expression(self, query_vector: list[float], model: type = BudgetChunkRow) -> Any:
+    def _distance_expression(
+        self, query_vector: list[float], model: type[Any] = BudgetChunkRow
+    ) -> Any:
         """Expresión de distancia coseno alineada con el índice activo."""
         if self._use_halfvec:
             return cast(
@@ -85,7 +87,7 @@ class ChunkStore:
         return model.embedding.cosine_distance(query_vector)
 
     def _search_statement(
-        self, query_vector: list[float], k: int, model: type = BudgetChunkRow
+        self, query_vector: list[float], k: int, model: type[Any] = BudgetChunkRow
     ) -> Select[Any]:
         """SELECT k-NN reutilizable por la API y por los benchmarks."""
         distance = self._distance_expression(query_vector, model)
@@ -122,7 +124,7 @@ class ChunkStore:
         doc_metadata: dict[str, Any],
         embedded_chunks: list[EmbeddedChunk],
         chunk_type: str = BUDGET_COMPONENT,
-        model: type = BudgetChunkRow,
+        model: type[Any] = BudgetChunkRow,
     ) -> int:
         """Inserta el documento y todos sus chunks. Sin commit.
 
@@ -157,7 +159,7 @@ class ChunkStore:
         *,
         query_vector: list[float],
         k: int,
-        model: type = BudgetChunkRow,
+        model: type[Any] = BudgetChunkRow,
     ) -> list[ChunkMatch]:
         """Los ``k`` chunks más cercanos por distancia coseno (``<=>``).
 
@@ -193,8 +195,8 @@ class ChunkStore:
         project_year_min: int | None = None,
         project_year_max: int | None = None,
         chunk_types: list[str] | None = None,
-        model: type = BudgetChunkRow,
-        extra_filters: list | None = None,
+        model: type[Any] = BudgetChunkRow,
+        extra_filters: list[Any] | None = None,
     ) -> tuple[list[ChunkMatch], int]:
         """k-NN con pre-filtrado estructural y umbral de relevancia.
 
@@ -263,8 +265,8 @@ class ChunkStore:
         project_year_min: int | None = None,
         project_year_max: int | None = None,
         chunk_types: list[str] | None = None,
-        model: type = BudgetChunkRow,
-        extra_filters: list | None = None,
+        model: type[Any] = BudgetChunkRow,
+        extra_filters: list[Any] | None = None,
     ) -> Select[Any]:
         """SELECT for the lexical branch: OR tsquery + ``ts_rank_cd``.
 
@@ -310,8 +312,8 @@ class ChunkStore:
         project_year_min: int | None = None,
         project_year_max: int | None = None,
         chunk_types: list[str] | None = None,
-        model: type = BudgetChunkRow,
-        extra_filters: list | None = None,
+        model: type[Any] = BudgetChunkRow,
+        extra_filters: list[Any] | None = None,
     ) -> list[ChunkMatch]:
         """Lexical branch of hybrid search (Session 10).
 
@@ -344,7 +346,7 @@ class ChunkStore:
 
     @staticmethod
     def _structural_filters(
-        model: type = BudgetChunkRow,
+        model: type[Any] = BudgetChunkRow,
         *,
         sectors: list[str] | None,
         project_year_min: int | None,

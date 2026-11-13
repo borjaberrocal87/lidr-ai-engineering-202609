@@ -22,10 +22,7 @@ def test_store_tables_are_registered_in_the_shared_base() -> None:
     assert DocumentRow.metadata.tables["documents"] is DocumentRow.__table__
     assert DocumentRow.metadata.tables["budget_chunks"] is BudgetChunkRow.__table__
     assert DocumentRow.metadata.tables["transcript_chunks"] is TranscriptChunkRow.__table__
-    assert (
-        DocumentRow.metadata.tables["technical_doc_chunks"]
-        is TechnicalDocChunkRow.__table__
-    )
+    assert DocumentRow.metadata.tables["technical_doc_chunks"] is TechnicalDocChunkRow.__table__
     assert Base.metadata is DocumentRow.metadata
 
 

@@ -27,6 +27,7 @@ import asyncio
 import math
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Any
 
 import structlog
 
@@ -174,13 +175,13 @@ def _fuse_collection(
 async def retrieve_multi_source(
     *,
     query_text: str,
-    embedder,
-    store,
-    session_factory,
+    embedder: Any,
+    store: Any,
+    session_factory: Any,
     stages: StageConfig,
     reference_date: date,
-    llm_wrapper=None,
-    reranker=None,
+    llm_wrapper: Any = None,
+    reranker: Any = None,
     explicit_collections: list[Collection] | None = None,
     hard_filters: HardFilters | None = None,
 ) -> MultiSourceOutcome:

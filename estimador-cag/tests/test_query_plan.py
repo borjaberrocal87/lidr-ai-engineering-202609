@@ -31,8 +31,7 @@ class FakeWrapper:
 def _transformation(*queries: str) -> QueryTransformation:
     return QueryTransformation(
         subqueries=[
-            SubQuery(topic=f"tema-{index}", query=query)
-            for index, query in enumerate(queries)
+            SubQuery(topic=f"tema-{index}", query=query) for index, query in enumerate(queries)
         ]
     )
 

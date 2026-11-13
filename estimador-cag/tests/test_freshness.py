@@ -47,9 +47,7 @@ def test_chunks_without_date_keep_their_base_score() -> None:
     reference = date(2025, 1, 1)
     undated = _chunk(1, document_date=None)
 
-    reordered = apply_freshness(
-        [(undated, 0.7)], half_life_days=900, reference_date=reference
-    )
+    reordered = apply_freshness([(undated, 0.7)], half_life_days=900, reference_date=reference)
 
     assert reordered == [(undated, 0.7)]
 

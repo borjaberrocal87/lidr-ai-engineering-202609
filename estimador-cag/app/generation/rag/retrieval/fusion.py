@@ -17,7 +17,9 @@ Pure and synchronous on purpose — trivially unit-testable, no I/O.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from itertools import zip_longest
+from typing import Any
 
 DEFAULT_RRF_K = 60
 
@@ -60,7 +62,9 @@ def reciprocal_rank_fusion(
     return sorted(scores.items(), key=lambda item: (-item[1], item[0]))
 
 
-def round_robin_merge(ranked_lists: list[list], *, key=lambda item: item) -> list:
+def round_robin_merge(
+    ranked_lists: list[list[Any]], *, key: Callable[[Any], Any] = lambda item: item
+) -> list[Any]:
     """Intercala varias listas ordenadas posición a posición, deduplicando.
 
     Es la fusión de la DESCOMPOSICIÓN: cada sub-query cubre un tema distinto y
@@ -72,8 +76,8 @@ def round_robin_merge(ranked_lists: list[list], *, key=lambda item: item) -> lis
     pueden colisionar (cada tabla tiene su propia secuencia), así que el
     llamante pasa una clave compuesta ``(collection, id)``.
     """
-    seen: set = set()
-    merged: list = []
+    seen: set[Any] = set()
+    merged: list[Any] = []
     for column in zip_longest(*ranked_lists):
         for item in column:
             if item is None:

@@ -164,12 +164,12 @@ def render_rag_estimation_prompt(
     }
     # v1 pide horas; v2 es la variante estructura-primero sin horas (S10).
     resolved_version = version or ("v1" if include_hours else "v2")
-    system = _env.get_template(
-        f"{RAG_ESTIMATION_USE_CASE}/{resolved_version}/system.j2"
-    ).render(**context)
-    user = _env.get_template(
-        f"{RAG_ESTIMATION_USE_CASE}/{resolved_version}/user.j2"
-    ).render(**context)
+    system = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{resolved_version}/system.j2").render(
+        **context
+    )
+    user = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{resolved_version}/user.j2").render(
+        **context
+    )
     logger.info(
         "prompt.rendered",
         use_case=RAG_ESTIMATION_USE_CASE,

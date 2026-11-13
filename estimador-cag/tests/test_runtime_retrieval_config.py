@@ -95,10 +95,7 @@ def test_multisource_defaults_come_from_settings() -> None:
     assert store.effective_query_plan() is settings.retrieval_query_plan_enabled
     assert store.effective_freshness() is settings.retrieval_freshness_enabled
     assert store.effective_task_hours_top_k() == settings.task_hours_top_k
-    assert (
-        store.effective_task_hours_distance_threshold()
-        == settings.task_hours_distance_threshold
-    )
+    assert store.effective_task_hours_distance_threshold() == settings.task_hours_distance_threshold
 
 
 def test_multisource_toggles_can_be_set_and_reset() -> None:

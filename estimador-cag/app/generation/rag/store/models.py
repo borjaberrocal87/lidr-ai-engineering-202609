@@ -89,6 +89,8 @@ class _ChunkColumns:
     repetir la lista de columnas tres veces.
     """
 
+    __tablename__: str
+
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     document_id: Mapped[int] = mapped_column(
         BigInteger,
@@ -115,7 +117,7 @@ class _ChunkColumns:
     )
 
     @declared_attr.directive
-    def __table_args__(cls) -> tuple:
+    def __table_args__(cls) -> tuple[Any, ...]:
         name = cls.__tablename__
         return (
             Index(f"ix_{name}_document_id", "document_id"),

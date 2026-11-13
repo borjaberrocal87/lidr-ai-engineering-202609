@@ -24,6 +24,7 @@ el contrato de capas de ``test_layering.py``.
 from __future__ import annotations
 
 import asyncio
+from typing import Any, cast
 
 import structlog
 from pydantic import BaseModel, Field
@@ -90,7 +91,7 @@ async def transform_query(
     query_text: str,
     *,
     enabled: bool = True,
-    llm_wrapper=None,
+    llm_wrapper: Any = None,
     model: str | None = None,
     max_subqueries: int = 4,
 ) -> QueryPlan:
@@ -145,7 +146,7 @@ async def _generate(
     *,
     system_prompt: str,
     user_message: str,
-    llm_wrapper,
+    llm_wrapper: Any,
     model: str | None,
 ) -> QueryTransformation:
     settings = get_settings()
@@ -157,4 +158,4 @@ async def _generate(
         model_override=model or settings.query_plan_model,
         max_tokens=1500,
     )
-    return transformation
+    return cast(QueryTransformation, transformation)

@@ -25,8 +25,11 @@ import asyncio
 import statistics
 
 import structlog
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.generation.rag.embedding.embedder import OpenAIEmbedder
 from app.generation.rag.retrieval.pipeline import retrieve
+from app.generation.rag.retrieval.reranker import CrossEncoderReranker
 from app.generation.rag.retrieval.sources import Collection
 from app.generation.rag.schemas import (
     RetrievedChunk,
@@ -35,6 +38,7 @@ from app.generation.rag.schemas import (
     TaskHoursResult,
     TaskNeighbor,
 )
+from app.generation.rag.store.repository import ChunkStore
 
 log = structlog.get_logger()
 
@@ -102,10 +106,10 @@ async def estimate_one(
     name: str,
     description: str | None,
     *,
-    store,
-    session_factory,
-    embedder,
-    reranker=None,
+    store: ChunkStore,
+    session_factory: async_sessionmaker[AsyncSession],
+    embedder: OpenAIEmbedder,
+    reranker: CrossEncoderReranker | None = None,
     top_k: int = 5,
     distance_threshold: float = 0.45,
     search_mode: str = "vector",
@@ -150,7 +154,7 @@ async def estimate_one(
         TaskNeighbor(
             source_id=chunk.id,
             budget_id=chunk.budget_id,
-            estimated_hours=int(chunk.estimated_hours),
+            estimated_hours=int(chunk.estimated_hours or 0),
             distance=chunk.distance,
         )
         for chunk in usable
@@ -172,10 +176,10 @@ async def estimate_one(
 async def estimate_all(
     modules: list[TaskHoursModuleInput],
     *,
-    store,
-    session_factory,
-    embedder,
-    reranker=None,
+    store: ChunkStore,
+    session_factory: async_sessionmaker[AsyncSession],
+    embedder: OpenAIEmbedder,
+    reranker: CrossEncoderReranker | None = None,
     top_k: int = 5,
     distance_threshold: float = 0.45,
     search_mode: str = "vector",

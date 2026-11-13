@@ -151,9 +151,7 @@ def test_put_retrieval_rejects_invalid_task_hours_knobs(
     client: TestClient, retrieval_store: RuntimeRetrievalConfig
 ) -> None:
     too_small = client.put("/api/v1/config/retrieval", json={"task_hours_top_k": 0})
-    too_big = client.put(
-        "/api/v1/config/retrieval", json={"task_hours_distance_threshold": 9.0}
-    )
+    too_big = client.put("/api/v1/config/retrieval", json={"task_hours_distance_threshold": 9.0})
 
     assert too_small.status_code == 422
     assert too_big.status_code == 422

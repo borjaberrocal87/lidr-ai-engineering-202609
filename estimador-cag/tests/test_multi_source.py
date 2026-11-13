@@ -75,8 +75,7 @@ class FakeEmbedder:
 class FakeReranker:
     def rerank_with_scores(self, _query, candidates, *, top_n):
         return [
-            (candidate, 0.9 - index * 0.1)
-            for index, candidate in enumerate(candidates[:top_n])
+            (candidate, 0.9 - index * 0.1) for index, candidate in enumerate(candidates[:top_n])
         ]
 
 

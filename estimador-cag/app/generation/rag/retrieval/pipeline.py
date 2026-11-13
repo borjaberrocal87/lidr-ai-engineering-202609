@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import Any
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -88,7 +89,7 @@ async def hybrid_search_one(
     project_year_min: int | None = None,
     project_year_max: int | None = None,
     chunk_types: list[str] | None = None,
-    extra_filters: list | None = None,
+    extra_filters: list[Any] | None = None,
 ) -> CollectionHits:
     """Ejecuta las ramas vectorial (e híbrida) sobre UNA fuente.
 
@@ -163,7 +164,7 @@ async def retrieve(
     project_year_min: int | None = None,
     project_year_max: int | None = None,
     chunk_types: list[str] | None = None,
-    extra_filters: list | None = None,
+    extra_filters: list[Any] | None = None,
     reranker: CrossEncoderReranker | None = None,
 ) -> RetrievalOutcome:
     """Ejecuta retrieval vectorial/híbrido con reranking opcional.

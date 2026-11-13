@@ -26,6 +26,7 @@ El wrapper LLM se inyecta: este módulo no importa el composition root.
 from __future__ import annotations
 
 import asyncio
+from typing import Any, cast
 
 import structlog
 from pydantic import BaseModel, Field
@@ -75,7 +76,7 @@ async def route(
     classifier_enabled: bool = True,
     max_targets: int = 3,
     model: str | None = None,
-    llm_wrapper=None,
+    llm_wrapper: Any = None,
 ) -> RoutingDecision:
     """Resuelve las fuentes destino por la cascada descrita arriba."""
     # Nivel 0 — contrato explícito.
@@ -140,7 +141,7 @@ def _log_decision(decision: RoutingDecision) -> None:
 async def _classify(
     query_text: str,
     *,
-    llm_wrapper,
+    llm_wrapper: Any,
     model: str | None,
 ) -> RouteClassification:
     """Ejecuta el clasificador LLM de fuentes (salida estructurada)."""
@@ -165,4 +166,4 @@ async def _classify(
         model_override=model or settings.router_model,
         max_tokens=1000,
     )
-    return classification
+    return cast(RouteClassification, classification)
