@@ -124,6 +124,24 @@ export class HttpRagEstimationClient {
     });
   }
 
+  // Sesión 10 — estructura módulo→tarea SIN retrieval, fuentes ni horas.
+  async structure(query) {
+    return this.#post(
+      "/api/v1/estimate/stages/structure",
+      { query },
+      { apiKey: this.estimateApiKey, timeoutMs: this.generateTimeoutMs },
+    );
+  }
+
+  // Sesión 10 — horas por tarea por consenso vectorial sobre el corpus histórico.
+  async taskHours(modules) {
+    return this.#post(
+      "/api/v1/estimate/tasks/hours",
+      { modules },
+      { apiKey: this.estimateApiKey, timeoutMs: this.generateTimeoutMs },
+    );
+  }
+
   async estimateFromTranscript(transcript, idempotencyKey) {
     return this.#post(
       "/api/v1/estimate/from-transcript",

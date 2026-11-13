@@ -36,12 +36,16 @@
 
   <% if (step === 'brief') { %>
     <%- include('_step_brief') %>
+  <% } else if (step === 'generation') { %>
+    <%- include('_step_generation') %>
+  <% } else if (step === 'review') { %>
+    <%- include('_step_review') %>
+  <% } else if (step === 'hours') { %>
+    <%- include('_step_hours') %>
   <% } else if (step === 'retrieval') { %>
     <%- include('_step_retrieval') %>
   <% } else if (step === 'assembly') { %>
     <%- include('_step_assembly') %>
-  <% } else if (step === 'generation') { %>
-    <%- include('_step_generation') %>
   <% } else { %>
     <%- include('_step_verification') %>
   <% } %>

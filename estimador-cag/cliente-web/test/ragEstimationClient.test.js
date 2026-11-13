@@ -92,3 +92,33 @@ test("maps a network failure to RagUnavailableError", async () => {
 
   await assert.rejects(client().brief("x"), RagUnavailableError);
 });
+
+test("structure posts the brief to the structure endpoint", async () => {
+  let seen;
+  global.fetch = async (url, options) => {
+    seen = { url, options };
+    return jsonResponse(200, { estimate: { modules: [] }, fabricated_source_ids: [], coherent: true });
+  };
+
+  const brief = { functionality: "Claims portal", technologies: ["python"] };
+  await client().structure(brief);
+
+  assert.equal(seen.url, "http://api.test/api/v1/estimate/stages/structure");
+  assert.equal(seen.options.headers["X-API-Key"], "estimate-key");
+  assert.deepEqual(JSON.parse(seen.options.body), { query: brief });
+});
+
+test("taskHours posts the reviewed modules", async () => {
+  let seen;
+  global.fetch = async (url, options) => {
+    seen = { url, options };
+    return jsonResponse(200, { tasks: [] });
+  };
+
+  const modules = [{ name: "Auth", tasks: [{ name: "OAuth", description: null }] }];
+  await client().taskHours(modules);
+
+  assert.equal(seen.url, "http://api.test/api/v1/estimate/tasks/hours");
+  assert.equal(seen.options.headers["X-API-Key"], "estimate-key");
+  assert.deepEqual(JSON.parse(seen.options.body), { modules });
+});

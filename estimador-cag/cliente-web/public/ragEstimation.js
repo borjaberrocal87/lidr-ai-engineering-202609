@@ -2,17 +2,26 @@
   var modulesRoot = document.getElementById("modules");
   if (!modulesRoot) return;
 
+  var isCost = modulesRoot.dataset.mode === "cost";
   var nextModule = modulesRoot.querySelectorAll("[data-module]").length;
   var nextTask = 1000;
 
   function updateTotal() {
-    var total = 0;
-    modulesRoot.querySelectorAll("[data-days]").forEach(function (input) {
-      var value = Number.parseInt(input.value, 10);
-      if (!Number.isNaN(value)) total += value;
+    if (!isCost) return;
+    var totalHours = 0;
+    var totalCost = 0;
+    modulesRoot.querySelectorAll("[data-task]").forEach(function (row) {
+      var hours = Number.parseInt(row.querySelector("[data-hours]")?.value, 10);
+      var rate = Number.parseInt(row.querySelector("[data-rate]")?.value, 10);
+      if (Number.isNaN(hours)) hours = 0;
+      if (Number.isNaN(rate)) rate = 0;
+      totalHours += hours;
+      totalCost += hours * rate;
     });
-    var target = document.querySelector("[data-total-days]");
-    if (target) target.textContent = String(total);
+    var hoursTarget = document.querySelector("[data-total-hours]");
+    var costTarget = document.querySelector("[data-total-cost]");
+    if (hoursTarget) hoursTarget.textContent = String(totalHours);
+    if (costTarget) costTarget.textContent = String(totalCost);
   }
 
   function instantiate(templateId, replacements) {
@@ -70,7 +79,9 @@
   });
 
   modulesRoot.addEventListener("input", function (event) {
-    if (event.target.matches("[data-days]")) updateTotal();
+    if (event.target.matches("[data-hours]") || event.target.matches("[data-rate]")) {
+      updateTotal();
+    }
   });
 
   updateTotal();
