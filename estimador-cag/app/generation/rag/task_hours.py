@@ -33,6 +33,7 @@ from app.generation.rag.retrieval.reranker import CrossEncoderReranker
 from app.generation.rag.retrieval.sources import Collection
 from app.generation.rag.schemas import (
     RetrievedChunk,
+    SourceReference,
     TaskHoursEstimate,
     TaskHoursModuleInput,
     TaskHoursResult,
@@ -46,6 +47,33 @@ _HISTORICAL_TASK_CHUNK_TYPE = "historical_task"
 # Suelo del peso por distancia inversa: un match exacto (distancia ≈ 0) no debe
 # explotar a infinito y silenciar al resto de vecinos.
 _WEIGHT_EPS = 1e-3
+
+
+def _verbatim_evidence(chunk: RetrievedChunk) -> str:
+    """Extract a short verbatim span from a historical chunk.
+
+    The chunk text is already the verbatim source. We keep the component and
+    hours lines when present, because they are the concrete evidence behind the
+    consensus, and fall back to the whole chunk otherwise.
+    """
+    lines = [
+        line
+        for line in chunk.content.splitlines()
+        if line.startswith(("Component:", "Estimated hours:", "Module:"))
+    ]
+    return "\n".join(lines).strip() or chunk.content.strip()[:280]
+
+
+def _source_references(chunks: list[RetrievedChunk]) -> list[SourceReference]:
+    """Build one verifiable citation per chunk that fed the hours consensus."""
+    return [
+        SourceReference(
+            chunk_id=str(chunk.id),
+            document_id=chunk.budget_id or chunk.source_id or str(chunk.document_id),
+            evidence=_verbatim_evidence(chunk),
+        )
+        for chunk in chunks
+    ]
 
 
 def compose_task_search_text(module: str, name: str, description: str | None) -> str:
@@ -153,7 +181,13 @@ async def estimate_one(
         if chunk.estimated_hours is not None and chunk.distance <= distance_threshold
     ]
     if not usable:
-        return TaskHoursEstimate(module=module, task=name, has_match=False)
+        return TaskHoursEstimate(
+            module=module,
+            task=name,
+            has_match=False,
+            grounded=False,
+            sources=[],
+        )
 
     neighbors = [
         TaskNeighbor(
@@ -173,8 +207,10 @@ async def estimate_one(
         estimated_hours=hours,
         reliability=reliability,
         has_match=True,
+        grounded=True,
         dispersion=dispersion,
         neighbors=neighbors,
+        sources=_source_references(usable),
     )
 
 
