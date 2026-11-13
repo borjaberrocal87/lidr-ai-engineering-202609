@@ -16,12 +16,16 @@ import asyncio
 import structlog
 
 from app.config import settings
-from app.foundation.prompts.loader import render_rag_estimation_prompt
+from app.foundation.prompts.loader import (
+    render_rag_estimation_prompt,
+    render_rag_structure_prompt,
+)
 from app.generation.rag.brief_extractor import compose_retrieval_text, extract_project_brief
 from app.generation.rag.context_builder import assemble_context, fit_chunks_to_budget
 from app.generation.rag.errors import (
     IncoherentEstimateError,
     RagGenerationError,
+    RagGenerationTimeoutError,
     RagRetrievalError,
 )
 from app.generation.rag.grounding import find_fabricated_citations, is_coherent_estimate
@@ -32,18 +36,31 @@ log = structlog.get_logger()
 
 # Sectores presentes en el corpus; solo filtramos el retrieval cuando el brief
 # nombra uno de ellos (evita sobre-filtrar por valores libres).
-_KNOWN_SECTORS = {"finance", "ecommerce", "healthcare", "industrial"}
+_KNOWN_SECTORS = {
+    "finance",
+    "ecommerce",
+    "healthcare",
+    "industrial",
+    "logistics",
+    "education",
+    "media",
+    "government",
+}
 
 
 async def generate_grounded_estimate(
     context_block: str,
     brief: ProjectBrief,
+    *,
+    include_hours: bool = True,
 ) -> GroundedEstimate:
     """Genera una :class:`GroundedEstimate` a partir del contexto ensamblado.
 
-    Las citas las valida el llamante, no esta función.
+    Las citas las valida el llamante, no esta función. Con ``include_hours=False``
+    el modelo propone la estructura sin cifras (S10); las horas se derivan
+    después por búsqueda vectorial por tarea.
     """
-    return await _generate(context_block, brief)
+    return await _generate(context_block, brief, include_hours=include_hours)
 
 
 async def _generate(
@@ -51,6 +68,7 @@ async def _generate(
     brief: ProjectBrief,
     *,
     feedback: str | None = None,
+    include_hours: bool = True,
 ) -> GroundedEstimate:
     """Una llamada de generación. ``feedback`` añade una nota correctiva."""
     from app.dependencies import get_llm_wrapper
@@ -60,6 +78,7 @@ async def _generate(
     system_prompt, user_message = render_rag_estimation_prompt(
         brief=brief,
         context_block=context_block,
+        include_hours=include_hours,
     )
     if feedback:
         user_message += f"\n\n<correction>\n{feedback}\n</correction>"
@@ -81,6 +100,47 @@ async def _generate(
         return estimate
     except Exception as exc:
         raise RagGenerationError("No se pudo generar la estimación grounded.") from exc
+
+
+async def generate_structure(brief: ProjectBrief) -> GroundedEstimate:
+    """Genera la ESTRUCTURA módulo→tarea como descomposición libre del brief (S10).
+
+    No hay retrieval ni fuentes: se apoya en el criterio del modelo sobre lo que
+    el proyecto requiere. Devuelve la misma :class:`GroundedEstimate` (con
+    ``engineer_days`` y ``total_engineer_days`` a null y ``sources`` vacías) para
+    que el wizard la parsee sin un contrato nuevo. No se valida citas porque no
+    hay fuentes que validar.
+    """
+    from app.dependencies import get_llm_wrapper
+
+    wrapper = get_llm_wrapper()
+    system_prompt, user_message = render_rag_structure_prompt(brief)
+
+    try:
+        estimate, _meta = await asyncio.wait_for(
+            asyncio.to_thread(
+                wrapper.complete_structured,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                response_model=GroundedEstimate,
+                temperature=settings.temperature,
+                model_override=settings.rag_structure_model,
+                reasoning_effort=settings.rag_structure_reasoning_effort,
+                max_tokens=settings.rag_structure_max_tokens,
+                # Un paso interactivo no debe multiplicar la espera por tres:
+                # la API ya tiene un deadline duro.
+                max_retries=0,
+                num_retries=0,
+            ),
+            timeout=settings.rag_structure_timeout_seconds,
+        )
+        return estimate
+    except TimeoutError as exc:
+        raise RagGenerationTimeoutError(
+            "La estructura superó el tiempo máximo configurado."
+        ) from exc
+    except Exception as exc:
+        raise RagGenerationError("No se pudo generar la estructura.") from exc
 
 
 def _insufficient(explanation: str) -> GroundedEstimate:

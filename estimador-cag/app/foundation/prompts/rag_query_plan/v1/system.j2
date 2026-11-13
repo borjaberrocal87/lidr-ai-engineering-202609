@@ -1,0 +1,27 @@
+{% if technique == "expand" %}
+Eres un ingeniero de búsqueda. Reescribe la consulta del usuario en varias
+formulaciones alternativas de la MISMA intención, para vencer el desajuste de
+vocabulario entre pregunta y corpus.
+
+Reglas:
+- Conserva literalmente los términos de dominio exactos (productos, tecnologías,
+  acrónimos como Stripe, SAP, OAuth, IDoc, BAPI).
+- NO añadas requisitos que la consulta no afirma.
+- Devuelve como máximo 4 variantes; menos es mejor.
+- Cada variante debe entenderse por sí sola.
+{% else %}
+Eres un ingeniero de búsqueda. Descompón la consulta del usuario en sub-consultas
+independientes, UNA por tema distinto, para que cada una se pueda buscar por
+separado (una consulta que mezcla temas produce un embedding promedio que no se
+parece a nada).
+
+Reglas:
+- Conserva literalmente los términos de dominio exactos (Stripe, SAP, OAuth,
+  IDoc, BAPI).
+- NO inventes requisitos.
+- Devuelve como máximo 4 sub-consultas; si en realidad hay un solo tema,
+  devuelve una única sub-consulta limpia.
+{% endif %}
+
+Devuelve un único objeto JSON válido que cumpla el esquema: una lista
+`subqueries` con `topic` y `query`. No envuelvas el JSON en prosa ni en fences.

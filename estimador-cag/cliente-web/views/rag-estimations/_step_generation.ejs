@@ -1,60 +1,47 @@
 <%
-  const generation = run.generation || null;
-  const estimate = generation?.estimate || null;
-  const confidenceClass = estimate?.confidence === 'high'
-    ? 'badge-success'
-    : estimate?.confidence === 'insufficient'
-      ? 'badge'
-      : 'badge';
+  const modules = structure || [];
+  const totalTasks = modules.reduce((total, module) => total + module.tasks.length, 0);
 %>
 
 <div class="space-y-6">
+  <div class="p-4 rounded-md bg-ink/30 border border-white/10">
+    <p class="text-sm text-white/70">
+      La estructura es una descomposición libre del brief: módulos y tareas, sin
+      horas y sin fuentes. Las horas se derivan después, tarea a tarea, contra el
+      corpus histórico.
+    </p>
+  </div>
+
   <% if (!estimate) { %>
-    <div class="p-4 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
-      Todavía no hay estimación. Ensambla el contexto y lanza la generación.
+    <div class="p-4 rounded-md border border-white/10 bg-ink/20 text-white/60">
+      Todavía no hay estructura. Genera la descomposición del brief para continuar.
     </div>
-    <a href="/rag-estimations/<%= run.id %>?step=assembly" class="text-brand font-bold hover:text-brand-soft tracking-tight">
-      ← Ir al contexto
-    </a>
   <% } else { %>
     <div class="flex flex-wrap items-center gap-3">
-      <span class="<%= confidenceClass %>"><%= estimate.confidence %></span>
+      <span class="badge"><%= estimate.confidence %></span>
       <span class="text-sm text-white/70">
-        Total: <span class="text-white font-bold tabular-nums"><%= estimate.total_engineer_days ?? '—' %></span> engineer-days
-      </span>
-      <span class="text-sm text-white/70">
-        Duración: <span class="text-white font-bold tabular-nums"><%= estimate.duration_weeks ?? '—' %></span> semanas
+        <span class="text-white font-bold tabular-nums"><%= modules.length %></span> módulos ·
+        <span class="text-white font-bold tabular-nums"><%= totalTasks %></span> tareas
       </span>
     </div>
-
-    <% if (fabricatedSourceIds.length) { %>
-      <div class="p-4 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
-        Citas inventadas: <span class="font-mono"><%= fabricatedSourceIds.join(', ') %></span>.
-        Revisa la verificación antes de dar la estimación por buena.
-      </div>
-    <% } %>
-    <% if (coherent === false) { %>
-      <div class="p-4 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
-        La estimación es incoherente con su nivel de confianza: una estimación
-        insuficiente no debe llevar cifras ni módulos.
-      </div>
-    <% } %>
 
     <% if (estimate.insufficient_context_explanation) { %>
       <div class="p-4 rounded-md border border-brand bg-brand/10 text-brand-soft">
-        <p class="font-bold text-white mb-1">Contexto insuficiente</p>
+        <p class="font-bold text-white mb-1">Brief insuficiente</p>
         <p class="text-sm"><%= estimate.insufficient_context_explanation %></p>
       </div>
     <% } %>
 
-    <div class="p-4 rounded-md bg-ink/30 border border-white/10">
-      <p class="text-xs text-white/50 uppercase tracking-tight mb-1">Razonamiento</p>
-      <p class="text-sm text-white/80"><%= estimate.reasoning %></p>
-    </div>
+    <% if (estimate.reasoning) { %>
+      <div class="p-4 rounded-md bg-ink/30 border border-white/10">
+        <p class="text-xs text-white/50 uppercase tracking-tight mb-1">Razonamiento</p>
+        <p class="text-sm text-white/80"><%= estimate.reasoning %></p>
+      </div>
+    <% } %>
 
-    <% if (estimate.modules.length) { %>
+    <% if (modules.length) { %>
       <div class="space-y-4">
-        <% estimate.modules.forEach(function (module) { %>
+        <% modules.forEach(function (module) { %>
           <div class="rounded-md border border-white/10 overflow-hidden">
             <div class="px-4 py-3 bg-ink/40">
               <p class="text-white/90 font-bold tracking-tight"><%= module.name %></p>
@@ -66,8 +53,6 @@
               <thead class="text-white/50">
                 <tr>
                   <th class="text-left p-3 font-bold tracking-tight">Tarea</th>
-                  <th class="text-right p-3 font-bold tracking-tight">Días</th>
-                  <th class="text-left p-3 font-bold tracking-tight">Fuentes</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-white/10">
@@ -79,10 +64,6 @@
                         <p class="text-white/50 text-xs mt-1"><%= task.description %></p>
                       <% } %>
                     </td>
-                    <td class="p-3 align-top text-right text-white/80 tabular-nums"><%= task.engineer_days %></td>
-                    <td class="p-3 align-top text-white/60 font-mono text-xs">
-                      <%= task.sources.length ? task.sources.join(', ') : 'sin cita' %>
-                    </td>
                   </tr>
                 <% }); %>
               </tbody>
@@ -91,57 +72,23 @@
         <% }); %>
       </div>
     <% } %>
-
-    <% if (estimate.sources.length) { %>
-      <div>
-        <h2 class="text-xl font-bold tracking-tight text-white mb-3">Citas</h2>
-        <div class="rounded-md border border-white/10 overflow-hidden">
-          <table class="w-full text-sm">
-            <thead class="bg-ink/40 text-white/70">
-              <tr>
-                <th class="text-left p-3 font-bold tracking-tight">Source id</th>
-                <th class="text-left p-3 font-bold tracking-tight">Relevancia</th>
-                <th class="text-left p-3 font-bold tracking-tight">Uso</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-white/10">
-              <% estimate.sources.forEach(function (citation) { %>
-                <tr>
-                  <td class="p-3 align-top font-mono text-xs text-white/90"><%= citation.source_id %></td>
-                  <td class="p-3 align-top text-white/70"><%= citation.relevance %></td>
-                  <td class="p-3 align-top text-white/70"><%= citation.used_for %></td>
-                </tr>
-              <% }); %>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    <% } %>
-
-    <% if (estimate.assumptions.length) { %>
-      <div>
-        <h2 class="text-xl font-bold tracking-tight text-white mb-3">Supuestos</h2>
-        <div class="space-y-3">
-          <% estimate.assumptions.forEach(function (assumption) { %>
-            <div class="p-4 rounded-md bg-ink/30 border border-white/10">
-              <div class="flex items-center gap-2 mb-1">
-                <span class="badge"><%= assumption.impact %></span>
-                <p class="text-white/90 font-bold tracking-tight"><%= assumption.description %></p>
-              </div>
-              <p class="text-white/60 text-sm"><%= assumption.rationale %></p>
-            </div>
-          <% }); %>
-        </div>
-      </div>
-    <% } %>
-
-    <div class="flex items-center gap-4 pt-2">
-      <a href="/rag-estimations/<%= run.id %>?step=verification" class="btn-primary">
-        Verificar y guardar →
-      </a>
-      <a href="/rag-estimations/<%= run.id %>?step=assembly" class="text-brand font-bold hover:text-brand-soft tracking-tight">
-        ← Volver al contexto
-      </a>
-    </div>
   <% } %>
+
+  <form method="post" action="/rag-estimations/<%= run.id %>/generate" class="pt-2" data-form-loading>
+    <button type="submit" class="btn-primary" data-submit>
+      <span data-submit-label><%= estimate ? 'Regenerar estructura' : 'Generar estructura' %></span>
+      <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+      </svg>
+    </button>
+    <% if (estimate && modules.length) { %>
+      <a href="/rag-estimations/<%= run.id %>?step=review" class="ml-4 text-brand font-bold hover:text-brand-soft tracking-tight">
+        Revisar estructura →
+      </a>
+    <% } %>
+    <a href="/rag-estimations/<%= run.id %>?step=brief" class="ml-4 text-white/50 font-bold hover:text-white tracking-tight">
+      ← Volver al brief
+    </a>
+  </form>
 </div>

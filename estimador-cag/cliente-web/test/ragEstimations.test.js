@@ -66,6 +66,44 @@ const GENERATION = {
   coherent: true,
 };
 
+const STRUCTURE = {
+  modules: [
+    {
+      name: "Auth",
+      description: "Login",
+      tasks: [{ name: "OAuth", description: null, sources: [1] }],
+    },
+    {
+      name: "QA",
+      description: null,
+      tasks: [{ name: "Tests", description: null, sources: [] }],
+    },
+  ],
+};
+
+const TASK_HOURS = {
+  tasks: [
+    {
+      module: "Auth",
+      task: "OAuth",
+      estimated_hours: 40,
+      reliability: 0.82,
+      has_match: true,
+      dispersion: 0.1,
+      neighbors: [],
+    },
+    {
+      module: "QA",
+      task: "Tests",
+      estimated_hours: null,
+      reliability: null,
+      has_match: false,
+      dispersion: null,
+      neighbors: [],
+    },
+  ],
+};
+
 function fakeEstimator() {
   return {
     async getContext() {
@@ -105,6 +143,12 @@ function fakeRagClient(overrides = {}) {
     },
     async generate() {
       return GENERATION;
+    },
+    async structure() {
+      return GENERATION;
+    },
+    async taskHours() {
+      return TASK_HOURS;
     },
     ...overrides,
   };
@@ -268,49 +312,88 @@ test("POST /assemble stores the context block", async () => {
   assert.equal(run.status, "assembled");
 });
 
-test("POST /generate stores the grounded estimate", async () => {
+test("POST /generate stores the structure-only generation", async () => {
   const { app, ragEstimations } = makeApp();
   const id = await seedRun(ragEstimations, {
     brief: BRIEF,
-    retrievalText: "B2B",
-    retrieval: RETRIEVAL,
-    assembly: ASSEMBLY,
-    status: "assembled",
+    status: "brief",
     currentStep: "generation",
   });
 
   const response = await request(app)
     .post(`/rag-estimations/${id}/generate`)
     .type("form")
-    .send({ context_block: ASSEMBLY.context_block });
+    .send({});
 
   assert.equal(response.status, 303);
   const run = await ragEstimations.getById(id);
   assert.equal(run.generation.estimate.total_engineer_days, 10);
+  assert.equal(run.structure.modules.length, 1);
   assert.equal(run.status, "generated");
+  assert.match(response.headers.location, /step=review/);
 });
 
-test("POST /verify recomputes totals from the edited modules", async () => {
+test("POST /estimate-hours stores the consensus and seeds the breakdown", async () => {
   const { app, ragEstimations } = makeApp();
   const id = await seedRun(ragEstimations, {
     brief: BRIEF,
-    retrieval: RETRIEVAL,
-    assembly: ASSEMBLY,
     generation: GENERATION,
+    structure: STRUCTURE,
     status: "generated",
-    currentStep: "verification",
+    currentStep: "review",
+  });
+
+  const body = [
+    "modules[0][name]=Auth",
+    "modules[0][tasks][0][name]=OAuth",
+    "modules[0][tasks][0][description]=PKCE",
+    "modules[0][tasks][0][sources]=1",
+    "modules[1][name]=QA",
+    "modules[1][tasks][0][name]=Tests",
+  ].join("&");
+
+  const response = await request(app)
+    .post(`/rag-estimations/${id}/estimate-hours`)
+    .type("form")
+    .send(body);
+
+  assert.equal(response.status, 303);
+  const run = await ragEstimations.getById(id);
+  assert.equal(run.taskHours.tasks.length, 2);
+  assert.equal(run.verification.total_hours, 40);
+  assert.equal(run.verification.modules[1].tasks[0].has_match, false);
+  assert.equal(run.status, "hours_estimated");
+  assert.match(response.headers.location, /step=hours/);
+});
+
+test("POST /verify recomputes hours and cost from the edited modules", async () => {
+  const { app, ragEstimations } = makeApp();
+  const id = await seedRun(ragEstimations, {
+    brief: BRIEF,
+    generation: GENERATION,
+    structure: STRUCTURE,
+    taskHours: TASK_HOURS,
+    verification: {
+      modules: STRUCTURE.modules,
+      total_hours: 40,
+      total_cost_eur: 3000,
+      confirmed_at: null,
+    },
+    status: "hours_estimated",
+    currentStep: "hours",
   });
 
   const body = [
     "modules[0][name]=Auth",
     "modules[0][description]=Login",
     "modules[0][tasks][0][name]=OAuth",
-    "modules[0][tasks][0][engineer_days]=7",
+    "modules[0][tasks][0][estimated_hours]=7",
+    "modules[0][tasks][0][rate_eur_per_hour]=80",
     "modules[0][tasks][0][sources]=1,2",
     "modules[1][name]=QA",
     "modules[1][tasks][0][name]=Tests",
-    "modules[1][tasks][0][engineer_days]=3",
-    "duration_weeks=4",
+    "modules[1][tasks][0][estimated_hours]=3",
+    "modules[1][tasks][0][rate_eur_per_hour]=50",
     "notes=Recorte de alcance",
   ].join("&");
 
@@ -321,8 +404,9 @@ test("POST /verify recomputes totals from the edited modules", async () => {
 
   assert.equal(response.status, 303);
   const run = await ragEstimations.getById(id);
-  assert.equal(run.verification.total_engineer_days, 10);
-  assert.equal(run.verification.duration_weeks, 4);
+  assert.equal(run.verification.total_hours, 10);
+  assert.equal(run.verification.total_cost_eur, 710);
+  assert.ok(run.verification.confirmed_at);
   assert.equal(run.status, "verified");
 });
 
@@ -352,4 +436,97 @@ test("GET /rag-estimations/:id returns 404 for an unknown run", async () => {
   const response = await request(app).get("/rag-estimations/desconocido");
 
   assert.equal(response.status, 404);
+});
+
+test("GET show renders the review step with editable structure", async () => {
+  const { app, ragEstimations } = makeApp();
+  const id = await seedRun(ragEstimations, {
+    brief: BRIEF,
+    generation: GENERATION,
+    structure: STRUCTURE,
+    status: "generated",
+    currentStep: "review",
+  });
+
+  const response = await request(app).get(`/rag-estimations/${id}?step=review`);
+
+  assert.equal(response.status, 200);
+  assert.match(response.text, /Revisión/);
+  assert.match(response.text, /Estimar horas por tarea/);
+  assert.match(response.text, /OAuth/);
+});
+
+test("GET show renders the hours step with reliability and red flags", async () => {
+  const { app, ragEstimations } = makeApp();
+  const id = await seedRun(ragEstimations, {
+    brief: BRIEF,
+    generation: GENERATION,
+    structure: STRUCTURE,
+    taskHours: TASK_HOURS,
+    verification: {
+      modules: [
+        {
+          name: "Auth",
+          description: "Login",
+          tasks: [
+            {
+              name: "OAuth",
+              description: null,
+              estimated_hours: 40,
+              hours_reliability: 0.82,
+              has_match: true,
+              rate_eur_per_hour: 75,
+              sources: [1],
+            },
+            {
+              name: "Tests",
+              description: null,
+              estimated_hours: null,
+              hours_reliability: null,
+              has_match: false,
+              rate_eur_per_hour: 75,
+              sources: [],
+            },
+          ],
+        },
+      ],
+      total_hours: 40,
+      total_cost_eur: 3000,
+      confirmed_at: null,
+    },
+    status: "hours_estimated",
+    currentStep: "hours",
+  });
+
+  const response = await request(app).get(`/rag-estimations/${id}?step=hours`);
+
+  assert.equal(response.status, 200);
+  assert.match(response.text, /82% fiab/);
+  assert.match(response.text, /sin dato/);
+  assert.match(response.text, /Validar horas y tarifas/);
+});
+
+test("GET show renders the verification step in cost mode", async () => {
+  const { app, ragEstimations } = makeApp();
+  const id = await seedRun(ragEstimations, {
+    brief: BRIEF,
+    generation: GENERATION,
+    structure: STRUCTURE,
+    taskHours: TASK_HOURS,
+    verification: {
+      modules: STRUCTURE.modules,
+      total_hours: 40,
+      total_cost_eur: 3000,
+      confirmed_at: null,
+    },
+    status: "hours_estimated",
+    currentStep: "verification",
+  });
+
+  const response = await request(app).get(`/rag-estimations/${id}?step=verification`);
+
+  assert.equal(response.status, 200);
+  assert.match(response.text, /Validación/);
+  assert.match(response.text, /data-total-hours/);
+  assert.match(response.text, /data-rate/);
 });

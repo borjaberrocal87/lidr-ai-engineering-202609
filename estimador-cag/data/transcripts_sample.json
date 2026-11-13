@@ -1,0 +1,106 @@
+[
+  {
+    "transcript_id": "TR-2025-101",
+    "project": "MutuaLevante claims portal",
+    "meeting_date": "2025-02-18",
+    "participants": ["Elena (PM)", "Client CTO", "Backend Lead"],
+    "segments": [
+      {
+        "segment_id": "S1",
+        "topic": "Identity and access",
+        "speakers": ["Client CTO", "Backend Lead"],
+        "text": "The client needs OAuth 2.0 authorization-code with PKCE for the claims portal, plus integration with the Spanish eID provider for verified identity. Backend Lead flagged that refresh-token rotation and revocation must be designed from day one because the portal will be audited."
+      },
+      {
+        "segment_id": "S2",
+        "topic": "Claims workflow and documents",
+        "speakers": ["Client CTO", "Elena (PM)"],
+        "text": "Claims arrive as PDFs and scanned forms, so the portal needs an OCR intake, a review queue and a case timeline. Elena noted this is close to the document workflow we built for a previous insurance client, but the eID step is new."
+      },
+      {
+        "segment_id": "S3",
+        "topic": "Cost and timeline",
+        "speakers": ["Client CTO"],
+        "text": "The CTO asked how much the authentication and claims intake work would cost and how many engineer-days it usually takes. They want a first release before the summer renewal campaign."
+      }
+    ]
+  },
+  {
+    "transcript_id": "TR-2025-102",
+    "project": "Artesanum artisan marketplace",
+    "meeting_date": "2025-04-09",
+    "participants": ["Marc (PM)", "Client Product Owner", "Frontend Lead"],
+    "segments": [
+      {
+        "segment_id": "S1",
+        "topic": "Checkout and seller payouts",
+        "speakers": ["Client Product Owner", "Frontend Lead"],
+        "text": "The client wants a headless marketplace with Stripe Connect Express onboarding for artisans, split payments and vendor payouts. They explicitly asked for KYC collection and a payout dashboard; the current site only supports manual bank transfers."
+      },
+      {
+        "segment_id": "S2",
+        "topic": "Catalog and discovery",
+        "speakers": ["Client Product Owner"],
+        "text": "Discussion covered a faceted product catalog, shopping cart and personalised recommendations based on browsing history. The Product Owner wants the catalog to support handmade variants and made-to-order lead times."
+      },
+      {
+        "segment_id": "S3",
+        "topic": "Technical constraints",
+        "speakers": ["Frontend Lead"],
+        "text": "Frontend Lead proposed a Node backend and a React storefront. The client mentioned their current site is an old AngularJS app they want to retire, and asked whether the migration could be incremental."
+      }
+    ]
+  },
+  {
+    "transcript_id": "TR-2024-103",
+    "project": "VitalCare remote care",
+    "meeting_date": "2024-11-21",
+    "participants": ["Lucia (PM)", "Clinical Director", "Integration Engineer"],
+    "segments": [
+      {
+        "segment_id": "S1",
+        "topic": "Clinical integration",
+        "speakers": ["Clinical Director", "Integration Engineer"],
+        "text": "The remote-care platform must integrate with hospital systems over HL7 and FHIR. The Clinical Director stressed that clinical records, prescriptions and appointment scheduling have to stay in sync with the existing EHR."
+      },
+      {
+        "segment_id": "S2",
+        "topic": "Video consultations",
+        "speakers": ["Clinical Director"],
+        "text": "Patients need video consultations with a waiting room and a scheduling calendar. The client asked whether we had estimated a similar appointment scheduling and video consultation system before."
+      },
+      {
+        "segment_id": "S3",
+        "topic": "Compliance",
+        "speakers": ["Integration Engineer"],
+        "text": "Integration Engineer raised GDPR data-retention rules and audit logging for clinical access. The platform must be able to prove who viewed which record and when."
+      }
+    ]
+  },
+  {
+    "transcript_id": "TR-2023-104",
+    "project": "InduNova plant digital twin",
+    "meeting_date": "2023-06-14",
+    "participants": ["Pablo (PM)", "Plant Manager", "Data Engineer"],
+    "segments": [
+      {
+        "segment_id": "S1",
+        "topic": "Telemetry and monitoring",
+        "speakers": ["Plant Manager", "Data Engineer"],
+        "text": "The plant needs a digital twin that ingests high-frequency sensor telemetry for real-time equipment monitoring. Data Engineer explained that backpressure and dead-letter handling are mandatory because the lines cannot stop producing."
+      },
+      {
+        "segment_id": "S2",
+        "topic": "Predictive maintenance",
+        "speakers": ["Plant Manager"],
+        "text": "The Plant Manager wants predictive-maintenance alerts that create work orders automatically. The alerts must reach the maintenance team before a line goes down."
+      },
+      {
+        "segment_id": "S3",
+        "topic": "SAP integration",
+        "speakers": ["Data Engineer"],
+        "text": "Work orders live in SAP, so the integration must use IDoc and BAPI interfaces. The Data Engineer asked whether we had integrated predictive-maintenance alerts with SAP before and how long it took."
+      }
+    ]
+  }
+]

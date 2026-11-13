@@ -1,9 +1,10 @@
 <%
-  const modules = verification?.modules || estimate?.modules || [];
+  const isCost = mode === "cost";
+  const rows = modules || [];
 %>
 
-<div id="modules" class="space-y-4">
-  <% modules.forEach(function (module, moduleIndex) { %>
+<div id="modules" data-mode="<%= isCost ? 'cost' : 'structure' %>" class="space-y-4">
+  <% rows.forEach(function (module, moduleIndex) { %>
     <fieldset class="p-4 rounded-md bg-ink/30 border border-white/10 space-y-3" data-module>
       <div class="flex items-center gap-3">
         <input
@@ -26,32 +27,51 @@
 
       <div class="space-y-3" data-tasks>
         <% module.tasks.forEach(function (task, taskIndex) { %>
-          <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start p-3 rounded-md bg-ink/40 border border-white/10" data-task>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start p-3 rounded-md <%= isCost && task.has_match === false ? 'bg-red-400/10 border border-red-400/40' : 'bg-ink/40 border border-white/10' %>" data-task>
             <input
               name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][name]"
               value="<%= task.name %>"
-              class="field md:col-span-5 text-sm"
+              class="field md:col-span-<%= isCost ? '4' : '5' %> text-sm"
               placeholder="Tarea"
             />
             <input
               name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][description]"
               value="<%= task.description || '' %>"
-              class="field md:col-span-3 text-sm"
+              class="field md:col-span-<%= isCost ? '2' : '3' %> text-sm"
               placeholder="Detalle (opcional)"
             />
-            <input
-              name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][engineer_days]"
-              type="number"
-              min="0"
-              value="<%= task.engineer_days %>"
-              class="field md:col-span-1 text-sm"
-              data-days
-              aria-label="Engineer days"
-            />
+            <% if (isCost) { %>
+              <input
+                name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][estimated_hours]"
+                type="number"
+                min="0"
+                value="<%= task.estimated_hours ?? '' %>"
+                class="field md:col-span-1 text-sm"
+                data-hours
+                aria-label="Horas"
+                placeholder="—"
+              />
+              <input
+                name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][rate_eur_per_hour]"
+                type="number"
+                min="0"
+                value="<%= task.rate_eur_per_hour ?? 75 %>"
+                class="field md:col-span-1 text-sm"
+                data-rate
+                aria-label="Tarifa €/h"
+              />
+              <div class="md:col-span-2 text-xs text-white/60 self-center">
+                <% if (task.has_match === false) { %>
+                  <span class="text-red-200 font-bold">🔴 sin dato</span>
+                <% } else if (task.hours_reliability != null) { %>
+                  <span class="badge"><%= Math.round(task.hours_reliability * 100) %>% fiab.</span>
+                <% } %>
+              </div>
+            <% } %>
             <input
               name="modules[<%= moduleIndex %>][tasks][<%= taskIndex %>][sources]"
               value="<%= (task.sources || []).join(',') %>"
-              class="field md:col-span-2 text-sm font-mono"
+              class="field md:col-span-1 text-sm font-mono"
               placeholder="1,2"
               aria-label="Source ids"
             />
@@ -89,10 +109,14 @@
 
 <template id="task-template">
   <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start p-3 rounded-md bg-ink/40 border border-white/10" data-task>
-    <input name="modules[__MODULE__][tasks][__TASK__][name]" class="field md:col-span-5 text-sm" placeholder="Tarea" />
-    <input name="modules[__MODULE__][tasks][__TASK__][description]" class="field md:col-span-3 text-sm" placeholder="Detalle (opcional)" />
-    <input name="modules[__MODULE__][tasks][__TASK__][engineer_days]" type="number" min="0" value="0" class="field md:col-span-1 text-sm" data-days aria-label="Engineer days" />
-    <input name="modules[__MODULE__][tasks][__TASK__][sources]" class="field md:col-span-2 text-sm font-mono" placeholder="1,2" aria-label="Source ids" />
+    <input name="modules[__MODULE__][tasks][__TASK__][name]" class="field md:col-span-<%= isCost ? '4' : '5' %> text-sm" placeholder="Tarea" />
+    <input name="modules[__MODULE__][tasks][__TASK__][description]" class="field md:col-span-<%= isCost ? '2' : '3' %> text-sm" placeholder="Detalle (opcional)" />
+    <% if (isCost) { %>
+      <input name="modules[__MODULE__][tasks][__TASK__][estimated_hours]" type="number" min="0" class="field md:col-span-1 text-sm" data-hours aria-label="Horas" placeholder="—" />
+      <input name="modules[__MODULE__][tasks][__TASK__][rate_eur_per_hour]" type="number" min="0" value="75" class="field md:col-span-1 text-sm" data-rate aria-label="Tarifa €/h" />
+      <div class="md:col-span-2 text-xs text-white/60 self-center"></div>
+    <% } %>
+    <input name="modules[__MODULE__][tasks][__TASK__][sources]" class="field md:col-span-1 text-sm font-mono" placeholder="1,2" aria-label="Source ids" />
     <div class="md:col-span-1 flex md:justify-end">
       <button type="button" data-remove-task class="text-xs font-bold text-red-200 hover:text-white">×</button>
     </div>

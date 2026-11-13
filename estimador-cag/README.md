@@ -44,9 +44,9 @@ estimador-cag/
 │   │   └── streaming_service.py # Camino texto libre / SSE
 │   ├── generation/              # Las tres arquitecturas + substrato conversacional
 │   │   ├── cag/                 # exact.py · semantic.py
-│   │   ├── rag/                 # chunking/ · embedding/ · analysis/ · store/ · ingest_service.py
+│   │   ├── rag/                 # chunking/ · embedding/ · analysis/ · store/ · retrieval/ · ingest_service.py
 │   │   │                        # brief_extractor · retriever filtrado · context_builder
-│   │   │                        # grounding · grounded_estimator · idempotency · stage_logging
+│   │   │                        # grounding · grounded_estimator · task_hours · idempotency · stage_logging
 │   │   ├── agentic/             # boss.py · critic.py
 │   │   └── conversation/        # models.py · store.py · compression/ · tier_resolver.py
 │   ├── ingestion/               # Pipeline batch offline de fuentes (S06)
@@ -54,14 +54,14 @@ estimador-cag/
 │   │   └── orchestrator.py
 │   └── api/                     # Transporte fino
 │       ├── estimations.py · sessions.py · ingestion.py
-│       └── search.py · embeddings.py · config.py
+│       └── search.py · embeddings.py · config.py · retrieval_multi_source.py · estimate_tasks.py
 ├── frontend/                    # Presentación Streamlit (no importa `app.*`)
-├── cliente-web/                 # Cliente de negocio Node (Express + EJS + Postgres)
+├── cliente-web/                 # Cliente de negocio Node (Express + EJS + Postgres), wizard S10
 ├── tests/                       # pytest; incluye test_layering.py y test_frontend_decoupling.py
 ├── evals/                       # Framework de evals y stress del CAG
 ├── examples/                    # Transcripciones y trace de S09
-├── alembic/                     # Migraciones S06 + pgvector S08
-├── data/                        # Catálogo, corpus semilla y evidencias
+├── alembic/                     # Migraciones S06 + pgvector S08 + multi-índice S10
+├── data/                        # Catálogo de fuentes, corpus semilla y evidencias
 ├── docs/                        # Documentación de subsistemas
 ├── scripts/                     # Preflight, comparativas, query_examples y rag_ops
 ├── specs/                       # Specs históricas de las sesiones
@@ -536,51 +536,75 @@ módulos y tareas antes de guardar. El corpus task-level se genera con
 Detalles, configuración, contrato y límites en
 [`docs/sesion-9-fundamentos-rag-tecnicas-recuperacion.md`](docs/sesion-9-fundamentos-rag-tecnicas-recuperacion.md).
 
-## Sesión 10 — búsqueda híbrida y reranking
+## Sesión 10 — recuperación multifuente
 
-La S10 ataca el falso positivo semántico (“similar pero irrelevante”) con dos
-técnicas medidas sobre un golden set:
+La S10 empezó atacando el falso positivo semántico (“similar pero irrelevante”)
+con búsqueda híbrida y reranking:
 
 ```text
 query → rama vectorial + rama léxica (tsvector/GIN) → RRF
       → recall amplio (50) → cross-encoder → top-5
 ```
 
-- **Rama léxica**: `ChunkStore.search_lexical` usa `websearch_to_tsquery` con
-  OR entre términos y `ts_rank_cd` sobre `chunks.content_tsv`; la migración
-  `0003_session10_fts` añade la columna generada y su índice GIN. La
-  configuración es `english` porque el corpus de este repo está en inglés.
-- **Fusión**: `reciprocal_rank_fusion` combina posiciones, no scores, para no
-  normalizar distancia coseno contra `ts_rank_cd`.
-- **Reranker**: `CrossEncoderReranker` carga un cross-encoder multilingüe de
-  forma perezosa y reordena solo los candidatos del recall.
-- **Toggles**: `RETRIEVAL_SEARCH_MODE` (`vector`/`hybrid`), `RERANKER_ENABLED`,
-  `RETRIEVAL_RECALL_TOP_K`, `RERANK_TOP_N` y `RRF_K`. Se pueden fijar por
-  petición, por `.env` o en caliente.
-- **Evaluación**: `evals/golden_retrieval.json` y
-  `scripts/eval_retrieval_s10.py` comparan A (vector), B (híbrida), C (vector +
-  rerank) y D (híbrida + rerank) con precisión@5 y latencia.
+Sobre esa base, el directo añade **recuperación multifuente** y cambia el flujo
+de estimación:
 
-Verificación del reranker:
+- **Multi-índice**: `budget_chunks`, `transcript_chunks` y
+  `technical_doc_chunks` (migración `0004_session10_multi_index`). Cada fuente
+  tiene su esquema de metadata, su índice y su ciclo de vida. `ChunkRow` sigue
+  siendo un alias de `BudgetChunkRow`, así que S08/S09 no se enteran.
+- **Catálogo como contrato**: `data/catalog/collections.yaml` declara tabla,
+  `chunk_type`, clave de id, fecha, filtros y vocabulario de enrutado. Añadir una
+  fuente es editar datos, no el pipeline.
+- **Enrutado en cascada**: explícito → reglas deterministas → clasificador LLM →
+  búsqueda en todas las fuentes. La ambigüedad se modela como varios destinos.
+- **Plan de consulta**: expansión (misma intención, varias formulaciones) o
+  descomposición (varios temas, una sub-consulta por tema), con fusión
+  diferenciada (RRF para expansión, round-robin para descomposición).
+- **Vigencia temporal**: re-peso exponencial al final del pipeline; apagado por
+  defecto y activable en caliente.
+- **Estructura-primero**: `POST /api/v1/estimate/stages/structure` descompone el
+  brief en módulos y tareas **sin horas, sin fuentes y sin citas**. El wizard
+  pasó a `brief → estructura → revisión → horas → validación`.
+- **Horas por tarea**: `POST /api/v1/estimate/tasks/hours` busca cada tarea en
+  `chunk_type='historical_task'` y devuelve un consenso ponderado por distancia
+  con fiabilidad y dispersión. Sin análogo bajo el umbral → `has_match=false` y
+  fila en rojo para que la persona aporte el número.
+- **Reranking y evaluación**: `CrossEncoderReranker` se reutiliza en todos los
+  caminos. `evals/golden_retrieval.json` se amplió con preguntas que cruzan
+  fuentes (Q6–Q8) y `scripts/eval_retrieval_s10.py` mide configuraciones
+  nombradas A–H (base, vigencia, enrutado, plan de consulta y pipeline completo).
 
-```bash
-docker compose exec api python -m app.generation.rag.retrieval.verify_reranker
+Endpoints nuevos:
+
+```text
+POST /api/v1/retrieval/multi-source        (RETRIEVAL_API_KEY)
+POST /api/v1/estimate/stages/structure     (ESTIMATE_API_KEY)
+POST /api/v1/estimate/tasks/hours          (ESTIMATE_API_KEY)
 ```
 
 Configuración en caliente:
 
 ```bash
 GET /api/v1/config/retrieval
-PUT /api/v1/config/retrieval   {"search_mode": "hybrid", "rerank": true}
+PUT /api/v1/config/retrieval
+    {"routing_enabled": true, "query_plan_enabled": true, "freshness_enabled": false,
+     "task_hours_top_k": 5, "task_hours_distance_threshold": 0.45}
 ```
 
-Evaluación:
+Puesta en marcha y evaluación:
 
 ```bash
-docker compose exec api python scripts/eval_retrieval_s10.py
+docker compose run --rm api alembic upgrade head
+docker compose run --rm api python scripts/query_examples.py
+docker compose run --rm api python scripts/build_multi_index_corpus.py
+docker compose run --rm api python scripts/build_task_corpus.py --ingest
+docker compose run --rm api python scripts/eval_retrieval_s10.py
 ```
 
-Detalles, resultados y conclusiones en
+Detalles, catálogo, matriz de decisión y límites en
+[`docs/sesion-10-multifuente.md`](docs/sesion-10-multifuente.md). La base de
+búsqueda híbrida y reranking sigue documentada en
 [`docs/sesion-10-busqueda-hibrida-reranking.md`](docs/sesion-10-busqueda-hibrida-reranking.md).
 
 ## Configuración de modelos en runtime

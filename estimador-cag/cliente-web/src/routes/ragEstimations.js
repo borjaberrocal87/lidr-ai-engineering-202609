@@ -2,7 +2,11 @@ import { Router } from "express";
 
 import { RagClientError } from "../ragEstimationClient.js";
 
-const STEPS = ["brief", "retrieval", "assembly", "generation", "verification"];
+const STEPS = ["brief", "generation", "review", "hours", "verification"];
+// Pasos de la Sesión 9 que se conservan para el modo comparación; no aparecen
+// en la barra de progreso del flujo principal.
+const LEGACY_STEPS = ["retrieval", "assembly"];
+const DEFAULT_RATE_EUR_PER_HOUR = 75;
 
 function clamp(value, min, max, fallback) {
   const parsed = Number.parseInt(value, 10);
@@ -13,6 +17,12 @@ function clamp(value, min, max, fallback) {
 function readList(value) {
   const raw = Array.isArray(value) ? value : String(value || "").split(",");
   return raw.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function readSources(value) {
+  return readList(value)
+    .map((source) => Number.parseInt(source, 10))
+    .filter((source) => !Number.isNaN(source));
 }
 
 function readFilters(body = {}) {
@@ -28,49 +38,145 @@ function readFilters(body = {}) {
   };
 }
 
-function normalizeModules(raw) {
-  const modules = raw == null ? [] : Array.isArray(raw) ? raw : Object.values(raw);
-  return modules
-    .filter((module) => module && typeof module === "object")
-    .map((module) => {
-      const tasks = module.tasks == null
-        ? []
-        : Array.isArray(module.tasks)
-          ? module.tasks
-          : Object.values(module.tasks);
-      return {
-        name: String(module.name || "").trim() || "Módulo sin nombre",
-        description: String(module.description || "").trim() || null,
-        tasks: tasks
-          .filter((task) => task && typeof task === "object")
-          .map((task) => ({
-            name: String(task.name || "").trim() || "Tarea sin nombre",
-            description: String(task.description || "").trim() || null,
-            engineer_days: Math.max(0, Number.parseInt(task.engineer_days, 10) || 0),
-            sources: readList(task.sources)
-              .map((source) => Number.parseInt(source, 10))
-              .filter((source) => !Number.isNaN(source)),
-          })),
-      };
-    });
+function asArray(value) {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : Object.values(value);
 }
 
-function sumDays(modules) {
+function normalizeStructure(raw) {
+  return asArray(raw)
+    .filter((module) => module && typeof module === "object")
+    .map((module) => ({
+      name: String(module.name || "").trim() || "Módulo sin nombre",
+      description: String(module.description || "").trim() || null,
+      tasks: asArray(module.tasks)
+        .filter((task) => task && typeof task === "object")
+        .map((task) => ({
+          name: String(task.name || "").trim() || "Tarea sin nombre",
+          description: String(task.description || "").trim() || null,
+          sources: readSources(task.sources),
+        })),
+    }))
+    .filter((module) => module.tasks.length > 0);
+}
+
+function normalizeCostModules(raw) {
+  return asArray(raw)
+    .filter((module) => module && typeof module === "object")
+    .map((module) => ({
+      name: String(module.name || "").trim() || "Módulo sin nombre",
+      description: String(module.description || "").trim() || null,
+      tasks: asArray(module.tasks)
+        .filter((task) => task && typeof task === "object")
+        .map((task) => {
+          const hoursValue = Number.parseInt(task.estimated_hours, 10);
+          const estimatedHours = Number.isNaN(hoursValue) ? null : Math.max(0, hoursValue);
+          const rateValue = Number.parseInt(task.rate_eur_per_hour, 10);
+          return {
+            name: String(task.name || "").trim() || "Tarea sin nombre",
+            description: String(task.description || "").trim() || null,
+            estimated_hours: estimatedHours,
+            rate_eur_per_hour: Number.isNaN(rateValue)
+              ? DEFAULT_RATE_EUR_PER_HOUR
+              : Math.max(0, rateValue),
+            has_match: estimatedHours !== null,
+            sources: readSources(task.sources),
+          };
+        }),
+    }))
+    .filter((module) => module.tasks.length > 0);
+}
+
+function sumHours(modules) {
   return modules.reduce(
     (total, module) =>
-      total + module.tasks.reduce((partial, task) => partial + task.engineer_days, 0),
+      total +
+      module.tasks.reduce((partial, task) => partial + (task.estimated_hours || 0), 0),
     0,
   );
 }
 
+function sumCost(modules) {
+  return modules.reduce(
+    (total, module) =>
+      total +
+      module.tasks.reduce(
+        (partial, task) =>
+          partial + (task.estimated_hours || 0) * (task.rate_eur_per_hour || 0),
+        0,
+      ),
+    0,
+  );
+}
+
+function seedStructure(generation) {
+  const estimate = generation?.estimate || {};
+  return {
+    modules: asArray(estimate.modules).map((module) => ({
+      name: String(module.name || "").trim(),
+      description: String(module.description || "").trim() || null,
+      tasks: asArray(module.tasks).map((task) => ({
+        name: String(task.name || "").trim(),
+        description: String(task.description || "").trim() || null,
+        sources: Array.isArray(task.sources) ? task.sources : [],
+      })),
+    })),
+  };
+}
+
+function structureForApi(modules) {
+  return modules.map((module) => ({
+    name: module.name,
+    tasks: module.tasks.map((task) => ({
+      name: task.name,
+      description: task.description,
+    })),
+  }));
+}
+
+function seedBreakdownWithHours(modules, hoursResult) {
+  const lookup = new Map();
+  for (const estimate of hoursResult?.tasks || []) {
+    lookup.set(`${estimate.module}\u0000${estimate.task}`, estimate);
+  }
+
+  const seeded = modules.map((module) => ({
+    name: module.name,
+    description: module.description,
+    tasks: module.tasks.map((task) => {
+      const hit = lookup.get(`${module.name}\u0000${task.name}`) || {};
+      const matched = Boolean(hit.has_match);
+      return {
+        name: task.name,
+        description: task.description,
+        sources: task.sources || [],
+        estimated_hours: matched ? hit.estimated_hours ?? null : null,
+        hours_reliability: matched ? hit.reliability ?? null : null,
+        has_match: matched,
+        rate_eur_per_hour: DEFAULT_RATE_EUR_PER_HOUR,
+      };
+    }),
+  }));
+
+  const totalHours = sumHours(seeded);
+  return {
+    modules: seeded,
+    total_hours: totalHours,
+    total_cost_eur: totalHours * DEFAULT_RATE_EUR_PER_HOUR,
+    confirmed_at: null,
+  };
+}
+
 function resolveStep(queryStep, run) {
-  if (STEPS.includes(queryStep)) return queryStep;
-  return STEPS.includes(run?.currentStep) ? run.currentStep : "brief";
+  const known = [...STEPS, ...LEGACY_STEPS];
+  if (known.includes(queryStep)) return queryStep;
+  return known.includes(run?.currentStep) ? run.currentStep : "brief";
 }
 
 function viewContext(run, step, { error = "", notice = "" } = {}) {
   const generation = run.generation || null;
   const estimate = generation?.estimate || null;
+  const structure = run.structure || seedStructure(generation);
   return {
     run,
     step,
@@ -80,6 +186,8 @@ function viewContext(run, step, { error = "", notice = "" } = {}) {
     notice,
     filters: readFilters({}),
     estimate,
+    structure: structure?.modules || [],
+    taskHours: run.taskHours || null,
     fabricatedSourceIds: generation?.fabricated_source_ids || [],
     coherent: generation?.coherent,
     verification: run.verification,
@@ -94,6 +202,12 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
     await ragEstimations.update(run.id, { status: "failed", currentStep: step, error: message });
     return message;
   };
+
+  const redirectWithError = (res, runId, step, message) =>
+    res.redirect(
+      303,
+      `/rag-estimations/${runId}?step=${step}&error=${encodeURIComponent(message)}`,
+    );
 
   router.get("/rag-estimations", async (req, res, next) => {
     try {
@@ -130,14 +244,14 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
         brief: outcome.brief,
         retrievalText: outcome.retrieval_text,
         status: "brief",
-        currentStep: "retrieval",
+        currentStep: "generation",
         error: null,
       });
       res.redirect(303, `/rag-estimations/${id}?step=brief`);
     } catch (error) {
       if (run) {
         const message = await failed(run, error, "brief");
-        res.redirect(303, `/rag-estimations/${run.id}?step=brief&error=${encodeURIComponent(message)}`);
+        redirectWithError(res, run.id, "brief", message);
         return;
       }
       res.status(502).render("rag-estimations/new", {
@@ -184,11 +298,16 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
           regulations: readList(req.body.regulations),
           constraints: readList(req.body.constraints),
         };
+        // Un brief nuevo invalida la estructura, las horas y la verificación.
         await ragEstimations.update(run.id, {
           brief,
           retrievalText: String(req.body.retrieval_text || "").trim(),
+          generation: null,
+          structure: null,
+          taskHours: null,
+          verification: null,
           status: "brief",
-          currentStep: "retrieval",
+          currentStep: "generation",
           error: null,
         });
         res.redirect(
@@ -201,8 +320,12 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
       await ragEstimations.update(run.id, {
         brief: outcome.brief,
         retrievalText: outcome.retrieval_text,
+        generation: null,
+        structure: null,
+        taskHours: null,
+        verification: null,
         status: "brief",
-        currentStep: "retrieval",
+        currentStep: "generation",
         error: null,
       });
       res.redirect(303, `/rag-estimations/${run.id}?step=brief`);
@@ -210,15 +333,125 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
       if (error instanceof RagClientError) {
         const run = await ragEstimations.getById(req.params.id);
         if (run) await failed(run, error, "brief");
-        res.redirect(
-          303,
-          `/rag-estimations/${req.params.id}?step=brief&error=${encodeURIComponent(error.message)}`,
-        );
+        redirectWithError(res, req.params.id, "brief", error.message);
         return;
       }
       next(error);
     }
   });
+
+  // Genera la ESTRUCTURA módulo→tarea sin retrieval, fuentes ni horas.
+  router.post("/rag-estimations/:id/generate", async (req, res, next) => {
+    try {
+      const run = await ragEstimations.getById(req.params.id);
+      if (!run) {
+        res.status(404).render("not-found");
+        return;
+      }
+      if (!run.brief) {
+        redirectWithError(res, run.id, "generation", "Necesitas un brief antes de generar.");
+        return;
+      }
+      const generation = await ragClient.structure(run.brief);
+      await ragEstimations.update(run.id, {
+        generation,
+        structure: seedStructure(generation),
+        taskHours: null,
+        verification: null,
+        status: "generated",
+        currentStep: "review",
+        error: null,
+      });
+      res.redirect(303, `/rag-estimations/${run.id}?step=review`);
+    } catch (error) {
+      if (error instanceof RagClientError) {
+        const run = await ragEstimations.getById(req.params.id);
+        if (run) await failed(run, error, "generation");
+        redirectWithError(res, req.params.id, "generation", error.message);
+        return;
+      }
+      next(error);
+    }
+  });
+
+  // Guarda la estructura revisada y deriva las horas por búsqueda vectorial.
+  router.post("/rag-estimations/:id/estimate-hours", async (req, res, next) => {
+    try {
+      const run = await ragEstimations.getById(req.params.id);
+      if (!run) {
+        res.status(404).render("not-found");
+        return;
+      }
+      const modules = normalizeStructure(req.body.modules);
+      if (!modules.length) {
+        redirectWithError(
+          res,
+          run.id,
+          "review",
+          "La estructura necesita al menos un módulo con tareas.",
+        );
+        return;
+      }
+
+      const taskHours = await ragClient.taskHours(structureForApi(modules));
+      await ragEstimations.update(run.id, {
+        structure: { modules },
+        taskHours,
+        verification: seedBreakdownWithHours(modules, taskHours),
+        status: "hours_estimated",
+        currentStep: "hours",
+        error: null,
+      });
+      res.redirect(
+        303,
+        `/rag-estimations/${run.id}?step=hours&notice=${encodeURIComponent(
+          "Horas estimadas por búsqueda vectorial.",
+        )}`,
+      );
+    } catch (error) {
+      if (error instanceof RagClientError) {
+        const run = await ragEstimations.getById(req.params.id);
+        if (run) await failed(run, error, "review");
+        redirectWithError(res, req.params.id, "review", error.message);
+        return;
+      }
+      next(error);
+    }
+  });
+
+  router.post("/rag-estimations/:id/verify", async (req, res, next) => {
+    try {
+      const run = await ragEstimations.getById(req.params.id);
+      if (!run) {
+        res.status(404).render("not-found");
+        return;
+      }
+      const modules = normalizeCostModules(req.body.modules);
+      const verification = {
+        modules,
+        total_hours: sumHours(modules),
+        total_cost_eur: sumCost(modules),
+        confirmed_at: new Date().toISOString(),
+        notes: String(req.body.notes || "").trim() || null,
+      };
+      await ragEstimations.update(run.id, {
+        verification,
+        status: "verified",
+        currentStep: "verification",
+        error: null,
+      });
+      res.redirect(
+        303,
+        `/rag-estimations/${run.id}?step=verification&notice=${encodeURIComponent(
+          "Estimación validada y guardada.",
+        )}`,
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // --- Modo comparación S9 (fuera del flujo principal) ---------------------
 
   router.post("/rag-estimations/:id/retrieve", async (req, res, next) => {
     try {
@@ -234,11 +467,11 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
         run.brief?.functionality ||
         "";
       if (queryText.length < 10) {
-        res.redirect(
-          303,
-          `/rag-estimations/${run.id}?step=retrieval&error=${encodeURIComponent(
-            "Necesitas un texto de búsqueda de al menos 10 caracteres.",
-          )}`,
+        redirectWithError(
+          res,
+          run.id,
+          "retrieval",
+          "Necesitas un texto de búsqueda de al menos 10 caracteres.",
         );
         return;
       }
@@ -254,7 +487,7 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
       await ragEstimations.update(run.id, {
         retrieval,
         status: "retrieved",
-        currentStep: "assembly",
+        currentStep: "retrieval",
         error: null,
       });
       res.redirect(303, `/rag-estimations/${run.id}?step=retrieval`);
@@ -262,10 +495,7 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
       if (error instanceof RagClientError) {
         const run = await ragEstimations.getById(req.params.id);
         if (run) await failed(run, error, "retrieval");
-        res.redirect(
-          303,
-          `/rag-estimations/${req.params.id}?step=retrieval&error=${encodeURIComponent(error.message)}`,
-        );
+        redirectWithError(res, req.params.id, "retrieval", error.message);
         return;
       }
       next(error);
@@ -281,11 +511,11 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
       }
       const chunks = run.retrieval?.chunks || [];
       if (!chunks.length) {
-        res.redirect(
-          303,
-          `/rag-estimations/${run.id}?step=assembly&error=${encodeURIComponent(
-            "No hay chunks recuperados; ejecuta primero el retrieval.",
-          )}`,
+        redirectWithError(
+          res,
+          run.id,
+          "assembly",
+          "No hay chunks recuperados; ejecuta primero el retrieval.",
         );
         return;
       }
@@ -299,7 +529,7 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
       await ragEstimations.update(run.id, {
         assembly,
         status: "assembled",
-        currentStep: "generation",
+        currentStep: "assembly",
         error: null,
       });
       res.redirect(303, `/rag-estimations/${run.id}?step=assembly`);
@@ -307,90 +537,9 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
       if (error instanceof RagClientError) {
         const run = await ragEstimations.getById(req.params.id);
         if (run) await failed(run, error, "assembly");
-        res.redirect(
-          303,
-          `/rag-estimations/${req.params.id}?step=assembly&error=${encodeURIComponent(error.message)}`,
-        );
+        redirectWithError(res, req.params.id, "assembly", error.message);
         return;
       }
-      next(error);
-    }
-  });
-
-  router.post("/rag-estimations/:id/generate", async (req, res, next) => {
-    try {
-      const run = await ragEstimations.getById(req.params.id);
-      if (!run) {
-        res.status(404).render("not-found");
-        return;
-      }
-      const contextBlock =
-        String(req.body.context_block || "").trim() || run.assembly?.context_block || "";
-      if (!contextBlock) {
-        res.redirect(
-          303,
-          `/rag-estimations/${run.id}?step=generation&error=${encodeURIComponent(
-            "No hay contexto ensamblado; ejecuta primero la augmentación.",
-          )}`,
-        );
-        return;
-      }
-      const generation = await ragClient.generate({
-        context_block: contextBlock,
-        brief: run.brief,
-        kept_chunks: run.assembly?.kept_chunks || [],
-      });
-      await ragEstimations.update(run.id, {
-        generation,
-        status: "generated",
-        currentStep: "verification",
-        error: null,
-      });
-      res.redirect(303, `/rag-estimations/${run.id}?step=generation`);
-    } catch (error) {
-      if (error instanceof RagClientError) {
-        const run = await ragEstimations.getById(req.params.id);
-        if (run) await failed(run, error, "generation");
-        res.redirect(
-          303,
-          `/rag-estimations/${req.params.id}?step=generation&error=${encodeURIComponent(error.message)}`,
-        );
-        return;
-      }
-      next(error);
-    }
-  });
-
-  router.post("/rag-estimations/:id/verify", async (req, res, next) => {
-    try {
-      const run = await ragEstimations.getById(req.params.id);
-      if (!run) {
-        res.status(404).render("not-found");
-        return;
-      }
-      const modules = normalizeModules(req.body.modules);
-      const totalEngineerDays = sumDays(modules);
-      const durationWeeks = req.body.duration_weeks
-        ? Number.parseInt(req.body.duration_weeks, 10)
-        : run.generation?.estimate?.duration_weeks || null;
-      await ragEstimations.update(run.id, {
-        verification: {
-          modules,
-          total_engineer_days: totalEngineerDays,
-          duration_weeks: Number.isNaN(durationWeeks) ? null : durationWeeks,
-          notes: String(req.body.notes || "").trim() || null,
-        },
-        status: "verified",
-        currentStep: "verification",
-        error: null,
-      });
-      res.redirect(
-        303,
-        `/rag-estimations/${run.id}?step=verification&notice=${encodeURIComponent(
-          "Estimación verificada y guardada.",
-        )}`,
-      );
-    } catch (error) {
       next(error);
     }
   });

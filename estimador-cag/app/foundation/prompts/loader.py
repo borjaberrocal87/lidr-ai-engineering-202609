@@ -37,6 +37,9 @@ METADATA_EXTRACTION_USE_CASE = "metadata_extraction"
 CRITIC_USE_CASE = "critic"
 CONVERSATION_SUMMARY_USE_CASE = "conversation_summary"
 RAG_ESTIMATION_USE_CASE = "rag_estimation"
+RAG_STRUCTURE_USE_CASE = "rag_structure"
+RAG_QUERY_PLAN_USE_CASE = "rag_query_plan"
+RAG_COLLECTION_ROUTER_USE_CASE = "rag_collection_router"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
 # Versión por defecto del prompt conversacional (sesión 5). v3 añade el bloque
@@ -146,7 +149,8 @@ def render_rag_estimation_prompt(
     *,
     brief: object,
     context_block: str,
-    version: str = "v1",
+    include_hours: bool = True,
+    version: str | None = None,
 ) -> tuple[str, str]:
     """Renderiza el par (system, user) de la generación grounded (Sesión 9).
 
@@ -158,12 +162,18 @@ def render_rag_estimation_prompt(
         "brief": brief,
         "context_block": context_block,
     }
-    system = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{version}/system.j2").render(**context)
-    user = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{version}/user.j2").render(**context)
+    # v1 pide horas; v2 es la variante estructura-primero sin horas (S10).
+    resolved_version = version or ("v1" if include_hours else "v2")
+    system = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{resolved_version}/system.j2").render(
+        **context
+    )
+    user = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{resolved_version}/user.j2").render(
+        **context
+    )
     logger.info(
         "prompt.rendered",
         use_case=RAG_ESTIMATION_USE_CASE,
-        version=version,
+        version=resolved_version,
         system_chars=len(system),
         user_chars=len(user),
         system_hash=_content_hash(system),
@@ -308,3 +318,61 @@ def prompt_fingerprint(version: str = DEFAULT_ESTIMATION_PROMPT_VERSION) -> str:
         digest.update(path.name.encode("utf-8"))
         digest.update(path.read_bytes())
     return digest.hexdigest()[:16]
+
+
+def _render_rag_pair(
+    use_case: str,
+    *,
+    context: dict[str, object],
+    version: str = "v1",
+) -> tuple[str, str]:
+    """Renderiza un par system/user de un caso de uso RAG y lo traza."""
+    system = _env.get_template(f"{use_case}/{version}/system.j2").render(**context)
+    user = _env.get_template(f"{use_case}/{version}/user.j2").render(**context)
+    logger.info(
+        "prompt.rendered",
+        use_case=use_case,
+        version=version,
+        system_chars=len(system),
+        user_chars=len(user),
+        system_hash=_content_hash(system),
+        user_hash=_content_hash(user),
+    )
+    return system, user
+
+
+def render_rag_structure_prompt(brief: object, version: str = "v1") -> tuple[str, str]:
+    """Prompt de la descomposición estructura-primero (sin horas, sin fuentes)."""
+    return _render_rag_pair(
+        RAG_STRUCTURE_USE_CASE,
+        context={"brief": brief},
+        version=version,
+    )
+
+
+def render_rag_query_plan_prompt(
+    *,
+    technique: str,
+    query_text: str,
+    version: str = "v1",
+) -> tuple[str, str]:
+    """Prompt del plan de consulta (expansión o descomposición)."""
+    return _render_rag_pair(
+        RAG_QUERY_PLAN_USE_CASE,
+        context={"technique": technique, "query_text": query_text},
+        version=version,
+    )
+
+
+def render_rag_collection_router_prompt(
+    *,
+    query_text: str,
+    collections: list[dict[str, str]],
+    version: str = "v1",
+) -> tuple[str, str]:
+    """Prompt del clasificador de fuentes (destinos cerrados + razón)."""
+    return _render_rag_pair(
+        RAG_COLLECTION_ROUTER_USE_CASE,
+        context={"query_text": query_text, "collections": collections},
+        version=version,
+    )

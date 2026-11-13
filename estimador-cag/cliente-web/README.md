@@ -6,7 +6,13 @@ Desde la sesión 6 incluye además una pantalla de **Ingesta de datos** que cons
 
 Desde la sesión 7 incorpora **`/chunking-lab`** (comparativa de las ocho estrategias de chunking, con historial persistido en `chunking_comparisons`) y **`/ai-settings`** (overrides de modelo en runtime vía `GET/PUT /api/v1/config/models`). La navbar muestra el modelo primario efectivo como badge, con caché de 15 s y degradación silenciosa si la API no responde.
 
-Desde la sesión 9 incorpora **`/rag-estimations`**, el wizard RAG de cinco etapas (brief → retrieval → contexto → estimación → verificación). Persiste cada etapa en `rag_estimations` y permite editar módulos, tareas y días antes de guardar la verificación.
+Desde la sesión 9 incorpora **`/rag-estimations`**. La sesión 10 cambia el
+flujo a **brief → estructura → revisión → horas → validación**: la estructura se
+genera sin retrieval ni horas, la persona la revisa y cada tarea se busca contra
+el corpus histórico para derivar sus horas. La pantalla de horas muestra el
+**radar de fiabilidad** (verde/ámbar/rojo) y marca en rojo las tareas sin
+análogo. Persiste cada etapa en `rag_estimations` (`structure` y `task_hours`
+como columnas nuevas) y conserva el modo comparación S9 con retrieval + contexto.
 
 El look & feel replica el tema de LIDR Academy (oscuro, tipografía Helvetica, amarillo de marca `#F6DE82`, sin sombras) definido como tema de Tailwind.
 

@@ -49,6 +49,10 @@ dependencies = [
     "greenlet>=3.5.6",
     "slowapi>=0.1.9",
     "sentence-transformers>=6.2.0",
+    # PyTorch se declara directo para poder fijar el backend CPU en
+    # [tool.uv.sources]. Lo usa sentence-transformers; el wheel de PyPI para
+    # Linux arrastra CUDA (~5 GB) y no se usa en Docker/macOS.
+    "torch>=2.15.0",
 ]
 
 [dependency-groups]
@@ -66,6 +70,17 @@ dev = [
 # Es una aplicación, no una librería: uv no debe construir/instalar el proyecto,
 # solo sus dependencias. Sin esto, uv podría pedir estructura src-layout.
 package = false
+
+# Sesión 10 — PyTorch solo CPU. El wheel de PyPI para Linux arrastra CUDA
+# (cuda-toolkit + nvidia-*), que suma varios GB y no se usa en Docker/macOS.
+# El reranker cross-encoder corre en CPU: mismo PyTorch, imagen mucho más ligera.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

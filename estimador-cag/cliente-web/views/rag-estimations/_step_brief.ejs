@@ -6,8 +6,8 @@
 <div class="space-y-6">
   <div class="p-4 rounded-md bg-ink/30 border border-white/10">
     <p class="text-sm text-white/70">
-      Revisa el brief extraído de la transcripción. Puedes corregirlo antes de buscar
-      presupuestos históricos; el texto de búsqueda es el que se embebe.
+      Revisa el brief extraído de la transcripción. Puedes corregirlo antes de generar
+      la estructura; el texto de búsqueda se usa para el modo comparación S9.
     </p>
   </div>
 
@@ -73,8 +73,8 @@
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
         </svg>
       </button>
-      <a href="/rag-estimations/<%= run.id %>?step=retrieval" class="text-brand font-bold hover:text-brand-soft tracking-tight">
-        Ir al retrieval →
+      <a href="/rag-estimations/<%= run.id %>?step=generation" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+        Ir a la estructura →
       </a>
     </div>
   </form>

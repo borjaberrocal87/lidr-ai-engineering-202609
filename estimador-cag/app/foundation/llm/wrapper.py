@@ -705,6 +705,7 @@ class LLMWrapper:
         max_retries: int = 2,
         model_override: str | None = None,
         reasoning_effort: str | None = None,
+        num_retries: int | None = None,
     ) -> tuple[StructuredModel, dict[str, Any]]:
         """Llamada estructurada a partir de un system + user prompt.
 
@@ -724,6 +725,7 @@ class LLMWrapper:
             max_retries=max_retries,
             model_override=model_override,
             reasoning_effort=reasoning_effort,
+            num_retries=num_retries,
         )
 
     def complete_structured_messages(
@@ -736,6 +738,7 @@ class LLMWrapper:
         max_retries: int = 2,
         model_override: str | None = None,
         reasoning_effort: str | None = None,
+        num_retries: int | None = None,
     ) -> tuple[StructuredModel, dict[str, Any]]:
         """Llamada estructurada con un array `messages` completo (sesión 5).
 
@@ -780,6 +783,7 @@ class LLMWrapper:
                     max_tokens=max_tokens,
                     max_retries=max_retries,
                     reasoning_effort=reasoning_effort,
+                    num_retries=num_retries,
                 )
             except LLMProviderError as exc:
                 last_error = exc
@@ -812,6 +816,7 @@ class LLMWrapper:
         max_tokens: int,
         max_retries: int,
         reasoning_effort: str | None = None,
+        num_retries: int | None = None,
     ) -> tuple[StructuredModel, dict[str, Any]]:
         """Un proveedor: llama, valida y re-promptea ante errores de esquema."""
         target = self._litellm_target(model, provider)
@@ -837,6 +842,7 @@ class LLMWrapper:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 reasoning_effort=reasoning_effort,
+                num_retries=num_retries,
             )
             usage = getattr(response, "usage", None)
             input_tokens += getattr(usage, "prompt_tokens", 0) or 0
@@ -903,6 +909,7 @@ class LLMWrapper:
         temperature: float | None,
         max_tokens: int,
         reasoning_effort: str | None = None,
+        num_retries: int | None = None,
     ) -> Any:
         """Intenta JSON schema → JSON mode → prompt libre según soporte del proveedor.
 
@@ -915,7 +922,7 @@ class LLMWrapper:
             "messages": messages,
             "max_tokens": max_tokens,
             "timeout": self.timeout,
-            "num_retries": self.num_retries,
+            "num_retries": self.num_retries if num_retries is None else num_retries,
         }
         if provider != "anthropic" and _allows_temperature(model, temperature):
             kwargs["temperature"] = temperature

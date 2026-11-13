@@ -29,10 +29,11 @@ from app.dependencies import (
 )
 from app.generation.rag.brief_extractor import compose_retrieval_text, extract_project_brief
 from app.generation.rag.context_builder import assemble_context, fit_chunks_to_budget
-from app.generation.rag.errors import RagPipelineError
+from app.generation.rag.errors import RagGenerationTimeoutError, RagPipelineError
 from app.generation.rag.grounded_estimator import (
     estimate_from_transcript,
     generate_grounded_estimate,
+    generate_structure,
 )
 from app.generation.rag.grounding import find_fabricated_citations, is_coherent_estimate
 from app.generation.rag.retriever import SemanticRetriever
@@ -46,6 +47,7 @@ from app.generation.rag.schemas import (
     GroundedGenerationRequest,
     RetrievalOutcome,
     RetrievalQuery,
+    StructureRequest,
     TranscriptEstimateRequest,
 )
 
@@ -64,6 +66,14 @@ def _pipeline_error(exc: Exception, *, surface: str) -> HTTPException:
         error_type=type(exc).__name__,
         error=str(exc)[:300],
     )
+    if isinstance(exc, RagGenerationTimeoutError):
+        return HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=(
+                "La generación superó el tiempo máximo. Prueba con un brief más "
+                "acotado o un modelo más rápido."
+            ),
+        )
     return HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="No se pudo completar la estimación RAG.",
@@ -163,6 +173,29 @@ async def assemble(
     )
 
 
+@router.post("/stages/structure", response_model=GroundedGenerationOutcome)
+@limiter.limit("15/minute")
+async def structure(
+    request: Request,
+    payload: StructureRequest,
+) -> GroundedGenerationOutcome:
+    """Etapa S10: estructura módulo→tarea SIN retrieval, fuentes ni horas.
+
+    Es una descomposición libre del brief. Devuelve el mismo contrato que
+    ``/stages/generate`` para que el wizard la parsee sin cambios; al no haber
+    fuentes, las citas siempre están limpias.
+    """
+    try:
+        estimate = await generate_structure(payload.query)
+    except RagPipelineError as exc:
+        raise _pipeline_error(exc, surface="structure") from exc
+    return GroundedGenerationOutcome(
+        estimate=estimate,
+        fabricated_source_ids=[],
+        coherent=True,
+    )
+
+
 @router.post("/stages/generate", response_model=GroundedGenerationOutcome)
 @limiter.limit("15/minute")
 async def generate(
@@ -176,7 +209,11 @@ async def generate(
     decida si re-ejecuta o corrige.
     """
     try:
-        estimate = await generate_grounded_estimate(payload.context_block, payload.brief)
+        estimate = await generate_grounded_estimate(
+            payload.context_block,
+            payload.brief,
+            include_hours=payload.include_hours,
+        )
     except RagPipelineError as exc:
         raise _pipeline_error(exc, surface="generation") from exc
     return GroundedGenerationOutcome(

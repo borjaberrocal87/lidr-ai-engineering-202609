@@ -35,3 +35,21 @@ def test_rrf_empty_rankings_return_empty() -> None:
 def test_rrf_rejects_non_positive_k() -> None:
     with pytest.raises(ValueError, match="positive"):
         reciprocal_rank_fusion([[1]], k=0)
+
+
+def test_round_robin_prioritises_coverage_over_consensus() -> None:
+    """Cada lista aporta su #1 antes de que nadie repita puesto."""
+    from app.generation.rag.retrieval.fusion import round_robin_merge
+
+    merged = round_robin_merge([[1, 2, 3], [4, 5]], key=lambda item: item)
+    assert merged == [1, 4, 2, 5, 3]
+
+
+def test_round_robin_deduplicates_with_composite_key() -> None:
+    from app.generation.rag.retrieval.fusion import round_robin_merge
+
+    merged = round_robin_merge(
+        [[("budget", 1), ("budget", 2)], [("transcript", 1)]],
+        key=lambda item: item,
+    )
+    assert merged == [("budget", 1), ("transcript", 1), ("budget", 2)]

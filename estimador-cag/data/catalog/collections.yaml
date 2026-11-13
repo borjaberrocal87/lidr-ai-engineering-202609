@@ -1,0 +1,103 @@
+# Catálogo de fuentes recuperables — Sesión 10 (recuperación multifuente)
+#
+# Este fichero ES el contrato de la recuperación: qué fuentes existen, en qué
+# tabla viven, cómo se lee su fecha, qué ejes de filtro admiten y qué vocabulario
+# las identifica sin llamar al LLM. Añadir una fuente es editar este YAML y, si
+# hace falta, registrar su modelo ORM en `retrieval/sources.py`; no se toca el
+# pipeline.
+#
+# Decisiones:
+# - `name` es el identificador estable que viaja en `RetrievedChunk.collection`.
+# - `table` mapea al modelo ORM. Las tres tablas comparten columnas, pero su
+#   metadata diverge (presupuesto: sector/año; transcripción: reunión; doc: versión).
+# - `rules` es el nivel 1 del enrutado: patrones deterministas, sin coste LLM.
+#   Se prueban sobre el texto en minúsculas; incluye términos ES y EN porque el
+#   brief puede llegar en cualquiera de los dos idiomas.
+# - `filters` declara los ejes que la colección entiende; los demás se ignoran.
+
+version: "1.0.0"
+description: >
+  Tres fuentes heterogéneas conviviendo en el mismo espacio de recuperación:
+  presupuestos históricos (evidencia cuantitativa), transcripciones de reuniones
+  (contexto y decisiones) y documentación técnica (cómo se hizo). Cada una tiene
+  su propia tabla, su propio esquema de metadata y su propio ciclo de vida.
+
+collections:
+  - name: budget
+    label: Presupuestos
+    description: >
+      Presupuestos históricos con componentes, horas y coste. Es la evidencia
+      cuantitativa del estimador y la fuente por defecto del pipeline S9.
+    table: budget_chunks
+    chunk_type: budget_component
+    source_id_key: budget_id
+    date:
+      key: year
+      kind: year
+    filters: [sectors, technologies, min_date]
+    rules:
+      - '\bbudget(s)?\b'
+      - '\bquote(s|d)?\b'
+      - '\bestimat(e|ed|ion|es)\b'
+      - '\bcost(s|ed)?\b'
+      - '\bhours?\b'
+      - '\bhow much\b'
+      - '\bprice(s|d)?\b'
+      - '\bpresupuesto(s)?\b'
+      - '\bcoste(s)?\b'
+      - '\bhoras?\b'
+      - '\bprecio(s)?\b'
+      - '\btarifa(s)?\b'
+      - '\bimporte(s)?\b'
+
+  - name: transcript
+    label: Transcripciones
+    description: >
+      Segmentos de reuniones con el cliente. Aportan lo que se dijo y se decidió,
+      que rara vez aparece en un presupuesto firmado.
+    table: transcript_chunks
+    chunk_type: meeting_segment
+    source_id_key: transcript_id
+    date:
+      key: meeting_date
+      kind: iso
+    filters: [min_date]
+    rules:
+      - '\bmeeting(s)?\b'
+      - '\btranscript(s)?\b'
+      - '\bcall(s)?\b'
+      - '\bdiscuss(ed|ion)?\b'
+      - '\bclient (said|asked|wants?|mentioned)\b'
+      - '\bkick-?off\b'
+      - '\bstand-?up\b'
+      - '\breuni[oó]n(es)?\b'
+      - '\btranscripci[oó]n(es)?\b'
+      - '\bllamada(s)?\b'
+      - '\bcoment(ó|o|ario)\b'
+      - '\bdijo\b'
+      - '\bhablamos\b'
+
+  - name: technical_doc
+    label: Documentación técnica
+    description: >
+      Especificaciones, runbooks y referencias de API. Responden al "cómo",
+      no al "cuánto": su valor está en el detalle operativo.
+    table: technical_doc_chunks
+    chunk_type: doc_section
+    source_id_key: doc_id
+    date: null
+    filters: [version]
+    rules:
+      - '\bdocument(ation|s)?\b'
+      - '\bspec(ification)?s?\b'
+      - '\bAPI reference\b'
+      - '\barchitecture\b'
+      - '\bhow (do|to) (we|i) (implement|configure|integrate)\b'
+      - '\brunbook\b'
+      - '\bversion\b'
+      - '\bdocumentaci[oó]n\b'
+      - '\bespecificaci[oó]n(es)?\b'
+      - '\breferencia\b'
+      - '\barquitectura\b'
+      - '\bmanual\b'
+      - '\bc[oó]mo (se|lo) (implementa|configura|integra)\b'

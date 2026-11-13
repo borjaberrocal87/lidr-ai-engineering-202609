@@ -8,6 +8,8 @@ const FIELDS = [
   "retrieval",
   "assembly",
   "generation",
+  "structure",
+  "task_hours",
   "verification",
   "error",
 ];
@@ -56,6 +58,8 @@ function mapRow(row, { withPayload = true } = {}) {
     retrieval: parseJson(row.retrieval),
     assembly: parseJson(row.assembly),
     generation: parseJson(row.generation),
+    structure: parseJson(row.structure),
+    taskHours: parseJson(row.task_hours),
     verification: parseJson(row.verification),
     error: row.error || null,
   };
@@ -101,7 +105,17 @@ export class PgRagEstimationRepo {
       const camel = field.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
       const value = next[camel];
       if (value === undefined || value === null) return null;
-      if (["brief", "retrieval", "assembly", "generation", "verification"].includes(field)) {
+      if (
+        [
+          "brief",
+          "retrieval",
+          "assembly",
+          "generation",
+          "structure",
+          "task_hours",
+          "verification",
+        ].includes(field)
+      ) {
         return JSON.stringify(value);
       }
       if (field === "retrieval_text") return value;
@@ -116,10 +130,12 @@ export class PgRagEstimationRepo {
               retrieval = $5,
               assembly = $6,
               generation = $7,
-              verification = $8,
-              error = $9,
+              structure = $8,
+              task_hours = $9,
+              verification = $10,
+              error = $11,
               updated_at = now()
-        WHERE id = $10
+        WHERE id = $12
         RETURNING *`,
       [...values, id],
     );
@@ -149,6 +165,8 @@ export class InMemoryRagEstimationRepo {
       retrieval: null,
       assembly: null,
       generation: null,
+      structure: null,
+      taskHours: null,
       verification: null,
       error: null,
     });
@@ -170,6 +188,7 @@ export class InMemoryRagEstimationRepo {
         idempotencyKey: item.idempotencyKey,
         brief: item.brief,
         estimate: item.generation?.estimate || null,
+        totalHours: item.verification?.total_hours ?? null,
         verified: item.status === "verified",
       }));
   }

@@ -39,6 +39,12 @@ class RagGenerationError(RagPipelineError):
     stage = "generation"
 
 
+class RagGenerationTimeoutError(RagGenerationError):
+    """La generación superó el deadline duro del endpoint (S10)."""
+
+    stage = "generation"
+
+
 class IncoherentEstimateError(RagPipelineError):
     """La estimación incumple la regla de insuficiencia o de citas."""
 

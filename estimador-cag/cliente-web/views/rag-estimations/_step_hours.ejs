@@ -1,0 +1,87 @@
+<%
+  const tasks = taskHours?.tasks || [];
+  const modules = verification?.modules || [];
+  const matched = tasks.filter(function (task) { return task.has_match; }).length;
+  const flagged = tasks.length - matched;
+%>
+
+<div class="space-y-6">
+  <div>
+    <h2 class="text-lg font-bold tracking-tight text-white mb-1">4 · Horas por tarea</h2>
+    <p class="text-white/50 text-sm">
+      Cada tarea se buscó contra el corpus histórico. Las horas son un
+      <span class="text-white/80">consenso ponderado</span> de tareas similares y
+      llevan un score de fiabilidad. Las tareas <span class="text-red-200 font-bold">sin análogo</span>
+      quedan <span class="text-red-200 font-bold">en rojo</span>, sin horas, para que las completes tú.
+    </p>
+  </div>
+
+  <% if (!tasks.length || !modules.length) { %>
+    <div class="p-4 rounded-md bg-brand/15 border border-brand text-brand-soft">
+      Aún no hay horas estimadas. Vuelve a
+      <a href="/rag-estimations/<%= run.id %>?step=review" class="underline font-bold">Revisión</a>.
+    </div>
+  <% } else { %>
+    <div class="flex flex-wrap gap-3 text-sm">
+      <span class="px-3 py-1.5 rounded-md bg-brand/15 border border-brand/40 text-brand-soft font-bold">
+        <%= matched %> con dato histórico
+      </span>
+      <% if (flagged > 0) { %>
+        <span class="px-3 py-1.5 rounded-md bg-red-400/15 border border-red-400/50 text-red-200 font-bold">
+          🔴 <%= flagged %> sin dato
+        </span>
+      <% } %>
+      <span class="px-3 py-1.5 rounded-md bg-ink/40 border border-white/10 text-white/60">
+        <%= tasks.length %> tareas
+      </span>
+    </div>
+
+    <% modules.forEach(function (module) { %>
+      <% const subtotal = module.tasks.reduce(function (total, task) { return total + (task.estimated_hours || 0); }, 0); %>
+      <div class="rounded-md border border-white/10 overflow-hidden">
+        <div class="flex items-center justify-between bg-ink/40 px-3 py-2">
+          <span class="font-bold text-white"><%= module.name %></span>
+          <span class="text-white/80 tabular-nums text-sm shrink-0"><%= subtotal %> <span class="text-white/40">h</span></span>
+        </div>
+        <table class="w-full text-sm">
+          <tbody class="divide-y divide-white/10">
+            <% module.tasks.forEach(function (task) { %>
+              <tr class="<%= task.has_match === false ? 'bg-red-400/10' : '' %>">
+                <td class="p-3 align-top">
+                  <div class="text-white/90"><%= task.name %></div>
+                  <% if (task.description) { %>
+                    <div class="text-white/50 text-xs mt-0.5"><%= task.description %></div>
+                  <% } %>
+                </td>
+                <td class="p-3 text-right align-top tabular-nums w-24">
+                  <% if (task.has_match === false) { %>
+                    <span class="text-red-200 font-bold">🔴 —</span>
+                  <% } else { %>
+                    <span class="text-white font-bold"><%= task.estimated_hours %></span>
+                    <span class="text-white/40 text-xs">h</span>
+                  <% } %>
+                </td>
+                <td class="p-3 text-right align-top w-28">
+                  <% if (task.has_match === false) { %>
+                    <span class="text-red-200 text-xs font-bold">sin dato</span>
+                  <% } else if (task.hours_reliability != null) { %>
+                    <span class="badge"><%= Math.round(task.hours_reliability * 100) %>% fiab.</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% }); %>
+
+    <div class="flex items-center gap-4 mt-6">
+      <a href="/rag-estimations/<%= run.id %>?step=verification" class="btn-primary">
+        Validar horas y tarifas →
+      </a>
+      <a href="/rag-estimations/<%= run.id %>?step=review" class="text-white/50 font-bold hover:text-white tracking-tight">
+        ← Volver a la estructura
+      </a>
+    </div>
+  <% } %>
+</div>

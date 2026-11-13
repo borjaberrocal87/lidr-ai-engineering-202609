@@ -150,6 +150,15 @@ class Settings(BaseSettings):
     # Presupuesto de salida de la generación. Los tokens de razonamiento
     # consumen parte del presupuesto, de ahí el valor alto.
     rag_generation_max_tokens: int = 64_000
+    # Sesión 10 — estructura interactiva (wizard). Es un paso de UI, no una
+    # generación grounded: debe responder en decenas de segundos. Usa un modelo
+    # rápido y un esfuerzo bajo por defecto, separado del S9.
+    rag_structure_model: str = "gpt-5-mini"
+    rag_structure_reasoning_effort: Literal["minimal", "low", "medium", "high"] = "low"
+    rag_structure_max_tokens: int = 24_000
+    # Deadline duro del endpoint. Si el proveedor se cuelga, la API corta y
+    # devuelve 504 en vez de dejar la petición abierta más que el wizard.
+    rag_structure_timeout_seconds: float = 180.0
     # Retrieval: k candidatos, umbral de distancia coseno (menor = más similar)
     # y presupuesto de contexto en tokens.
     rag_retrieval_top_k: int = 10
@@ -180,6 +189,31 @@ class Settings(BaseSettings):
     # RRF smoothing constant (Cormack et al. default). Larger = a document must
     # rank well in BOTH branches to win; smaller = a single #1 can dominate.
     rrf_k: int = 60
+
+    # Sesión 10 — recuperación multifuente. Cada etapa es conmutable para poder
+    # medirla en aislamiento: el pipeline completo es el camino MÁXIMO, no el
+    # único. Estos son los defaults del .env; enrutado, plan de consulta y
+    # vigencia también se cambian en caliente desde Ajustes.
+    retrieval_multi_source_enabled: bool = True
+    retrieval_routing_enabled: bool = True
+    retrieval_query_plan_enabled: bool = True
+    # La vigencia es un re-peso suave: apagada por defecto. Encenderla solo con
+    # evidencia; nunca como un boost mágico.
+    retrieval_freshness_enabled: bool = False
+    # Modelos pequeños y rápidos para el clasificador de fuentes y el plan de
+    # consulta. Ambos están en AVAILABLE_MODELS y se cambian en Ajustes.
+    router_model: str = "gpt-4o-mini"
+    query_plan_model: str = "gpt-4o-mini"
+    # Vida media exponencial de la vigencia: weight = 0.5 ** (edad/vida_media).
+    # ≈2,5 años: los presupuestos envejecen despacio, la recencia solo desempata.
+    freshness_half_life_days: int = 900
+    # Topes del plan de consulta (sub-queries) y del enrutador (fuentes).
+    query_max_subqueries: int = 4
+    router_max_targets: int = 3
+    # Consenso de horas por tarea: vecinos que se promedian y suelo de distancia.
+    # Superar el suelo significa "sin análogo" y la tarea se marca en rojo.
+    task_hours_top_k: int = 5
+    task_hours_distance_threshold: float = 0.45
 
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
