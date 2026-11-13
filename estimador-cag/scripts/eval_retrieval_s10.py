@@ -31,6 +31,7 @@ Ingesta previa: ``scripts/query_examples.py`` (presupuestos) +
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import statistics
@@ -171,10 +172,47 @@ async def _run_once(
     return outcome.chunks
 
 
+def _parse_args() -> argparse.Namespace:
+    """Permite un smoke barato (1 query, 1 config) antes del barrido completo."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--queries",
+        type=int,
+        default=None,
+        help="Limita el número de consultas (por defecto, todas).",
+    )
+    parser.add_argument(
+        "--configs",
+        default=None,
+        help="Lista de configuraciones separadas por comas, p. ej. A,D,H.",
+    )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=MEASURED_RUNS,
+        help=f"Repeticiones medidas por consulta/config (por defecto {MEASURED_RUNS}).",
+    )
+    return parser.parse_args()
+
+
 async def main() -> int:
+    args = _parse_args()
     get_settings()
     golden = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
     queries = golden["queries"]
+    if args.queries is not None:
+        queries = queries[: max(0, args.queries)]
+    selected = CONFIGS
+    if args.configs:
+        wanted = {part.strip().upper() for part in args.configs.split(",") if part.strip()}
+        selected = [cfg for cfg in CONFIGS if cfg.id in wanted]
+        unknown = wanted - {cfg.id for cfg in CONFIGS}
+        if unknown:
+            print(f"Configuraciones desconocidas: {', '.join(sorted(unknown))}", file=sys.stderr)
+            return 2
+    if not selected:
+        print("No hay configuraciones seleccionadas.", file=sys.stderr)
+        return 2
     k = int(golden.get("k", 5))
     reference_date = date.today()
 
@@ -184,14 +222,17 @@ async def main() -> int:
     reranker = get_reranker()
     llm_wrapper = get_llm_wrapper()
 
-    results: dict[str, list[float]] = {cfg.id: [] for cfg in CONFIGS}
-    latencies: dict[str, list[float]] = {cfg.id: [] for cfg in CONFIGS}
-    per_query: dict[str, dict[str, float]] = {cfg.id: {} for cfg in CONFIGS}
+    results: dict[str, list[float]] = {cfg.id: [] for cfg in selected}
+    latencies: dict[str, list[float]] = {cfg.id: [] for cfg in selected}
+    per_query: dict[str, dict[str, float]] = {cfg.id: {} for cfg in selected}
 
-    print(f"Golden set: {len(queries)} consultas · k={k} · configuraciones A-H")
+    print(
+        f"Golden set: {len(queries)} consultas · k={k} · "
+        f"configuraciones {','.join(cfg.id for cfg in selected)}"
+    )
     for query in queries:
         relevant = relevant_ids(query)
-        for cfg in CONFIGS:
+        for cfg in selected:
             # Warm-up descartado (carga de modelo, cachés de conexión…).
             await _run_once(
                 cfg,
@@ -205,7 +246,7 @@ async def main() -> int:
             )
             samples: list[float] = []
             chunks: list[RetrievedChunk] = []
-            for _ in range(MEASURED_RUNS):
+            for _ in range(args.runs):
                 started = time.perf_counter()
                 chunks = await _run_once(
                     cfg,
@@ -227,7 +268,7 @@ async def main() -> int:
     header = f"{'ID':<3} {'Configuración':<28} {'Precisión@' + str(k):>12} {'Latencia ms':>12}"
     print(header)
     print("-" * len(header))
-    for cfg in CONFIGS:
+    for cfg in selected:
         precision = statistics.fmean(results[cfg.id]) if results[cfg.id] else 0.0
         latency = statistics.fmean(latencies[cfg.id]) if latencies[cfg.id] else 0.0
         print(f"{cfg.id:<3} {cfg.label:<28} {precision:>12.3f} {latency:>12.0f}")
@@ -235,7 +276,7 @@ async def main() -> int:
     print("\n=== Precisión por consulta ===")
     query_ids = [query["id"] for query in queries]
     print(f"{'Config':<6} " + " ".join(f"{qid:>6}" for qid in query_ids))
-    for cfg in CONFIGS:
+    for cfg in selected:
         row = " ".join(f"{per_query[cfg.id].get(qid, 0.0):>6.2f}" for qid in query_ids)
         print(f"{cfg.id:<6} {row}")
 

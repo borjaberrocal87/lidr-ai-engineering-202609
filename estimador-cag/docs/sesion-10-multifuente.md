@@ -159,7 +159,11 @@ docker compose run --rm api python scripts/build_multi_index_corpus.py
 # 4. Generar e ingerir el corpus de tareas
 docker compose run --rm api python scripts/build_task_corpus.py --ingest
 
-# 5. Evaluar
+# 5. Evaluar (smoke barato: 1 consulta, 1 configuración, 1 repetición)
+docker compose run --rm api python scripts/eval_retrieval_s10.py \
+  --queries 1 --configs A --runs 1
+
+# 5b. Barrido completo A-H (consume LLM en F/G/H)
 docker compose run --rm api python scripts/eval_retrieval_s10.py
 ```
 
