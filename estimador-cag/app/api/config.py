@@ -17,7 +17,10 @@ from pydantic import BaseModel, Field
 from app.config import Settings, get_settings, reveal_secret
 from app.dependencies import get_runtime_config, get_runtime_retrieval_config
 from app.foundation.llm.runtime_config import (
+    FRESHNESS_KEY,
     MODEL_KEYS,
+    QUERY_PLAN_KEY,
+    ROUTING_KEY,
     RuntimeConfigUnavailable,
     RuntimeModelConfig,
     RuntimeRetrievalConfig,
@@ -25,6 +28,13 @@ from app.foundation.llm.runtime_config import (
 from app.foundation.llm.wrapper import provider_from_model
 
 log = structlog.get_logger()
+
+# Mapea el campo de la petición PUT → la clave del hash de Redis.
+_STAGE_TOGGLE_KEYS = {
+    "routing_enabled": ROUTING_KEY,
+    "query_plan_enabled": QUERY_PLAN_KEY,
+    "freshness_enabled": FRESHNESS_KEY,
+}
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -52,6 +62,23 @@ class RetrievalUpdateRequest(BaseModel):
 
     search_mode: str | None = Field(default=None, description="'vector' or 'hybrid'.")
     rerank: bool | None = Field(default=None, description="Enable cross-encoder reranking.")
+    # Sesión 10 — etapas de la recuperación multifuente.
+    routing_enabled: bool | None = Field(
+        default=None, description="Enable collection routing."
+    )
+    query_plan_enabled: bool | None = Field(
+        default=None, description="Enable query expansion/decomposition."
+    )
+    freshness_enabled: bool | None = Field(
+        default=None, description="Enable temporal freshness re-weighting."
+    )
+    # Sesión 10 — knobs numéricos del consenso de horas por tarea.
+    task_hours_top_k: int | None = Field(
+        default=None, ge=1, le=30, description="Neighbours per task for the hours consensus."
+    )
+    task_hours_distance_threshold: float | None = Field(
+        default=None, ge=0.0, le=2.0, description="Red-flag floor: no match beyond this distance."
+    )
 
 
 def _provider_configured(settings: Settings, provider: str) -> bool:
@@ -182,6 +209,42 @@ def update_retrieval(
         if "rerank" in sent:
             runtime_retrieval.set_rerank(request.rerank)
             log.info("runtime_retrieval_changed", key="rerank", new_value=request.rerank)
+        for field_name, hash_key in _STAGE_TOGGLE_KEYS.items():
+            if field_name in sent:
+                runtime_retrieval.set_bool(hash_key, getattr(request, field_name))
+                log.info(
+                    "runtime_retrieval_changed",
+                    key=field_name,
+                    new_value=getattr(request, field_name),
+                )
+        if "task_hours_top_k" in sent:
+            try:
+                runtime_retrieval.set_task_hours_top_k(request.task_hours_top_k)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(exc),
+                ) from exc
+            log.info(
+                "runtime_retrieval_changed",
+                key="task_hours_top_k",
+                new_value=request.task_hours_top_k,
+            )
+        if "task_hours_distance_threshold" in sent:
+            try:
+                runtime_retrieval.set_task_hours_distance_threshold(
+                    request.task_hours_distance_threshold
+                )
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(exc),
+                ) from exc
+            log.info(
+                "runtime_retrieval_changed",
+                key="task_hours_distance_threshold",
+                new_value=request.task_hours_distance_threshold,
+            )
     except RuntimeConfigUnavailable as exc:
         log.error("runtime_retrieval_write_failed", error=str(exc)[:200])
         raise HTTPException(

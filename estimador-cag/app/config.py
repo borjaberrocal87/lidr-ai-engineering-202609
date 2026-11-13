@@ -181,6 +181,31 @@ class Settings(BaseSettings):
     # rank well in BOTH branches to win; smaller = a single #1 can dominate.
     rrf_k: int = 60
 
+    # Sesión 10 — recuperación multifuente. Cada etapa es conmutable para poder
+    # medirla en aislamiento: el pipeline completo es el camino MÁXIMO, no el
+    # único. Estos son los defaults del .env; enrutado, plan de consulta y
+    # vigencia también se cambian en caliente desde Ajustes.
+    retrieval_multi_source_enabled: bool = True
+    retrieval_routing_enabled: bool = True
+    retrieval_query_plan_enabled: bool = True
+    # La vigencia es un re-peso suave: apagada por defecto. Encenderla solo con
+    # evidencia; nunca como un boost mágico.
+    retrieval_freshness_enabled: bool = False
+    # Modelos pequeños y rápidos para el clasificador de fuentes y el plan de
+    # consulta. Ambos están en AVAILABLE_MODELS y se cambian en Ajustes.
+    router_model: str = "gpt-4o-mini"
+    query_plan_model: str = "gpt-4o-mini"
+    # Vida media exponencial de la vigencia: weight = 0.5 ** (edad/vida_media).
+    # ≈2,5 años: los presupuestos envejecen despacio, la recencia solo desempata.
+    freshness_half_life_days: int = 900
+    # Topes del plan de consulta (sub-queries) y del enrutador (fuentes).
+    query_max_subqueries: int = 4
+    router_max_targets: int = 3
+    # Consenso de horas por tarea: vecinos que se promedian y suelo de distancia.
+    # Superar el suelo significa "sin análogo" y la tarea se marca en rojo.
+    task_hours_top_k: int = 5
+    task_hours_distance_threshold: float = 0.45
+
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
 
