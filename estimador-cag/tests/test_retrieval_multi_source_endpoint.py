@@ -47,9 +47,7 @@ def test_multi_source_can_be_disabled(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(settings, "retrieval_api_key", SecretStr("retrieval-secret"))
     monkeypatch.setattr(settings, "retrieval_multi_source_enabled", False)
 
-    response = client.post(
-        "/api/v1/retrieval/multi-source", json=_payload(), headers=HEADERS
-    )
+    response = client.post("/api/v1/retrieval/multi-source", json=_payload(), headers=HEADERS)
 
     assert response.status_code == 404
 
@@ -59,9 +57,7 @@ def test_multi_source_returns_diagnostics(client: TestClient, monkeypatch) -> No
     monkeypatch.setattr(settings, "retrieval_multi_source_enabled", True)
     monkeypatch.setattr("app.api.retrieval_multi_source.get_embedder", lambda: object())
     monkeypatch.setattr("app.api.retrieval_multi_source.get_chunk_store", lambda: object())
-    monkeypatch.setattr(
-        "app.api.retrieval_multi_source.get_async_session_factory", lambda: object
-    )
+    monkeypatch.setattr("app.api.retrieval_multi_source.get_async_session_factory", lambda: object)
     monkeypatch.setattr("app.api.retrieval_multi_source.get_llm_wrapper", lambda: object())
     monkeypatch.setattr("app.api.retrieval_multi_source.get_reranker", lambda: object())
     monkeypatch.setattr(
@@ -80,13 +76,9 @@ def test_multi_source_returns_diagnostics(client: TestClient, monkeypatch) -> No
             low_confidence=True,
         )
 
-    monkeypatch.setattr(
-        "app.api.retrieval_multi_source.retrieve_multi_source", fake_retrieve
-    )
+    monkeypatch.setattr("app.api.retrieval_multi_source.retrieve_multi_source", fake_retrieve)
 
-    response = client.post(
-        "/api/v1/retrieval/multi-source", json=_payload(), headers=HEADERS
-    )
+    response = client.post("/api/v1/retrieval/multi-source", json=_payload(), headers=HEADERS)
 
     assert response.status_code == 200
     body = response.json()
