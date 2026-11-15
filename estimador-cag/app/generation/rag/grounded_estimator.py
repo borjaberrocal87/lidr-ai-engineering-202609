@@ -28,7 +28,10 @@ from app.generation.rag.errors import (
     RagGenerationTimeoutError,
     RagRetrievalError,
 )
-from app.generation.rag.grounding import find_fabricated_citations, is_coherent_estimate
+from app.generation.rag.grounding import (
+    is_coherent_estimate,
+    verify_citations_for_chunks,
+)
 from app.generation.rag.schemas import GroundedEstimate, ProjectBrief, RetrievalOutcome
 from app.generation.rag.stage_logging import current_request_id, log_pipeline_stage
 
@@ -245,17 +248,53 @@ async def estimate_from_transcript(
     with log_pipeline_stage("generation", request_id, sources=len(kept)):
         estimate = await generate_grounded_estimate(context_block, brief)
 
-    # 5. Validación de citas; un reintento correctivo ante ids inventados.
-    fabricated = find_fabricated_citations(estimate, kept)
-    if fabricated:
+    # 5. Line-level citation verification; one corrective retry on dangling ids.
+    report = verify_citations_for_chunks(estimate, kept)
+    log.info(
+        "citations.verified",
+        request_id=request_id,
+        attempt=1,
+        total_lines=report.total_lines,
+        grounded=report.grounded_lines,
+        dangling=report.dangling_lines,
+        insufficient=report.insufficient_lines,
+        dangling_ids=report.dangling_citations,
+        document_mismatches=report.document_mismatches,
+    )
+    if report.has_dangling:
+        bad_citations = report.dangling_citations + report.document_mismatches
         feedback = (
-            f"tu respuesta anterior citó source ids inválidos: {fabricated}. "
-            "Cita solo ids que aparezcan en el bloque <sources>."
+            "Your previous answer cited sources that are not in the <sources> block or "
+            f"attributed the wrong document_id: {bad_citations}. "
+            "Copy only the id and document_id attributes that literally appear in <sources>, "
+            "and use verbatim evidence from the same chunk."
         )
-        with log_pipeline_stage("citation_retry", request_id, fabricated=fabricated):
+        with log_pipeline_stage(
+            "citation_retry",
+            request_id,
+            dangling=report.dangling_citations,
+            document_mismatches=report.document_mismatches,
+        ):
             estimate = await _generate(context_block, brief, feedback=feedback)
-        if find_fabricated_citations(estimate, kept):
-            log.warning("citations.unrepaired", request_id=request_id)
+        report = verify_citations_for_chunks(estimate, kept)
+        log.info(
+            "citations.verified",
+            request_id=request_id,
+            attempt=2,
+            total_lines=report.total_lines,
+            grounded=report.grounded_lines,
+            dangling=report.dangling_lines,
+            insufficient=report.insufficient_lines,
+            dangling_ids=report.dangling_citations,
+            document_mismatches=report.document_mismatches,
+        )
+        if report.has_dangling:
+            log.warning(
+                "citations.unrepaired",
+                request_id=request_id,
+                dangling_ids=report.dangling_citations,
+                document_mismatches=report.document_mismatches,
+            )
             estimate = estimate.model_copy(update={"confidence": "low"})
 
     # 6. Guarda de coherencia: un intento de reparación y, si falla, rechazo.

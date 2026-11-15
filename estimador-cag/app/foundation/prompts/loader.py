@@ -152,18 +152,21 @@ def render_rag_estimation_prompt(
     include_hours: bool = True,
     version: str | None = None,
 ) -> tuple[str, str]:
-    """Renderiza el par (system, user) de la generación grounded (Sesión 9).
+    """Render the (system, user) pair for grounded generation.
 
-    El system prompt fija la política de grounding: cada cifra debe trazar a un
-    bloque ``<source>``, no se inventan ids y, si el contexto no basta, el
-    modelo debe declarar ``confidence="insufficient"`` en vez de adivinar.
+    The system prompt fixes the grounding policy: every number must trace to a
+    ``<source>`` block, ids are never invented, and insufficient context is
+    declared as ``confidence="insufficient"`` instead of guessed.
+
+    v3 asks for hours and verifiable line-level citations (Session 11). v4 is
+    the structure-with-context variant without hours. v1/v2 stay available for
+    rollback; they do not know the ``grounded``/``citations`` contract.
     """
     context = {
         "brief": brief,
         "context_block": context_block,
     }
-    # v1 pide horas; v2 es la variante estructura-primero sin horas (S10).
-    resolved_version = version or ("v1" if include_hours else "v2")
+    resolved_version = version or ("v3" if include_hours else "v4")
     system = _env.get_template(f"{RAG_ESTIMATION_USE_CASE}/{resolved_version}/system.j2").render(
         **context
     )
@@ -341,7 +344,7 @@ def _render_rag_pair(
     return system, user
 
 
-def render_rag_structure_prompt(brief: object, version: str = "v1") -> tuple[str, str]:
+def render_rag_structure_prompt(brief: object, version: str = "v2") -> tuple[str, str]:
     """Prompt de la descomposición estructura-primero (sin horas, sin fuentes)."""
     return _render_rag_pair(
         RAG_STRUCTURE_USE_CASE,

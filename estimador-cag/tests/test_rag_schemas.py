@@ -15,6 +15,8 @@ from app.generation.rag.schemas import (
     IngestRequest,
     ProjectBrief,
     RetrievalQuery,
+    SourceReference,
+    TaskHoursEstimate,
     TranscriptEstimateRequest,
 )
 
@@ -110,3 +112,58 @@ def test_ingest_request_defaults_chunk_type_to_budget_component() -> None:
     )
 
     assert request.chunk_type == "budget_component"
+
+
+def _source(chunk_id: str = "1", document_id: str = "BUD-1") -> SourceReference:
+    return SourceReference(chunk_id=chunk_id, document_id=document_id, evidence="Component: OAuth")
+
+
+def test_grounded_line_requires_a_citation() -> None:
+    with pytest.raises(ValidationError):
+        EstimationTask(name="OAuth", grounded=True)
+
+
+def test_ungrounded_line_cannot_carry_hours_or_sources() -> None:
+    with pytest.raises(ValidationError):
+        EstimationTask(name="OAuth", grounded=False, engineer_days=5)
+
+    with pytest.raises(ValidationError):
+        EstimationTask(name="OAuth", grounded=False, citations=[_source()])
+
+
+def test_grounded_line_keeps_legacy_sources_in_sync() -> None:
+    task = EstimationTask(
+        name="OAuth",
+        engineer_days=5,
+        grounded=True,
+        citations=[_source("7"), _source("8")],
+    )
+
+    assert task.sources == [7, 8]
+
+
+def test_legacy_task_with_only_sources_remains_valid() -> None:
+    task = EstimationTask(name="OAuth", engineer_days=5, sources=[1, 2])
+
+    assert task.grounded is True
+    assert task.citations == []
+    assert task.sources == [1, 2]
+
+
+def test_task_hours_source_contract_is_consistent() -> None:
+    legacy = TaskHoursEstimate(module="Auth", task="Login", has_match=True, estimated_hours=40)
+    assert legacy.grounded is True
+
+    no_match = TaskHoursEstimate(
+        module="Auth", task="Login", has_match=False, grounded=False, sources=[]
+    )
+    assert no_match.estimated_hours is None
+
+    with pytest.raises(ValidationError):
+        TaskHoursEstimate(
+            module="Auth",
+            task="Login",
+            has_match=True,
+            grounded=True,
+            sources=[],
+        )

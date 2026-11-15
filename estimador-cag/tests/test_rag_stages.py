@@ -133,6 +133,8 @@ def test_generate_stage_returns_grounding_signals(client: TestClient, monkeypatc
     assert response.status_code == 200
     assert response.json()["fabricated_source_ids"] == []
     assert response.json()["coherent"] is True
+    assert response.json()["citation_report"]["total_lines"] == 1
+    assert response.json()["citation_report"]["grounded_lines"] == 1
 
 
 def test_structure_stage_returns_a_clean_structure(client: TestClient, monkeypatch) -> None:
@@ -159,6 +161,7 @@ def test_structure_stage_returns_a_clean_structure(client: TestClient, monkeypat
     body = response.json()
     assert body["fabricated_source_ids"] == []
     assert body["coherent"] is True
+    assert body["citation_report"]["total_lines"] == 1
     assert body["estimate"]["modules"][0]["name"] == "Auth"
 
 

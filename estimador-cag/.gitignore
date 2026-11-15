@@ -17,6 +17,7 @@ wheels/
 # Virtual environments
 .venv/
 venv/
+.venv-ragas/
 
 # Editors / OS
 .DS_Store

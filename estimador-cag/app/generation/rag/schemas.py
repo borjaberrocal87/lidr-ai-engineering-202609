@@ -11,7 +11,7 @@ from datetime import date
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Sector(StrEnum):
@@ -295,12 +295,45 @@ class Assumption(BaseModel):
     rationale: str
 
 
+class SourceReference(BaseModel):
+    """A verifiable, line-level citation back to a single retrieved chunk.
+
+    Session 11 lifts citation from the coarse, estimate-global ``Citation``
+    down to the individual estimate line: every grounded line carries the
+    concrete chunk it derived from plus the verbatim evidence that backs it,
+    so a reader (and ``grounding.verify_citations``) can check the claim
+    instead of trusting it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_id: str = Field(
+        description="Id of the retrieved chunk supporting this line — the `id` "
+        "attribute of the <source> element it was taken from."
+    )
+    document_id: str = Field(
+        description="Traceable parent document (budget_id for budget/task chunks, "
+        "source_id for transcripts and technical docs) — the `document_id` "
+        "attribute of the same <source> element."
+    )
+    evidence: str = Field(
+        min_length=1,
+        description="Verbatim span or figure copied from the source that backs "
+        "this line. Quote the source; do not paraphrase.",
+    )
+
+
 class EstimationTask(BaseModel):
     """Una tarea concreta dentro de un módulo funcional, en engineer-days.
 
-    ``sources`` cita los chunks históricos de los que se derivó la tarea; una
-    tarea sin análogo histórico se deja sin citar y debe aflorar como
-    :class:`Assumption`.
+    Each task is an estimate *line*. When ``grounded`` is True the line derives
+    from historical evidence and carries at least one ``SourceReference``; when
+    False the line has no sufficient source data — it must not invent hours and
+    should surface its scope as an ``Assumption`` instead.
+
+    ``sources`` is the legacy int-id citation from Session 9. It is kept for
+    backward compatibility and synchronised from ``citations`` after validation;
+    new generators populate ``citations`` only.
     """
 
     name: str
@@ -310,9 +343,62 @@ class EstimationTask(BaseModel):
         ge=0,
         description="Esfuerzo en engineer-days. None en la generación estructura-primero "
         "(S10): el LLM propone la estructura y las horas se derivan después por "
-        "búsqueda vectorial por tarea, no aquí.",
+        "búsqueda vectorial por tarea, no aquí. Debe ser None cuando "
+        "``grounded`` es False (sin datos => sin horas inventadas).",
     )
-    sources: list[int] = Field(default_factory=list, description="Ids de chunk que la respaldan.")
+    grounded: bool = Field(
+        default=False,
+        description="True iff this line is backed by retrieved source data. False "
+        "means 'no sufficient source data': the line carries no sources and no "
+        "invented hours.",
+    )
+    citations: list[SourceReference] = Field(
+        default_factory=list,
+        description="Per-line citations. Non-empty iff ``grounded`` is True.",
+    )
+    sources: list[int] = Field(
+        default_factory=list,
+        description="Legacy chunk ids from Session 9. Do not populate in new prompts; "
+        "it is synchronised from ``citations`` after validation.",
+    )
+
+    @model_validator(mode="after")
+    def _grounding_integrity(self) -> EstimationTask:
+        """Enforce the Session 11 line-level grounding contract.
+
+        A grounded line must cite at least one source; an ungrounded line must
+        neither cite sources nor invent hours. Legacy objects built by Session 9
+        tests with only ``sources`` and ``engineer_days`` are tolerated: the
+        validator only activates when the new fields are explicitly provided.
+        """
+        legacy_sources_only = not self.citations and bool(self.sources)
+        if legacy_sources_only and ("citations" not in self.model_fields_set or not self.grounded):
+            # Session 9 estimates carry only legacy sources. Treat them as
+            # grounded instead of rejecting an otherwise valid cached estimate.
+            # The citations-in-fields-set guard keeps a new response that
+            # explicitly claims grounded=True without citations an error.
+            self.grounded = True
+            return self
+        if "grounded" not in self.model_fields_set and not self.citations:
+            return self
+        if self.grounded and not self.citations:
+            raise ValueError("a grounded line must cite at least one source")
+        if not self.grounded and self.citations:
+            raise ValueError("an ungrounded line (grounded=False) must not carry citations")
+        if not self.grounded and self.sources:
+            raise ValueError("an ungrounded line (grounded=False) must not carry legacy sources")
+        if not self.grounded and self.engineer_days is not None:
+            raise ValueError(
+                "an ungrounded line (grounded=False) must leave engineer_days null; "
+                "do not invent hours without source data"
+            )
+        if self.citations:
+            self.sources = [
+                int(citation.chunk_id)
+                for citation in self.citations
+                if citation.chunk_id.lstrip("-").isdigit()
+            ]
+        return self
 
 
 class EstimationModule(BaseModel):
@@ -343,6 +429,71 @@ class GroundedEstimate(BaseModel):
     confidence: Confidence
     reasoning: str = Field(description="Cómo se derivó la estimación de las fuentes.")
     insufficient_context_explanation: str | None = None
+
+
+# ---- Sesión 11 — verificación programática de citaciones ---------------------
+
+LineCitationStatus = Literal["grounded", "dangling", "insufficient"]
+
+
+class LineCitation(BaseModel):
+    """The citation status of a single estimate line."""
+
+    module: str = Field(description="Module the line belongs to.")
+    component: str = Field(description="The line (task) name.")
+    status: LineCitationStatus = Field(
+        description="grounded = all cited chunks were retrieved; dangling = at "
+        "least one cited chunk_id was never in the context or points to the wrong "
+        "document; insufficient = the line is flagged as having no sufficient "
+        "source data."
+    )
+    cited_chunk_ids: list[str] = Field(default_factory=list)
+    dangling_chunk_ids: list[str] = Field(
+        default_factory=list, description="Cited ids that were never retrieved."
+    )
+    document_mismatches: list[str] = Field(
+        default_factory=list,
+        description="Citations whose chunk exists but whose document_id does not "
+        "match the retrieved parent budget/document.",
+    )
+    reason: str | None = Field(
+        default=None, description="Human-readable reason when status is not grounded."
+    )
+
+
+class CitationReport(BaseModel):
+    """Aggregate result of verifying an estimate's citations against the context."""
+
+    total_lines: int = Field(ge=0)
+    grounded_lines: int = Field(ge=0, description="Lines whose every citation was retrieved.")
+    dangling_lines: int = Field(ge=0, description="Lines with at least one fabricated citation.")
+    insufficient_lines: int = Field(ge=0, description="Lines flagged as no sufficient data.")
+    verified_citations: int = Field(
+        ge=0, description="Count of individual citations that resolved to a retrieved chunk."
+    )
+    dangling_citations: list[str] = Field(
+        default_factory=list,
+        description="Sorted, de-duplicated cited ids that were never retrieved "
+        "(line-level and estimate-global). Empty means every citation is real.",
+    )
+    dangling_global_citations: list[str] = Field(
+        default_factory=list,
+        description="Estimate-global Citation.source_id values that were never retrieved.",
+    )
+    document_mismatches: list[str] = Field(
+        default_factory=list,
+        description="Sorted, de-duplicated document mismatches across all lines.",
+    )
+    lines: list[LineCitation] = Field(default_factory=list)
+
+    @property
+    def has_dangling(self) -> bool:
+        """True when any citation points outside the retrieved context.
+
+        A document mismatch counts even when the chunk id exists, and a
+        grounded line with no citations counts as dangling too.
+        """
+        return bool(self.dangling_citations or self.document_mismatches or self.dangling_lines)
 
 
 # ---- Modelos HTTP de los routers S09 ----------------------------------------
@@ -441,7 +592,13 @@ class GroundedGenerationOutcome(BaseModel):
     estimate: GroundedEstimate
     fabricated_source_ids: list[int] = Field(
         default_factory=list,
-        description="Source ids citados que no están en kept_chunks (vacío = limpio).",
+        description="Source ids citados que no están en kept_chunks (vacío = limpio). "
+        "Legacy mirror of citation_report.dangling_citations.",
+    )
+    citation_report: CitationReport | None = Field(
+        default=None,
+        description="Session 11 per-line citation verification report (None for the "
+        "full from-transcript pipeline, which logs the report instead).",
     )
     coherent: bool = Field(
         description="False cuando una estimación insuficiente aún lleva números."
@@ -483,6 +640,10 @@ class TaskHoursEstimate(BaseModel):
     ``has_match=False`` (ningún vecino bajo el umbral) deja ``estimated_hours`` y
     ``reliability`` a null: la UI marca la fila en rojo y la persona aporta el
     número en el paso de validación.
+
+    Session 11 adds ``grounded`` and ``sources``: the exact historical chunks
+    whose recorded hours produced the consensus. ``grounded`` is the new name
+    for "has a source-backed value"; ``has_match`` stays as the legacy flag.
     """
 
     module: str = Field(description="Módulo al que pertenece la tarea (eco).")
@@ -497,6 +658,11 @@ class TaskHoursEstimate(BaseModel):
         description="0..1 confianza en las horas (cercanía x acuerdo entre vecinos).",
     )
     has_match: bool = Field(description="Si algún vecino cruzó el umbral de distancia.")
+    grounded: bool = Field(
+        default=False,
+        description="True iff the hours came from at least one retrieved historical "
+        "chunk. Mirrors ``has_match``; the new pipeline sets both explicitly.",
+    )
     dispersion: float | None = Field(
         default=None,
         ge=0.0,
@@ -506,6 +672,36 @@ class TaskHoursEstimate(BaseModel):
     neighbors: list[TaskNeighbor] = Field(
         default_factory=list, description="Tareas históricas de las que salieron las horas."
     )
+    sources: list[SourceReference] = Field(
+        default_factory=list,
+        description="Verbatim line-level citations built from the matching historical "
+        "chunks. Non-empty iff ``grounded`` is True.",
+    )
+
+    @model_validator(mode="after")
+    def _grounding_integrity(self) -> TaskHoursEstimate:
+        """Keep ``grounded``, ``has_match`` and ``sources`` consistent.
+
+        Legacy fixtures that only set ``has_match`` are tolerated: ``grounded``
+        is derived from it. The pipeline sets both fields explicitly and must
+        provide sources for a grounded line.
+        """
+        legacy_match_without_sources = self.has_match and not self.sources and not self.grounded
+        if "grounded" not in self.model_fields_set or legacy_match_without_sources:
+            self.grounded = self.has_match
+        if legacy_match_without_sources:
+            # Serialized Session 10 responses predate sources: has_match=True is
+            # the authoritative flag, so do not reject the cached value.
+            return self
+        if self.grounded != self.has_match:
+            raise ValueError("grounded and has_match must agree")
+        if self.grounded and not self.sources and "sources" in self.model_fields_set:
+            raise ValueError("a grounded line must cite at least one source")
+        if not self.grounded and self.sources:
+            raise ValueError("an ungrounded line (grounded=False) must not carry sources")
+        if not self.grounded and self.estimated_hours is not None:
+            raise ValueError("an ungrounded line (grounded=False) must leave estimated_hours null")
+        return self
 
 
 class TaskHoursTaskInput(BaseModel):
