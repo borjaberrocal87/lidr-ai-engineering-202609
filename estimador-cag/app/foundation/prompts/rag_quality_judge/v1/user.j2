@@ -1,0 +1,14 @@
+Audita cada una de las siguientes líneas de estimación. Devuelve un dictamen por
+línea.
+
+{% for line in lines %}
+<line>
+módulo: {{ line.module }}
+componente: {{ line.component }}
+días_ingeniero_declarados: {{ line.claimed_days }}
+evidencia_citada:
+{% for item in line.evidence %}
+- "{{ item }}"
+{% endfor %}
+</line>
+{% endfor %}
