@@ -37,6 +37,7 @@ from app.generation.rag.chunking.strategies import (
 )
 from app.generation.rag.chunking.structural import JSONStructuralChunker
 from app.generation.rag.embedding.embedder import OpenAIEmbedder
+from app.generation.rag.index_service import CorpusIndexService
 from app.generation.rag.ingest_service import RagIngestService
 from app.generation.rag.quality.augmentation import AugmentationPolicy
 from app.generation.rag.quality.hallucination import HallucinationGate
@@ -132,6 +133,14 @@ def build_hallucination_gate() -> HallucinationGate | None:
         model=get_runtime_config().effective("HALLUCINATION_JUDGE_MODEL"),
         tolerance=get_settings().hallucination_numeric_tolerance,
     )
+
+
+def get_corpus_index_service() -> CorpusIndexService | None:
+    """Expansión incremental del corpus. ``None`` sin embeddings configurados."""
+    ingest = get_rag_ingest_service()
+    if ingest is None:
+        return None
+    return CorpusIndexService(ingest)
 
 
 @lru_cache

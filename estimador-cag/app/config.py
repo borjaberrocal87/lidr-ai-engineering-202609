@@ -115,10 +115,13 @@ class Settings(BaseSettings):
     # Postgres (imagen pgvector) para el tracking de jobs y el mapping de PII.
     # En docker-compose se sobreescribe a estimator-postgres:5432.
     database_url: str = "postgresql+psycopg://estimator:estimator@localhost:5433/estimator"
-    # Sesión 8 (directo) — búsqueda con índice halfvec. Requiere haber creado
-    # ``chunks_embedding_halfvec_idx``: sin él, el cast por fila puede degradar
-    # el plan frente al índice vectorial completo.
-    search_use_halfvec: bool = False
+    # Sesión 8 (directo) / Sesión 11 (directo) — búsqueda con índice halfvec.
+    # La migración 0005 crea ``ix_*_embedding_hnsw`` sobre
+    # ``(embedding::halfvec(1536))`` con ``halfvec_cosine_ops``; activar esto
+    # alinea el operador de la query con el índice. Se deja en ``True`` porque la
+    # migración ya viene aplicada con la rama; sin ella, el cast por fila puede
+    # empeorar el plan (ponlo a ``False`` por .env si corres sin 0005).
+    search_use_halfvec: bool = True
     # Catálogo YAML de fuentes (se carga una vez al arrancar). Relativo a BASE_DIR
     # si no es absoluto.
     catalog_path: Path = Path("data/catalog/catalog.yaml")

@@ -7,7 +7,8 @@ vectores con sus estadísticas agregadas.
 
 from __future__ import annotations
 
-from datetime import date
+import uuid
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -571,6 +572,54 @@ class HallucinationReport(BaseModel):
     def has_degraded(self) -> bool:
         """True cuando alguna línea cita evidencia real pero una cifra no soportada."""
         return self.degraded_lines > 0
+
+
+# ---- Sesión 11 (directo) — expansión incremental del corpus -----------------
+
+
+class IndexRunRequest(BaseModel):
+    """Lote de documentos nuevos para crecer el corpus (``POST /index/runs``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    documents: list[Budget] = Field(min_length=1, max_length=100)
+    document_type: str = Field(default="historical_budget", max_length=64)
+    chunk_type: str = Field(default="budget_component", max_length=64)
+
+
+class IndexRunResponse(BaseModel):
+    """Acuse 202 del lote aceptado: job para seguir el progreso."""
+
+    job_id: uuid.UUID
+    documents_total: int = Field(ge=0)
+    status: str
+
+
+class IndexJobView(BaseModel):
+    """Estado de un job de expansión (para el polling del cliente)."""
+
+    job_id: uuid.UUID
+    status: str
+    documents_processed: int = Field(ge=0)
+    error_message: str | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+
+
+class CollectionStats(BaseModel):
+    """Tamaño y estado del índice de UNA colección de chunks."""
+
+    collection: str
+    documents: int = Field(ge=0)
+    chunks: int = Field(ge=0)
+    hnsw_indexed: bool
+
+
+class CorpusStats(BaseModel):
+    """Foto del corpus por colección, para el panel de crecimiento del índice."""
+
+    collections: list[CollectionStats] = Field(default_factory=list)
+    total_chunks: int = Field(ge=0)
 
 
 # ---- Modelos HTTP de los routers S09 ----------------------------------------

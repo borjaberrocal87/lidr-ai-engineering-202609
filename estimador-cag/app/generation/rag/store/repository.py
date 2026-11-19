@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pgvector.sqlalchemy import HALFVEC
-from sqlalchemy import Integer, Select, cast, func, select
+from sqlalchemy import Integer, Select, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.generation.rag.schemas import EmbeddedChunk
@@ -55,6 +55,39 @@ class ChunkMatch:
     content: str
     distance: float
     metadata: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class CollectionCorpusStats:
+    """Tamaño y estado HNSW de una colección de chunks."""
+
+    collection: str
+    documents: int
+    chunks: int
+    hnsw_indexed: bool
+
+
+# SQL fijo por colección (sin interpolación de entrada del usuario): cuenta
+# chunks y documentos distintos, que es lo que crece al expandir el corpus.
+_COLLECTION_STATS_SQL: dict[str, str] = {
+    "budget": (
+        "SELECT count(*) AS chunks, count(DISTINCT document_id) AS documents FROM budget_chunks"
+    ),
+    "transcript": (
+        "SELECT count(*) AS chunks, count(DISTINCT document_id) AS documents FROM transcript_chunks"
+    ),
+    "technical_doc": (
+        "SELECT count(*) AS chunks, count(DISTINCT document_id) AS documents "
+        "FROM technical_doc_chunks"
+    ),
+}
+_TABLE_BY_COLLECTION: dict[str, str] = {
+    "budget": "budget_chunks",
+    "transcript": "transcript_chunks",
+    "technical_doc": "technical_doc_chunks",
+}
+# Nombre del índice que crea la migración 0005 de la Sesión 11.
+_HNSW_INDEX_SQL = "SELECT 1 FROM pg_indexes WHERE indexname = :index_name LIMIT 1"
 
 
 class ChunkStore:
@@ -343,6 +376,30 @@ class ChunkStore:
             )
             for row in rows
         ]
+
+    async def corpus_stats(self, session: AsyncSession) -> list[CollectionCorpusStats]:
+        """Tamaño por colección y si su índice HNSW existe.
+
+        Alimenta el panel de crecimiento del corpus: tras una expansión, los
+        contadores suben y ``hnsw_indexed`` confirma que la migración 0005 está
+        aplicada (los chunks nuevos entran en el grafo sin reconstruirlo).
+        """
+        stats: list[CollectionCorpusStats] = []
+        for collection, sql in _COLLECTION_STATS_SQL.items():
+            row = (await session.execute(text(sql))).mappings().one()
+            index_name = f"ix_{_TABLE_BY_COLLECTION[collection]}_embedding_hnsw"
+            indexed = (
+                await session.execute(text(_HNSW_INDEX_SQL), {"index_name": index_name})
+            ).first() is not None
+            stats.append(
+                CollectionCorpusStats(
+                    collection=collection,
+                    documents=int(row["documents"]),
+                    chunks=int(row["chunks"]),
+                    hnsw_indexed=indexed,
+                )
+            )
+        return stats
 
     @staticmethod
     def _structural_filters(

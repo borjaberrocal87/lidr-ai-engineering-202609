@@ -9,6 +9,7 @@ from starlette.responses import Response
 
 from app.api import config as config_router
 from app.api import (
+    corpus_index,
     estimate_tasks,
     estimations,
     ingestion,
@@ -93,6 +94,8 @@ app.include_router(retrieval.router, prefix="/api/v1")
 app.include_router(retrieval_multi_source.router, prefix="/api/v1")
 app.include_router(rag_estimation.router, prefix="/api/v1")
 app.include_router(estimate_tasks.router, prefix="/api/v1")
+# Sesión 11 (directo) — expansión incremental del corpus.
+app.include_router(corpus_index.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Estado del servicio")
