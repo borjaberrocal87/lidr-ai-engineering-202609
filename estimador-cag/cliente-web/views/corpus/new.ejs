@@ -1,0 +1,57 @@
+<%- include('../partials/head', { title: 'Añadir documentos' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-3xl mx-auto py-12 px-4">
+  <h1 class="text-3xl font-bold tracking-tighter text-white">Añadir documentos al corpus</h1>
+  <p class="text-white/60 text-sm mt-1 mb-6">
+    Pega un presupuesto (objeto) o un lote (array). Se embeben con el mismo modelo
+    del corpus y el índice HNSW los recoge al insertarlos.
+  </p>
+
+  <% if (error) { %>
+    <div class="p-4 mb-6 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <form method="post" action="/corpus/runs" class="space-y-5" data-form-loading>
+    <div>
+      <label for="chunk_type" class="label">Tipo de chunk</label>
+      <select id="chunk_type" name="chunk_type" class="field [&>option]:bg-ink-dark">
+        <option value="budget_component" <%= values.chunk_type === 'budget_component' ? 'selected' : '' %>>
+          budget_component (componentes de presupuesto)
+        </option>
+        <option value="historical_task" <%= values.chunk_type === 'historical_task' ? 'selected' : '' %>>
+          historical_task (tareas históricas)
+        </option>
+      </select>
+    </div>
+
+    <div>
+      <label for="documents_json" class="label">Documentos (JSON)</label>
+      <textarea
+        id="documents_json"
+        name="documents_json"
+        rows="22"
+        class="field font-mono text-xs"
+        spellcheck="false"
+        required
+      ><%= values.documents_json %></textarea>
+    </div>
+
+    <div class="pt-1">
+      <button type="submit" class="btn-primary" data-submit>
+        <span data-submit-label>Lanzar expansión</span>
+        <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+        </svg>
+      </button>
+      <a href="/corpus" class="ml-4 text-white/50 font-bold hover:text-white tracking-tight">
+        Volver al corpus
+      </a>
+    </div>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

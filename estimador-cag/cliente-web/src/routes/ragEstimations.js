@@ -189,6 +189,8 @@ function viewContext(run, step, { error = "", notice = "" } = {}) {
     structure: structure?.modules || [],
     taskHours: run.taskHours || null,
     fabricatedSourceIds: generation?.fabricated_source_ids || [],
+    citationReport: generation?.citation_report || null,
+    hallucinationReport: generation?.hallucination_report || null,
     coherent: generation?.coherent,
     verification: run.verification,
   };

@@ -52,6 +52,15 @@
                   <% if (task.description) { %>
                     <div class="text-white/50 text-xs mt-0.5"><%= task.description %></div>
                   <% } %>
+                  <% if (task.hour_range) { %>
+                    <div class="mt-1 text-xs text-brand-soft">
+                      Rango honesto:
+                      <span class="tabular-nums font-bold"><%= task.hour_range.low_hours %>h - <%= task.hour_range.high_hours %>h</span>
+                      <% if (task.hour_range.reason) { %>
+                        <span class="text-white/50">· <%= task.hour_range.reason %></span>
+                      <% } %>
+                    </div>
+                  <% } %>
                 </td>
                 <td class="p-3 text-right align-top tabular-nums w-24">
                   <% if (task.has_match === false) { %>

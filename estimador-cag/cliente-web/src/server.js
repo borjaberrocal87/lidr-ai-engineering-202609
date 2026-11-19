@@ -2,6 +2,8 @@ import { createApp } from "./app.js";
 import { InMemoryChunkingRepo, PgChunkingRepo } from "./chunkingRepo.js";
 import { HttpConfigClient } from "./configClient.js";
 import { loadConfig } from "./config.js";
+import { HttpCorpusIndexClient } from "./corpusIndexClient.js";
+import { InMemoryCorpusRunRepo, PgCorpusRunRepo } from "./corpusRepo.js";
 import { createPool, InMemoryEstimationRepo, PgEstimationRepo } from "./db.js";
 import { HttpEmbeddingsClient } from "./embeddingsClient.js";
 import { HttpEstimatorClient } from "./estimatorClient.js";
@@ -16,6 +18,7 @@ const pool = createPool(config.databaseUrl);
 let repo;
 let chunkingRepo;
 let ragEstimations;
+let corpusRuns;
 if (pool) {
   try {
     await runMigrations(pool);
@@ -26,11 +29,13 @@ if (pool) {
   repo = new PgEstimationRepo(pool);
   chunkingRepo = new PgChunkingRepo(pool);
   ragEstimations = new PgRagEstimationRepo(pool);
+  corpusRuns = new PgCorpusRunRepo(pool);
 } else {
   console.warn("DATABASE_URL vacía: usando repositorios en memoria (sin persistencia).");
   repo = new InMemoryEstimationRepo();
   chunkingRepo = new InMemoryChunkingRepo();
   ragEstimations = new InMemoryRagEstimationRepo();
+  corpusRuns = new InMemoryCorpusRunRepo();
 }
 
 const estimator = new HttpEstimatorClient({
@@ -62,6 +67,11 @@ const ragClient = new HttpRagEstimationClient({
   generateTimeoutMs: config.ragGenerateTimeoutMs,
 });
 
+const corpusIndex = new HttpCorpusIndexClient({
+  baseUrl: config.estimatorApiBaseUrl,
+  timeoutMs: config.corpusIndexTimeoutMs,
+});
+
 const app = createApp({
   repo,
   estimator,
@@ -71,6 +81,8 @@ const app = createApp({
   config: configClient,
   ragEstimations,
   ragClient,
+  corpusIndex,
+  corpusRuns,
 });
 
 app.listen(config.port, () => {
