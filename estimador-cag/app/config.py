@@ -215,6 +215,27 @@ class Settings(BaseSettings):
     task_hours_top_k: int = 5
     task_hours_distance_threshold: float = 0.45
 
+    # Sesión 11 (directo) — calidad de la generación. Tres palancas conmutables
+    # en caliente desde Ajustes; los defaults reproducen el camino completo.
+    # 1) Gate semántico: capa sobre la verificación de citas. Prueba que la cifra
+    #    esté respaldada por la evidencia citada, no solo que la cita exista.
+    hallucination_gate_enabled: bool = True
+    # Modelo del juez estricto (una llamada batched por estimación). Barato basta;
+    # está en AVAILABLE_MODELS y se cambia en Ajustes.
+    hallucination_judge_model: str = "gpt-5-mini"
+    # Tolerancia relativa del techo por evidencia: pasarse más de esta fracción
+    # por encima de las horas históricas citadas degrada la línea (0.5 = +50%).
+    hallucination_numeric_tolerance: float = 0.5
+    # 2) Augmentación del contexto: compresión extractiva y reordenado por
+    #    extremos, medibles por separado.
+    augmentation_enabled: bool = True
+    augmentation_compress: bool = True
+    augmentation_reorder: bool = True
+    # 3) Síntesis de horas: si la dispersión de los análogos cruza este umbral
+    #    (coeficiente de variación), se emite un rango además del punto.
+    synthesis_enabled: bool = True
+    synthesis_contradiction_threshold: float = 0.35
+
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None
 

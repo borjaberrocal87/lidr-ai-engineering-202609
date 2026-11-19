@@ -213,11 +213,12 @@ class HallucinationGate:
                 max_retries=0,
                 model_override=self._model,
             )
+            return {(verdict.module, verdict.component): verdict for verdict in panel.verdicts}
         except Exception as exc:
+            # Un juez caído (o una respuesta con forma inesperada) no debe hundir
+            # la estimación: el gate sigue con el ancla determinista.
             log.warning("hallucination_judge_failed", error=str(exc)[:200])
             return {}
-
-        return {(verdict.module, verdict.component): verdict for verdict in panel.verdicts}
 
     async def audit(
         self,

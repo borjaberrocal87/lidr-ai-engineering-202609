@@ -32,7 +32,13 @@ from app.generation.rag.grounding import (
     is_coherent_estimate,
     verify_citations_for_chunks,
 )
-from app.generation.rag.schemas import GroundedEstimate, ProjectBrief, RetrievalOutcome
+from app.generation.rag.quality.augmentation import apply_augmentation
+from app.generation.rag.schemas import (
+    GroundedEstimate,
+    ProjectBrief,
+    RetrievalOutcome,
+    RetrievedChunk,
+)
 from app.generation.rag.stage_logging import current_request_id, log_pipeline_stage
 
 log = structlog.get_logger()
@@ -146,6 +152,14 @@ async def generate_structure(brief: ProjectBrief) -> GroundedEstimate:
         raise RagGenerationError("No se pudo generar la estructura.") from exc
 
 
+def _augment(chunks: list[RetrievedChunk]) -> list[RetrievedChunk]:
+    """Aplica la augmentación vigente; devuelve los chunks tal cual si está off."""
+    from app.dependencies import build_augmentation_policy
+
+    policy = build_augmentation_policy()
+    return apply_augmentation(chunks, policy) if policy is not None else chunks
+
+
 def _insufficient(explanation: str) -> GroundedEstimate:
     """Construye la estimación canónica de contexto insuficiente (sin cifras)."""
     return GroundedEstimate(
@@ -242,6 +256,9 @@ async def estimate_from_transcript(
         settings.rag_max_context_tokens,
         encoder,
     )
+    # Sesión 11 (directo): augmentación opcional ANTES de ensamblar. Los ids se
+    # conservan, así que la verificación de citas posterior no se ve afectada.
+    kept = _augment(kept)
     context_block = assemble_context(kept)
 
     # 4. Generación grounded.
@@ -312,7 +329,29 @@ async def estimate_from_transcript(
                 "La estimación incumple la regla de coherencia de contexto insuficiente."
             )
 
-    # 7. Persistencia para reintentos idempotentes.
+    # 7. Auditoría semántica (Sesión 11, directo): una cita real no basta, la
+    #    cifra debe estar soportada por la evidencia. Solo se registra; el
+    #    informe queda en los logs y la estimación se devuelve como siempre.
+    from app.dependencies import build_hallucination_gate
+
+    gate = build_hallucination_gate()
+    if gate is not None:
+        audit = await gate.audit(estimate, kept)
+        log.info(
+            "hallucination.audited",
+            request_id=request_id,
+            total_lines=audit.total_lines,
+            grounded=audit.grounded_lines,
+            degraded=audit.degraded_lines,
+            insufficient=audit.insufficient_lines,
+            degraded_lines=[
+                f"{line.module}/{line.component}"
+                for line in audit.lines
+                if line.status == "degraded"
+            ],
+        )
+
+    # 8. Persistencia para reintentos idempotentes.
     if idempotency_key:
         await asyncio.to_thread(store.set, idempotency_key, estimate)
 

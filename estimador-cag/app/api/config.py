@@ -17,10 +17,13 @@ from pydantic import BaseModel, Field
 from app.config import Settings, get_settings, reveal_secret
 from app.dependencies import get_runtime_config, get_runtime_retrieval_config
 from app.foundation.llm.runtime_config import (
+    AUGMENTATION_KEY,
     FRESHNESS_KEY,
+    HALLUCINATION_GATE_KEY,
     MODEL_KEYS,
     QUERY_PLAN_KEY,
     ROUTING_KEY,
+    SYNTHESIS_KEY,
     RuntimeConfigUnavailable,
     RuntimeModelConfig,
     RuntimeRetrievalConfig,
@@ -34,6 +37,10 @@ _STAGE_TOGGLE_KEYS = {
     "routing_enabled": ROUTING_KEY,
     "query_plan_enabled": QUERY_PLAN_KEY,
     "freshness_enabled": FRESHNESS_KEY,
+    # Sesión 11 (directo) — palancas de calidad de la generación.
+    "hallucination_gate_enabled": HALLUCINATION_GATE_KEY,
+    "augmentation_enabled": AUGMENTATION_KEY,
+    "synthesis_enabled": SYNTHESIS_KEY,
 }
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -69,6 +76,16 @@ class RetrievalUpdateRequest(BaseModel):
     )
     freshness_enabled: bool | None = Field(
         default=None, description="Enable temporal freshness re-weighting."
+    )
+    # Sesión 11 (directo) — palancas de calidad de la generación.
+    hallucination_gate_enabled: bool | None = Field(
+        default=None, description="Enable the semantic hallucination gate (anchor + judge)."
+    )
+    augmentation_enabled: bool | None = Field(
+        default=None, description="Enable context augmentation (compress + edge reorder)."
+    )
+    synthesis_enabled: bool | None = Field(
+        default=None, description="Enable hour-range synthesis when neighbours contradict."
     )
     # Sesión 10 — knobs numéricos del consenso de horas por tarea.
     task_hours_top_k: int | None = Field(

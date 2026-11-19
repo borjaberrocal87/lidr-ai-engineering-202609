@@ -28,6 +28,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.generation.rag.embedding.embedder import OpenAIEmbedder
+from app.generation.rag.quality.synthesis import synthesize_hour_range
 from app.generation.rag.retrieval.pipeline import retrieve
 from app.generation.rag.retrieval.reranker import CrossEncoderReranker
 from app.generation.rag.retrieval.sources import Collection
@@ -145,6 +146,8 @@ async def estimate_one(
     recall_k: int = 50,
     rerank_top_n: int = 5,
     rrf_k: int = 60,
+    synthesis_enabled: bool = False,
+    synthesis_threshold: float = 0.35,
 ) -> TaskHoursEstimate:
     """Estima las horas de una sola tarea desde el corpus histórico.
 
@@ -152,6 +155,10 @@ async def estimate_one(
     filtrada a chunks ``historical_task``, de modo que los vecinos que alimentan
     el consenso son los que el cross-encoder juzga más relevantes, no solo los
     más cercanos en coseno.
+
+    Con ``synthesis_enabled`` (Sesión 11, directo), si los vecinos discrepan más
+    que ``synthesis_threshold`` se añade un :class:`HourRange` junto al punto: el
+    desacuerdo deja de esconderse tras un promedio.
     """
     search_text = compose_task_search_text(module, name, description)
     embedding = await asyncio.to_thread(embedder.embed_one, search_text)
@@ -201,6 +208,11 @@ async def estimate_one(
     hours, reliability, dispersion = _consensus(
         [(neighbor.estimated_hours, neighbor.distance) for neighbor in neighbors]
     )
+    hour_range = (
+        await synthesize_hour_range(neighbors, dispersion, threshold=synthesis_threshold)
+        if synthesis_enabled
+        else None
+    )
     return TaskHoursEstimate(
         module=module,
         task=name,
@@ -211,6 +223,7 @@ async def estimate_one(
         dispersion=dispersion,
         neighbors=neighbors,
         sources=_source_references(usable),
+        hour_range=hour_range,
     )
 
 
@@ -228,6 +241,8 @@ async def estimate_all(
     recall_k: int = 50,
     rerank_top_n: int = 5,
     rrf_k: int = 60,
+    synthesis_enabled: bool = False,
+    synthesis_threshold: float = 0.35,
 ) -> TaskHoursResult:
     """Estima las horas de todas las tareas de todos los módulos, en paralelo.
 
@@ -250,6 +265,8 @@ async def estimate_all(
             recall_k=recall_k,
             rerank_top_n=rerank_top_n,
             rrf_k=rrf_k,
+            synthesis_enabled=synthesis_enabled,
+            synthesis_threshold=synthesis_threshold,
         )
         for module in modules
         for task in module.tasks
@@ -265,5 +282,6 @@ async def estimate_all(
         distance_threshold=distance_threshold,
         search_mode=search_mode,
         rerank=rerank,
+        synthesis_enabled=synthesis_enabled,
     )
     return TaskHoursResult(tasks=list(estimates))

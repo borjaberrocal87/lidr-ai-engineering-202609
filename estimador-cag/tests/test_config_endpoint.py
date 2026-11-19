@@ -11,9 +11,12 @@ from starlette.testclient import TestClient
 from app.config import get_settings, settings
 from app.dependencies import get_runtime_config, get_runtime_retrieval_config
 from app.foundation.llm.runtime_config import (
+    AUGMENTATION_KEY,
     FRESHNESS_KEY,
+    HALLUCINATION_GATE_KEY,
     QUERY_PLAN_KEY,
     ROUTING_KEY,
+    SYNTHESIS_KEY,
     TASK_HOURS_DISTANCE_THRESHOLD_KEY,
     TASK_HOURS_TOP_K_KEY,
     RuntimeConfigUnavailable,
@@ -46,6 +49,7 @@ def test_get_models_returns_snapshot_and_catalog(client: TestClient, runtime_sto
         "COMPRESSION_MODEL",
         "PROPOSITIONAL_CHUNKER_MODEL",
         "CONTEXTUAL_CHUNKER_MODEL",
+        "HALLUCINATION_JUDGE_MODEL",
     }
     assert "gpt-4o-mini" in body["available_models"]
     assert body["embedding_model"] == settings.embedding_model
@@ -145,6 +149,25 @@ def test_put_retrieval_can_reset_toggles(
 
     assert response.status_code == 200
     assert response.json()["retrieval"][ROUTING_KEY]["overridden"] is False
+
+
+def test_put_retrieval_generation_quality_toggles(
+    client: TestClient, retrieval_store: RuntimeRetrievalConfig
+) -> None:
+    response = client.put(
+        "/api/v1/config/retrieval",
+        json={
+            "hallucination_gate_enabled": False,
+            "augmentation_enabled": False,
+            "synthesis_enabled": True,
+        },
+    )
+
+    assert response.status_code == 200
+    snapshot = response.json()["retrieval"]
+    assert snapshot[HALLUCINATION_GATE_KEY]["effective"] is False
+    assert snapshot[AUGMENTATION_KEY]["effective"] is False
+    assert snapshot[SYNTHESIS_KEY]["effective"] is True
 
 
 def test_put_retrieval_rejects_invalid_task_hours_knobs(

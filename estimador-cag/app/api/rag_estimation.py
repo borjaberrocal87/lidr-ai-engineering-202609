@@ -23,6 +23,8 @@ from app.api.rate_limiting import limiter
 from app.api.security import require_estimate_key
 from app.config import settings
 from app.dependencies import (
+    build_augmentation_policy,
+    build_hallucination_gate,
     get_runtime_retrieval_config,
     get_semantic_retriever,
     get_token_encoder,
@@ -39,6 +41,7 @@ from app.generation.rag.grounding import (
     is_coherent_estimate,
     verify_citations_for_chunks,
 )
+from app.generation.rag.quality.augmentation import apply_augmentation
 from app.generation.rag.retriever import SemanticRetriever
 from app.generation.rag.schemas import (
     BriefOutcome,
@@ -166,6 +169,11 @@ async def assemble(
     """Etapa 3: recorta por presupuesto y ensambla el bloque ``<source>``."""
     max_tokens = payload.max_context_tokens or settings.rag_max_context_tokens
     kept = fit_chunks_to_budget(payload.chunks, max_tokens, get_token_encoder())
+    # Sesión 11 (directo): augmentación opcional antes de ensamblar. Conserva los
+    # ids, así que el paso de generación valida las citas contra los mismos chunks.
+    policy = build_augmentation_policy()
+    if policy is not None:
+        kept = apply_augmentation(kept, policy)
     context_block = assemble_context(kept)
     token_count = len(get_token_encoder().encode(context_block))
     return ContextAssemblyOutcome(
@@ -222,6 +230,12 @@ async def generate(
     except RagPipelineError as exc:
         raise _pipeline_error(exc, surface="generation") from exc
     citation_report = verify_citations_for_chunks(estimate, payload.kept_chunks)
+    # Sesión 11 (directo): auditoría semántica por línea. Distingue una cita
+    # inventada (citation_report) de una cifra no soportada por una cita real.
+    gate = build_hallucination_gate()
+    hallucination_report = (
+        await gate.audit(estimate, payload.kept_chunks) if gate is not None else None
+    )
     return GroundedGenerationOutcome(
         estimate=estimate,
         fabricated_source_ids=[
@@ -230,5 +244,6 @@ async def generate(
             if chunk_id.lstrip("-").isdigit()
         ],
         citation_report=citation_report,
+        hallucination_report=hallucination_report,
         coherent=is_coherent_estimate(estimate),
     )

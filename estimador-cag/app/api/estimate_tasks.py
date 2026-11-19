@@ -71,6 +71,8 @@ async def hours(request: Request, payload: TaskHoursRequest) -> TaskHoursResult:
             recall_k=settings.retrieval_recall_top_k,
             rerank_top_n=settings.rerank_top_n,
             rrf_k=settings.rrf_k,
+            synthesis_enabled=runtime.effective_synthesis(),
+            synthesis_threshold=settings.synthesis_contradiction_threshold,
         )
     except RagRetrievalError as exc:
         raise HTTPException(

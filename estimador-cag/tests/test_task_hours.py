@@ -139,6 +139,57 @@ async def test_estimate_one_flags_tasks_without_hours(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_estimate_one_synthesises_a_range_when_neighbours_contradict(
+    monkeypatch,
+) -> None:
+    async def fake_retrieve(**_kwargs):
+        return RetrievalOutcome(
+            chunks=[_chunk(1, 20, distance=0.1), _chunk(2, 90, distance=0.1)],
+            low_confidence=False,
+            candidates_evaluated=2,
+        )
+
+    monkeypatch.setattr("app.generation.rag.task_hours.retrieve", fake_retrieve)
+
+    estimate = await estimate_one(
+        "Auth",
+        "OAuth2 login",
+        None,
+        store=object(),
+        session_factory=object,
+        embedder=FakeEmbedder(),
+        synthesis_enabled=True,
+        synthesis_threshold=0.35,
+    )
+
+    assert estimate.hour_range is not None
+    assert (estimate.hour_range.low_hours, estimate.hour_range.high_hours) == (20, 90)
+
+
+@pytest.mark.asyncio
+async def test_estimate_one_keeps_the_point_when_synthesis_is_off(monkeypatch) -> None:
+    async def fake_retrieve(**_kwargs):
+        return RetrievalOutcome(
+            chunks=[_chunk(1, 20, distance=0.1), _chunk(2, 90, distance=0.1)],
+            low_confidence=False,
+            candidates_evaluated=2,
+        )
+
+    monkeypatch.setattr("app.generation.rag.task_hours.retrieve", fake_retrieve)
+
+    estimate = await estimate_one(
+        "Auth",
+        "OAuth2 login",
+        None,
+        store=object(),
+        session_factory=object,
+        embedder=FakeEmbedder(),
+    )
+
+    assert estimate.hour_range is None
+
+
+@pytest.mark.asyncio
 async def test_estimate_all_preserves_submitted_order(monkeypatch) -> None:
     async def fake_retrieve(**_kwargs):
         return RetrievalOutcome(

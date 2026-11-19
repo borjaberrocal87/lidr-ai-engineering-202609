@@ -7,12 +7,15 @@ import redis
 
 from app.config import settings
 from app.foundation.llm.runtime_config import (
+    AUGMENTATION_KEY,
     FRESHNESS_KEY,
+    HALLUCINATION_GATE_KEY,
     QUERY_PLAN_KEY,
     RERANK_KEY,
     RETRIEVAL_HASH_KEY,
     ROUTING_KEY,
     SEARCH_MODE_KEY,
+    SYNTHESIS_KEY,
     TASK_HOURS_DISTANCE_THRESHOLD_KEY,
     TASK_HOURS_TOP_K_KEY,
     RuntimeRetrievalConfig,
@@ -150,3 +153,28 @@ def test_snapshot_includes_multisource_knobs() -> None:
     assert FRESHNESS_KEY in snapshot
     assert TASK_HOURS_TOP_K_KEY in snapshot
     assert TASK_HOURS_DISTANCE_THRESHOLD_KEY in snapshot
+
+
+def test_generation_quality_toggles_default_and_override() -> None:
+    store = _store()
+
+    assert store.effective_hallucination_gate() is settings.hallucination_gate_enabled
+    assert store.effective_augmentation() is settings.augmentation_enabled
+    assert store.effective_synthesis() is settings.synthesis_enabled
+
+    store.set_bool(HALLUCINATION_GATE_KEY, False)
+    store.set_bool(AUGMENTATION_KEY, False)
+    store.set_bool(SYNTHESIS_KEY, False)
+
+    assert store.effective_hallucination_gate() is False
+    assert store.effective_augmentation() is False
+    assert store.effective_synthesis() is False
+
+    store.set_bool(HALLUCINATION_GATE_KEY, None)
+    store.set_bool(AUGMENTATION_KEY, None)
+    store.set_bool(SYNTHESIS_KEY, None)
+
+    assert store.effective_hallucination_gate() is settings.hallucination_gate_enabled
+    snapshot = store.snapshot()
+    assert snapshot[HALLUCINATION_GATE_KEY]["overridden"] is False
+    assert AUGMENTATION_KEY in snapshot and SYNTHESIS_KEY in snapshot
