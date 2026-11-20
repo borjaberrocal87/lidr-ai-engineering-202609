@@ -11,6 +11,8 @@ export function loadConfig(env = process.env) {
     ragEstimateApiKey: env.RAG_ESTIMATE_API_KEY || "",
     ragTimeoutMs: Number(env.RAG_TIMEOUT_MS || 120000),
     ragGenerateTimeoutMs: Number(env.RAG_GENERATE_TIMEOUT_MS || 300000),
+    // El agente encadena varias llamadas al modelo en una sola petición.
+    agentTimeoutMs: Number(env.AGENT_TIMEOUT_MS || 600000),
     corpusIndexTimeoutMs: Number(env.CORPUS_INDEX_TIMEOUT_MS || 10000),
     nodeEnv: env.NODE_ENV || "development",
   };

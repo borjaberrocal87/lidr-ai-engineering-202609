@@ -1,0 +1,42 @@
+<% if (!report) { %>
+  <p class="text-white/60 text-sm">No hay informe estructurado para esta ejecución.</p>
+<% } else { %>
+  <div class="rounded-md border border-white/10 bg-white/5 p-4">
+    <ul class="divide-y divide-white/10">
+      <% report.components.forEach((component) => { %>
+        <li class="py-3">
+          <div class="flex items-baseline justify-between gap-3">
+            <span class="font-bold tracking-tight text-white"><%= component.name %></span>
+            <span class="text-brand font-bold"><%= component.estimated_hours %> h</span>
+          </div>
+          <p class="text-white/70 text-sm mt-1"><%= component.rationale %></p>
+          <p class="text-xs text-white/40 mt-1">
+            sources:
+            <%= (component.source_chunk_ids && component.source_chunk_ids.length)
+              ? component.source_chunk_ids.join(", ")
+              : "none" %>
+          </p>
+        </li>
+      <% }); %>
+    </ul>
+
+    <div class="flex items-center justify-between border-t border-white/10 mt-2 pt-3">
+      <span class="font-bold tracking-tight text-white">Total</span>
+      <span class="text-xl font-bold text-brand"><%= report.total_hours %> h</span>
+    </div>
+    <p class="text-white/60 text-sm mt-1">
+      confianza: <span class="text-white/80"><%= report.confidence %></span>
+    </p>
+
+    <% if (report.assumptions && report.assumptions.length) { %>
+      <div class="mt-4">
+        <p class="text-white/50 text-xs font-bold tracking-tight mb-1">Suposiciones</p>
+        <ul class="list-disc list-inside text-white/70 text-sm space-y-1">
+          <% report.assumptions.forEach((assumption) => { %>
+            <li><%= assumption %></li>
+          <% }); %>
+        </ul>
+      </div>
+    <% } %>
+  </div>
+<% } %>

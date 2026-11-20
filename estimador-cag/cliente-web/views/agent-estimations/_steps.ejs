@@ -1,0 +1,31 @@
+<% if (!steps || steps.length === 0) { %>
+  <p class="text-white/60 text-sm">
+    El agente respondió sin llamar a ninguna tool. Si la transcripción tiene varios
+    componentes, revisa las descripciones de las tools y el system prompt.
+  </p>
+<% } else { %>
+  <ol class="space-y-4">
+    <% steps.forEach((step) => { %>
+      <li class="rounded-md border border-white/10 bg-white/5 p-4">
+        <div class="flex items-center justify-between gap-3 mb-2">
+          <span class="text-xs font-bold tracking-tight text-brand">STEP <%= step.step %></span>
+          <span class="text-xs font-mono text-white/60"><%= step.tool %></span>
+        </div>
+        <div class="space-y-2 text-sm">
+          <p class="text-white/80">
+            <span class="text-white/50">reasoning:</span>
+            <%= step.reasoning_summary || "(no reasoning summary emitted)" %>
+          </p>
+          <div>
+            <span class="text-white/50 text-sm">action:</span>
+            <pre class="mt-1 p-3 rounded bg-black/40 text-xs text-white/80 overflow-x-auto"><%= step.tool %>(<%= JSON.stringify(step.tool_args, null, 2) %>)</pre>
+          </div>
+          <p class="text-white/80">
+            <span class="text-white/50">observation:</span>
+            <%= step.observation %>
+          </p>
+        </div>
+      </li>
+    <% }); %>
+  </ol>
+<% } %>
