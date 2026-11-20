@@ -10,6 +10,7 @@ Nada de este paquete conoce el transporte HTTP ni el retrieval: el cliente de la
 Responses API y el backend de búsqueda se inyectan desde el composition root.
 """
 
+from app.generation.agentic.estimation_agent.runner import run_estimation_agent
 from app.generation.agentic.estimation_agent.schemas import (
     AgentComponent,
     AgentEstimateReport,
@@ -48,6 +49,7 @@ __all__ = [
     "ValidationLine",
     "calculate_estimate",
     "dispatch_tool",
+    "run_estimation_agent",
     "search_budgets",
     "validate_estimate",
 ]
