@@ -40,6 +40,7 @@ RAG_ESTIMATION_USE_CASE = "rag_estimation"
 RAG_STRUCTURE_USE_CASE = "rag_structure"
 RAG_QUERY_PLAN_USE_CASE = "rag_query_plan"
 RAG_COLLECTION_ROUTER_USE_CASE = "rag_collection_router"
+RAG_QUALITY_JUDGE_USE_CASE = "rag_quality_judge"
 
 DEFAULT_ESTIMATION_PROMPT_VERSION = "v1"
 # Versión por defecto del prompt conversacional (sesión 5). v3 añade el bloque
@@ -377,5 +378,23 @@ def render_rag_collection_router_prompt(
     return _render_rag_pair(
         RAG_COLLECTION_ROUTER_USE_CASE,
         context={"query_text": query_text, "collections": collections},
+        version=version,
+    )
+
+
+def render_rag_quality_judge_prompt(
+    *,
+    lines: list[dict[str, object]],
+    version: str = "v1",
+) -> tuple[str, str]:
+    """Prompt del juez semántico que audita cada línea de la estimación.
+
+    ``lines`` lleva ``module``, ``component``, ``claimed_days`` y ``evidence``
+    (lista de spans verbatim) por línea; el juez devuelve un dictamen por cada
+    una para poder emparejarlo por (módulo, componente).
+    """
+    return _render_rag_pair(
+        RAG_QUALITY_JUDGE_USE_CASE,
+        context={"lines": lines},
         version=version,
     )

@@ -69,6 +69,49 @@
       </div>
     </form>
   <% } %>
+
+  <% if (retrieval) { %>
+    <form method="post" action="/ai-settings/quality" class="space-y-4 mt-10" data-form-loading>
+      <div>
+        <h2 class="text-xl font-bold tracking-tight text-white">Calidad de generación</h2>
+        <p class="text-white/50 text-sm mt-1">
+          Palancas del directo de la Sesión 11. Se aplican en la siguiente petición,
+          sin reiniciar el servicio.
+        </p>
+      </div>
+
+      <% qualityToggles.forEach(function (toggle) { const item = (retrieval.retrieval || {})[toggle.key] || {}; %>
+        <label class="flex items-start gap-3 p-4 rounded-md bg-ink/30 border border-white/10 cursor-pointer">
+          <input
+            type="checkbox"
+            name="<%= toggle.field %>"
+            <%= item.effective ? 'checked' : '' %>
+            class="mt-1"
+          />
+          <span>
+            <span class="block text-white font-bold">
+              <%= toggle.label %>
+              <% if (item.overridden) { %><span class="badge ml-1">override</span><% } %>
+            </span>
+            <span class="block text-white/50 text-xs mt-1"><%= toggle.description %></span>
+            <span class="block text-white/40 text-xs mt-1">
+              Por defecto: <%= item.default ? 'activado' : 'desactivado' %>
+            </span>
+          </span>
+        </label>
+      <% }); %>
+
+      <div class="pt-1">
+        <button type="submit" class="btn-primary" data-submit>
+          <span data-submit-label>Guardar calidad</span>
+          <svg data-spinner class="hidden ml-2 h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+          </svg>
+        </button>
+      </div>
+    </form>
+  <% } %>
 </div>
 
 <%- include('../partials/footer') %>

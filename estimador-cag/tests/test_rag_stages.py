@@ -135,6 +135,8 @@ def test_generate_stage_returns_grounding_signals(client: TestClient, monkeypatc
     assert response.json()["coherent"] is True
     assert response.json()["citation_report"]["total_lines"] == 1
     assert response.json()["citation_report"]["grounded_lines"] == 1
+    # Sesión 11 (directo): el gate semántico viaja en la respuesta del wizard.
+    assert response.json()["hallucination_report"]["total_lines"] == 1
 
 
 def test_structure_stage_returns_a_clean_structure(client: TestClient, monkeypatch) -> None:

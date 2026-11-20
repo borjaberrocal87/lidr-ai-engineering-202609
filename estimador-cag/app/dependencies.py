@@ -37,7 +37,10 @@ from app.generation.rag.chunking.strategies import (
 )
 from app.generation.rag.chunking.structural import JSONStructuralChunker
 from app.generation.rag.embedding.embedder import OpenAIEmbedder
+from app.generation.rag.index_service import CorpusIndexService
 from app.generation.rag.ingest_service import RagIngestService
+from app.generation.rag.quality.augmentation import AugmentationPolicy
+from app.generation.rag.quality.hallucination import HallucinationGate
 from app.generation.rag.retrieval.reranker import CrossEncoderReranker
 from app.generation.rag.retriever import SemanticRetriever
 from app.generation.rag.store.repository import ChunkStore
@@ -97,6 +100,47 @@ def get_reranker() -> CrossEncoderReranker:
     so import time and app startup stay free of torch.
     """
     return CrossEncoderReranker.from_settings()
+
+
+# --- Sesión 11 (directo) — palancas de calidad de la generación ---------------
+
+
+def build_augmentation_policy() -> AugmentationPolicy | None:
+    """Política de augmentación vigente, o ``None`` si la palanca está apagada.
+
+    Se construye por llamada (no se cachea): el toggle y sus sub-palancas se leen
+    en caliente para que Ajustes aplique en la siguiente petición.
+    """
+    if not get_runtime_retrieval_config().effective_augmentation():
+        return None
+    settings = get_settings()
+    return AugmentationPolicy(
+        compress=settings.augmentation_compress,
+        reorder=settings.augmentation_reorder,
+    )
+
+
+def build_hallucination_gate() -> HallucinationGate | None:
+    """Gate semántico configurado, o ``None`` si está apagado en runtime.
+
+    El juez reutiliza el wrapper LLM (nunca una API cruda) y toma el modelo
+    efectivo del store de modelos: cambiarlo en Ajustes surte efecto sin reinicio.
+    """
+    if not get_runtime_retrieval_config().effective_hallucination_gate():
+        return None
+    return HallucinationGate(
+        judge=get_llm_wrapper(),
+        model=get_runtime_config().effective("HALLUCINATION_JUDGE_MODEL"),
+        tolerance=get_settings().hallucination_numeric_tolerance,
+    )
+
+
+def get_corpus_index_service() -> CorpusIndexService | None:
+    """Expansión incremental del corpus. ``None`` sin embeddings configurados."""
+    ingest = get_rag_ingest_service()
+    if ingest is None:
+        return None
+    return CorpusIndexService(ingest)
 
 
 @lru_cache

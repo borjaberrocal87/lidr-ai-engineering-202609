@@ -1,0 +1,70 @@
+[
+  {
+    "budget_id": "TASK-2024-9001",
+    "client_metadata": {
+      "name": "Mercado Fresco S.L.",
+      "sector": "ecommerce",
+      "country": "ES"
+    },
+    "project_summary": "Escaparate ligero donde las notificaciones eran un email transaccional sin más",
+    "main_technology": "node_express",
+    "year": 2024,
+    "total_estimated_hours": 72,
+    "components": [
+      {
+        "component_id": "TASK-NOTIF-A",
+        "name": "Real-time notifications delivery service",
+        "description": "Email transaccional ante eventos de pedido con un único proveedor. Sin push, sin SMS, sin cola ni reintentos: disparo directo desde el servicio de pedidos.",
+        "module": "Notifications",
+        "tech_stack": ["node", "sendgrid"],
+        "estimated_hours": 40,
+        "complexity": "low",
+        "dependencies": []
+      },
+      {
+        "component_id": "TASK-RECON-A",
+        "name": "Payment reconciliation job",
+        "description": "Batch nocturno que cruza los payouts de Stripe con los pedidos. Una sola divisa, un solo procesador, export CSV.",
+        "module": "Payments & Billing",
+        "tech_stack": ["node", "stripe"],
+        "estimated_hours": 32,
+        "complexity": "low",
+        "dependencies": []
+      }
+    ]
+  },
+  {
+    "budget_id": "TASK-2024-9002",
+    "client_metadata": {
+      "name": "NeoPagos Bank Inc.",
+      "sector": "finance",
+      "country": "DE"
+    },
+    "project_summary": "Fintech regulada donde las notificaciones eran una plataforma multicanal",
+    "main_technology": "python_fastapi",
+    "year": 2024,
+    "total_estimated_hours": 178,
+    "components": [
+      {
+        "component_id": "TASK-NOTIF-B",
+        "name": "Real-time notifications delivery service",
+        "description": "Entrega multicanal (push, email, SMS) con cola duradera, reintentos y backoff por canal, acuses de entrega, preferencias de usuario y pista de auditoría para eventos regulados.",
+        "module": "Notifications",
+        "tech_stack": ["python", "kafka", "fcm", "twilio"],
+        "estimated_hours": 90,
+        "complexity": "high",
+        "dependencies": []
+      },
+      {
+        "component_id": "TASK-RECON-B",
+        "name": "Payment reconciliation job",
+        "description": "Conciliación en tiempo real entre varios procesadores y divisas, libro mayor de doble entrada, gestión de disputas e informe para el regulador.",
+        "module": "Payments & Billing",
+        "tech_stack": ["python", "postgresql"],
+        "estimated_hours": 88,
+        "complexity": "high",
+        "dependencies": []
+      }
+    ]
+  }
+]

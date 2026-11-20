@@ -64,6 +64,10 @@ class JobsRepository(JobTracker):
     def mark_running(self, job_id: uuid.UUID) -> None:
         self._update(job_id, status="running")
 
+    def set_documents_count(self, job_id: uuid.UUID, documents_count: int) -> None:
+        """Progreso parcial de un job en curso (lo usa la expansión del corpus)."""
+        self._update(job_id, documents_count=documents_count)
+
     def mark_completed(self, job_id: uuid.UUID, *, documents_count: int) -> None:
         self._update(
             job_id,

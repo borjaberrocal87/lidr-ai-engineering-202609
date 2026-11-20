@@ -24,6 +24,9 @@ class FakeRuntime:
     def effective_task_hours_distance_threshold(self) -> float:
         return 0.45
 
+    def effective_synthesis(self) -> bool:
+        return False
+
 
 def _payload() -> dict:
     return {

@@ -7,7 +7,8 @@ vectores con sus estadísticas agregadas.
 
 from __future__ import annotations
 
-from datetime import date
+import uuid
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -496,6 +497,131 @@ class CitationReport(BaseModel):
         return bool(self.dangling_citations or self.document_mismatches or self.dangling_lines)
 
 
+# ---- Sesión 11 (directo) — calidad semántica de la generación ---------------
+# La verificación de citas de la Sesión 11 (pre-work) prueba integridad
+# REFERENCIAL: cada chunk citado existía en el contexto. Estos modelos cubren la
+# capa siguiente, la SEMÁNTICA: que la cifra esté respaldada por esa evidencia y
+# que el desacuerdo entre análogos no se esconda tras un punto medio.
+
+LineQuality = Literal["grounded", "degraded", "insufficient"]
+
+
+class HourRange(BaseModel):
+    """Intervalo de horas cuando los análogos históricos discrepan.
+
+    ``estimated_hours`` sigue siendo el número editable; el rango viaja al lado
+    como señal de incertidumbre honesta, no lo sustituye.
+    """
+
+    low_hours: int = Field(ge=0, description="Cota inferior del intervalo (h).")
+    high_hours: int = Field(ge=0, description="Cota superior del intervalo (h).")
+    reason: str = Field(min_length=1, description="Por qué los análogos discrepan, en una frase.")
+
+    @model_validator(mode="after")
+    def _ordered_range(self) -> HourRange:
+        if self.high_hours < self.low_hours:
+            raise ValueError("high_hours debe ser >= low_hours")
+        return self
+
+
+class LineVerdict(BaseModel):
+    """Dictamen del juez semántico sobre una línea de la estimación."""
+
+    module: str = Field(description="Módulo de la línea (eco para emparejar).")
+    component: str = Field(description="Nombre de la tarea (eco para emparejar).")
+    entailed: bool = Field(
+        description="True solo si la evidencia citada respalda la cifra y el alcance."
+    )
+    reason: str = Field(default="", description="Explicación breve del dictamen.")
+
+
+class LineQualityGate(BaseModel):
+    """Resultado del gate semántico para una línea concreta."""
+
+    module: str
+    component: str
+    status: LineQuality = Field(
+        description="grounded = cifra soportada por la evidencia; degraded = cita "
+        "real pero cifra no soportada (alucinación semántica); insufficient = la "
+        "línea no tiene datos de origen."
+    )
+    evidence_days: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Techo determinista en engineer-days: horas históricas de los "
+        "chunks que la línea cita.",
+    )
+    deviation: float | None = Field(
+        default=None, ge=0.0, description="Desviación relativa frente al techo."
+    )
+    reason: str | None = Field(
+        default=None, description="Motivo legible cuando el estado no es grounded."
+    )
+
+
+class HallucinationReport(BaseModel):
+    """Agregado del gate semántico sobre toda la estimación."""
+
+    total_lines: int = Field(ge=0)
+    grounded_lines: int = Field(ge=0)
+    degraded_lines: int = Field(ge=0, description="Líneas con alucinación semántica.")
+    insufficient_lines: int = Field(ge=0)
+    lines: list[LineQualityGate] = Field(default_factory=list)
+
+    @property
+    def has_degraded(self) -> bool:
+        """True cuando alguna línea cita evidencia real pero una cifra no soportada."""
+        return self.degraded_lines > 0
+
+
+# ---- Sesión 11 (directo) — expansión incremental del corpus -----------------
+
+
+class IndexRunRequest(BaseModel):
+    """Lote de documentos nuevos para crecer el corpus (``POST /index/runs``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    documents: list[Budget] = Field(min_length=1, max_length=100)
+    document_type: str = Field(default="historical_budget", max_length=64)
+    chunk_type: str = Field(default="budget_component", max_length=64)
+
+
+class IndexRunResponse(BaseModel):
+    """Acuse 202 del lote aceptado: job para seguir el progreso."""
+
+    job_id: uuid.UUID
+    documents_total: int = Field(ge=0)
+    status: str
+
+
+class IndexJobView(BaseModel):
+    """Estado de un job de expansión (para el polling del cliente)."""
+
+    job_id: uuid.UUID
+    status: str
+    documents_processed: int = Field(ge=0)
+    error_message: str | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+
+
+class CollectionStats(BaseModel):
+    """Tamaño y estado del índice de UNA colección de chunks."""
+
+    collection: str
+    documents: int = Field(ge=0)
+    chunks: int = Field(ge=0)
+    hnsw_indexed: bool
+
+
+class CorpusStats(BaseModel):
+    """Foto del corpus por colección, para el panel de crecimiento del índice."""
+
+    collections: list[CollectionStats] = Field(default_factory=list)
+    total_chunks: int = Field(ge=0)
+
+
 # ---- Modelos HTTP de los routers S09 ----------------------------------------
 # Nombrados `RetrievalQuery`/`TranscriptEstimateRequest` (no `SearchRequest`) para
 # no colisionar con el contrato de la Sesión 8.
@@ -600,6 +726,11 @@ class GroundedGenerationOutcome(BaseModel):
         description="Session 11 per-line citation verification report (None for the "
         "full from-transcript pipeline, which logs the report instead).",
     )
+    hallucination_report: HallucinationReport | None = Field(
+        default=None,
+        description="Sesión 11 (directo): auditoría semántica por línea (techo por "
+        "evidencia + juez). None cuando el gate está apagado o no se ejecutó.",
+    )
     coherent: bool = Field(
         description="False cuando una estimación insuficiente aún lleva números."
     )
@@ -676,6 +807,12 @@ class TaskHoursEstimate(BaseModel):
         default_factory=list,
         description="Verbatim line-level citations built from the matching historical "
         "chunks. Non-empty iff ``grounded`` is True.",
+    )
+    hour_range: HourRange | None = Field(
+        default=None,
+        description="Sesión 11 (directo): intervalo honesto cuando los vecinos "
+        "históricos discrepan más que el umbral de contradicción. None si están "
+        "de acuerdo o si la síntesis está apagada.",
     )
 
     @model_validator(mode="after")

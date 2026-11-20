@@ -74,6 +74,52 @@
     <% } %>
   <% } %>
 
+  <% if (citationReport || hallucinationReport) { %>
+    <div class="p-4 rounded-md bg-ink/30 border border-white/10 space-y-3">
+      <p class="text-xs text-white/50 uppercase tracking-tight">Calidad de la generación</p>
+
+      <% if (citationReport) { %>
+        <div class="flex flex-wrap gap-3 text-sm">
+          <span class="px-3 py-1.5 rounded-md bg-brand/15 border border-brand/40 text-brand-soft font-bold">
+            <%= citationReport.grounded_lines %> / <%= citationReport.total_lines %> líneas con cita real
+          </span>
+          <% if (citationReport.dangling_citations && citationReport.dangling_citations.length) { %>
+            <span class="px-3 py-1.5 rounded-md bg-red-400/15 border border-red-400/50 text-red-200 font-bold">
+              <%= citationReport.dangling_citations.length %> citas colgantes
+            </span>
+          <% } %>
+        </div>
+      <% } %>
+
+      <% if (hallucinationReport) { %>
+        <div class="flex flex-wrap gap-3 text-sm">
+          <span class="px-3 py-1.5 rounded-md bg-brand/15 border border-brand/40 text-brand-soft font-bold">
+            <%= hallucinationReport.grounded_lines %> respaldadas por evidencia
+          </span>
+          <% if (hallucinationReport.degraded_lines > 0) { %>
+            <span class="px-3 py-1.5 rounded-md bg-red-400/15 border border-red-400/50 text-red-200 font-bold">
+              <%= hallucinationReport.degraded_lines %> degradadas
+            </span>
+          <% } %>
+          <span class="px-3 py-1.5 rounded-md bg-ink/40 border border-white/10 text-white/60">
+            <%= hallucinationReport.insufficient_lines %> sin dato
+          </span>
+        </div>
+        <% const degraded = (hallucinationReport.lines || []).filter(function (line) { return line.status === 'degraded'; }); %>
+        <% if (degraded.length) { %>
+          <ul class="text-xs text-red-200/90 space-y-1">
+            <% degraded.forEach(function (line) { %>
+              <li>
+                <span class="font-bold"><%= line.module %> / <%= line.component %></span>
+                <% if (line.reason) { %> — <%= line.reason %><% } %>
+              </li>
+            <% }); %>
+          </ul>
+        <% } %>
+      <% } %>
+    </div>
+  <% } %>
+
   <form method="post" action="/rag-estimations/<%= run.id %>/generate" class="pt-2" data-form-loading>
     <button type="submit" class="btn-primary" data-submit>
       <span data-submit-label><%= estimate ? 'Regenerar estructura' : 'Generar estructura' %></span>

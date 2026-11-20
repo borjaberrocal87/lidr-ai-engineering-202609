@@ -31,6 +31,8 @@ MODEL_KEY_TO_SETTING: dict[str, str] = {
     "COMPRESSION_MODEL": "compression_model",
     "PROPOSITIONAL_CHUNKER_MODEL": "propositional_chunker_model",
     "CONTEXTUAL_CHUNKER_MODEL": "contextual_chunker_model",
+    # Sesión 11 (directo) — juez estricto del gate semántico.
+    "HALLUCINATION_JUDGE_MODEL": "hallucination_judge_model",
 }
 
 MODEL_KEYS: tuple[str, ...] = tuple(MODEL_KEY_TO_SETTING)
@@ -141,6 +143,11 @@ FRESHNESS_KEY = "TEMPORAL_DECAY_ENABLED"
 # Sesión 10 — knobs numéricos del consenso de horas (no son toggles).
 TASK_HOURS_TOP_K_KEY = "TASK_HOURS_TOP_K"
 TASK_HOURS_DISTANCE_THRESHOLD_KEY = "TASK_HOURS_DISTANCE_THRESHOLD"
+# Sesión 11 (directo) — palancas de calidad de la generación. Mismo patrón de
+# override que la recuperación: el instructor las enciende y apaga desde Ajustes.
+HALLUCINATION_GATE_KEY = "HALLUCINATION_GATE_ENABLED"
+AUGMENTATION_KEY = "AUGMENTATION_ENABLED"
+SYNTHESIS_KEY = "SYNTHESIS_ENABLED"
 RETRIEVAL_KEYS: tuple[str, ...] = (
     SEARCH_MODE_KEY,
     RERANK_KEY,
@@ -149,10 +156,20 @@ RETRIEVAL_KEYS: tuple[str, ...] = (
     FRESHNESS_KEY,
     TASK_HOURS_TOP_K_KEY,
     TASK_HOURS_DISTANCE_THRESHOLD_KEY,
+    HALLUCINATION_GATE_KEY,
+    AUGMENTATION_KEY,
+    SYNTHESIS_KEY,
 )
 
 _VALID_SEARCH_MODES = ("vector", "hybrid")
-_TOGGLE_KEYS = (ROUTING_KEY, QUERY_PLAN_KEY, FRESHNESS_KEY)
+_TOGGLE_KEYS = (
+    ROUTING_KEY,
+    QUERY_PLAN_KEY,
+    FRESHNESS_KEY,
+    HALLUCINATION_GATE_KEY,
+    AUGMENTATION_KEY,
+    SYNTHESIS_KEY,
+)
 
 
 class RuntimeRetrievalConfig:
@@ -213,6 +230,17 @@ class RuntimeRetrievalConfig:
     def effective_freshness(self) -> bool:
         return self._effective_bool(FRESHNESS_KEY, self._settings.retrieval_freshness_enabled)
 
+    def effective_hallucination_gate(self) -> bool:
+        return self._effective_bool(
+            HALLUCINATION_GATE_KEY, self._settings.hallucination_gate_enabled
+        )
+
+    def effective_augmentation(self) -> bool:
+        return self._effective_bool(AUGMENTATION_KEY, self._settings.augmentation_enabled)
+
+    def effective_synthesis(self) -> bool:
+        return self._effective_bool(SYNTHESIS_KEY, self._settings.synthesis_enabled)
+
     def set_search_mode(self, value: str | None) -> None:
         if value is not None and value not in _VALID_SEARCH_MODES:
             raise ValueError(f"Invalid search mode: {value}")
@@ -222,7 +250,7 @@ class RuntimeRetrievalConfig:
         self._set_raw(RERANK_KEY, None if value is None else str(value).lower())
 
     def set_bool(self, key: str, value: bool | None) -> None:
-        """Fija uno de los toggles booleanos de la recuperación multifuente."""
+        """Fija uno de los toggles booleanos de recuperación o de calidad (S11)."""
         if key not in _TOGGLE_KEYS:
             raise ValueError(f"Unknown retrieval toggle: {key}")
         self._set_raw(key, None if value is None else str(value).lower())
@@ -300,11 +328,28 @@ class RuntimeRetrievalConfig:
                 "default": self._settings.task_hours_distance_threshold,
                 "overridden": TASK_HOURS_DISTANCE_THRESHOLD_KEY in overrides,
             },
+            HALLUCINATION_GATE_KEY: {
+                "effective": self.effective_hallucination_gate(),
+                "default": self._settings.hallucination_gate_enabled,
+                "overridden": HALLUCINATION_GATE_KEY in overrides,
+            },
+            AUGMENTATION_KEY: {
+                "effective": self.effective_augmentation(),
+                "default": self._settings.augmentation_enabled,
+                "overridden": AUGMENTATION_KEY in overrides,
+            },
+            SYNTHESIS_KEY: {
+                "effective": self.effective_synthesis(),
+                "default": self._settings.synthesis_enabled,
+                "overridden": SYNTHESIS_KEY in overrides,
+            },
         }
 
 
 __all__ = [
+    "AUGMENTATION_KEY",
     "FRESHNESS_KEY",
+    "HALLUCINATION_GATE_KEY",
     "HASH_KEY",
     "MODEL_KEYS",
     "MODEL_KEY_TO_SETTING",
@@ -314,6 +359,7 @@ __all__ = [
     "RETRIEVAL_KEYS",
     "ROUTING_KEY",
     "SEARCH_MODE_KEY",
+    "SYNTHESIS_KEY",
     "TASK_HOURS_DISTANCE_THRESHOLD_KEY",
     "TASK_HOURS_TOP_K_KEY",
     "RuntimeConfigUnavailable",

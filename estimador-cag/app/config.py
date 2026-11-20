@@ -115,10 +115,13 @@ class Settings(BaseSettings):
     # Postgres (imagen pgvector) para el tracking de jobs y el mapping de PII.
     # En docker-compose se sobreescribe a estimator-postgres:5432.
     database_url: str = "postgresql+psycopg://estimator:estimator@localhost:5433/estimator"
-    # Sesión 8 (directo) — búsqueda con índice halfvec. Requiere haber creado
-    # ``chunks_embedding_halfvec_idx``: sin él, el cast por fila puede degradar
-    # el plan frente al índice vectorial completo.
-    search_use_halfvec: bool = False
+    # Sesión 8 (directo) / Sesión 11 (directo) — búsqueda con índice halfvec.
+    # La migración 0005 crea ``ix_*_embedding_hnsw`` sobre
+    # ``(embedding::halfvec(1536))`` con ``halfvec_cosine_ops``; activar esto
+    # alinea el operador de la query con el índice. Se deja en ``True`` porque la
+    # migración ya viene aplicada con la rama; sin ella, el cast por fila puede
+    # empeorar el plan (ponlo a ``False`` por .env si corres sin 0005).
+    search_use_halfvec: bool = True
     # Catálogo YAML de fuentes (se carga una vez al arrancar). Relativo a BASE_DIR
     # si no es absoluto.
     catalog_path: Path = Path("data/catalog/catalog.yaml")
@@ -214,6 +217,27 @@ class Settings(BaseSettings):
     # Superar el suelo significa "sin análogo" y la tarea se marca en rojo.
     task_hours_top_k: int = 5
     task_hours_distance_threshold: float = 0.45
+
+    # Sesión 11 (directo) — calidad de la generación. Tres palancas conmutables
+    # en caliente desde Ajustes; los defaults reproducen el camino completo.
+    # 1) Gate semántico: capa sobre la verificación de citas. Prueba que la cifra
+    #    esté respaldada por la evidencia citada, no solo que la cita exista.
+    hallucination_gate_enabled: bool = True
+    # Modelo del juez estricto (una llamada batched por estimación). Barato basta;
+    # está en AVAILABLE_MODELS y se cambia en Ajustes.
+    hallucination_judge_model: str = "gpt-5-mini"
+    # Tolerancia relativa del techo por evidencia: pasarse más de esta fracción
+    # por encima de las horas históricas citadas degrada la línea (0.5 = +50%).
+    hallucination_numeric_tolerance: float = 0.5
+    # 2) Augmentación del contexto: compresión extractiva y reordenado por
+    #    extremos, medibles por separado.
+    augmentation_enabled: bool = True
+    augmentation_compress: bool = True
+    augmentation_reorder: bool = True
+    # 3) Síntesis de horas: si la dispersión de los análogos cruza este umbral
+    #    (coeficiente de variación), se emite un rango además del punto.
+    synthesis_enabled: bool = True
+    synthesis_contradiction_threshold: float = 0.35
 
     open_ai_key: SecretStr | None = None
     anthropic_api_key: SecretStr | None = None

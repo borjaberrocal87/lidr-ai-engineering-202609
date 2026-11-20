@@ -98,4 +98,30 @@ export class HttpConfigClient {
       reason,
     });
   }
+
+  async getRetrieval() {
+    const response = await this.#request("/api/v1/config/retrieval");
+    if (!response.ok) {
+      const { message } = await readDetail(response);
+      throw new RuntimeConfigError(message || "No se pudo leer la recuperación.", {
+        status: response.status,
+      });
+    }
+    return response.json();
+  }
+
+  async updateRetrieval(changes) {
+    const response = await this.#request("/api/v1/config/retrieval", {
+      method: "PUT",
+      body: changes,
+    });
+    if (response.ok) {
+      return response.json();
+    }
+    const { message, reason } = await readDetail(response);
+    throw new RuntimeConfigError(message || `Error ${response.status} al guardar.`, {
+      status: response.status,
+      reason,
+    });
+  }
 }
