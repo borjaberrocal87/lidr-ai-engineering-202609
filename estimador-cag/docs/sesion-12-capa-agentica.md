@@ -64,23 +64,87 @@ traza paso a paso y descarga la ejecución como `.txt`.
 
 ## Traza de la ejecución de entrega
 
-> **Pendiente de ejecución con credenciales.** La traza real se genera con el
-> comando de entrega de arriba y queda en `examples/session-12/trace_complex.txt`.
-> No se incluye aquí una traza inventada: el entregable es la salida de la
-> ejecución real sobre `sample_transcript_complex.txt`.
-
-Qué debe mostrar (formato mínimo exigido, por paso):
+Ejecución real sobre `sample_transcript_complex.txt` con `gpt-5` y effort `medium`,
+tal como la genera `scripts/run_agent_s12.py` (también disponible en
+`examples/session-12/trace_complex.txt`):
 
 ```text
+==============================================================================
+AGENT TRACE
+==============================================================================
+  model=gpt-5   iterations=5   stopped=completed
+
 STEP 1
-  reasoning:   <what the agent decided and why>
-  action:      search_budgets({"query": "...", "filters": ...})
-  observation: <summary of returned items>
+  reasoning:   **Estimating effort for components**
+
+I need to create an effort estimate following a structured method. First, I'll break down the components listed in the transcript, like the backend API, SAP ERP integration, mobile driver app, and analytics dashboard. For each of these, I should call search_budgets separately to get the hours associated with them. Then, I'll use calculate_estimate to determine the effort for each component while considering specialized filters like sectors and component types. Finally, I’ll validate the estimate based on the computed numbers. **Interpreting project components**
+
+I need to interpret the tools mentioned and start by listing the components. First, there's the backend with API REST for managing orders, tracking shipments, and calculating tariffs, which needs to expose an API. Then, we have the SAP ERP integration for syncing billings and customer data. Next is the mobile app for delivery drivers, which will function offline and clearly present the day's routes. Lastly, I’ll outline the analytics panel with KPIs and alerts. I’ll keep my assumptions in check and avoid adding extra components. **Searching budgets per component**
+
+I’m ready to proceed with searching budgets for each component. I’ll call functions.search_budgets using appropriate query strings in either Spanish or English. For the backend, I’ll use the phrase about managing orders and tracking shipments with a REST API. For the SAP integration, I'll mention billing and customer syncing with IDoc mapping. Next, I’ll describe the mobile app for drivers and its features, and finally outline the analytics dashboard with its KPIs and trends. Each search will include relevant filters.
+  action:      search_budgets({"query": "Greenfield logistics business backend (TMS-like): order management, route assignment, shipment tracking, tariff calculation, exposing a REST API for other components.", "filters": {"sectors": ["logistics"], "component_type": "backend"}})
+  observation: 8 historical items for 'Greenfield logistics business backend (TMS-like): order management, route assignment, shipment tracking, tariff calculation, exposing a REST API for other components.'; hours=[24, 17, 24, 31, 25, 23, 29, 33]
+
+STEP 2
+  reasoning:   (parallel tool call in the same turn as STEP 1)
+  action:      search_budgets({"query": "SAP ERP integration for logistics: synchronize billing, customers, and item master; IDoc mapping; middleware layer; retry handling and resiliency.", "filters": {"sectors": ["logistics"], "component_type": "erp integration"}})
+  observation: 8 historical items for 'SAP ERP integration for logistics: synchronize billing, customers, and item master; IDoc mapping; middleware layer; retry handling and resiliency.'; hours=[37, 52, 41, 25, 25, 33, 24, 17]
+
+STEP 3
+  reasoning:   (parallel tool call in the same turn as STEP 1)
+  action:      search_budgets({"query": "Driver courier mobile app for logistics (Android and iOS): daily route sheet, delivery confirmation with signature and photo, offline mode with background sync; simple UX.", "filters": {"sectors": ["logistics"], "component_type": "mobile app"}})
+  observation: 8 historical items for 'Driver courier mobile app for logistics (Android and iOS): daily route sheet, delivery confirmation with signature and photo, offline mode with background sync; simple UX.'; hours=[29, 33, 28, 24, 53, 12, 23, 20]
+
+STEP 4
+  reasoning:   (parallel tool call in the same turn as STEP 1)
+  action:      search_budgets({"query": "Logistics analytics dashboard: KPIs on-time deliveries, cost per route, incidents; trend charts; filters by zone and customer; alerting when metrics deviate.", "filters": {"sectors": ["logistics"], "component_type": "analytics dashboard"}})
+  observation: 8 historical items for 'Logistics analytics dashboard: KPIs on-time deliveries, cost per route, incidents; trend charts; filters by zone and customer; alerting when metrics deviate.'; hours=[47, 42, 36, 25, 44, 28, 34, 51]
+
+STEP 5
+  reasoning:   **Calculating estimates and medians**
+
+I need to call `calculate_estimate` with the component names and reference hours to compute the medians. For the backend, I have the reference hours sorted, and the median is calculated from the 4th and 5th numbers, which gives me 24.5 after adding contingency. For SAP integration, I sort the references and find the median is 29.0. Lastly, for the mobile app, I sort again, and the median is 26. Time to let the tool handle the next steps! **Calculating analytics estimate**
+
+I’m looking at the analytics numbers, which I need to sort first. Once sorted, I can find the median by averaging the 4th and 5th values, which gives me 39. After that, I should consider adding a contingency, potentially 20% or a fixed amount of hours. The tool will handle the calculations for these amounts. Now I just need to call `calculate_estimate` with the relevant arrays to get the final estimates!
+  action:      calculate_estimate({"components": [{"name": "Backend de negocio con API (pedidos, rutas, seguimiento, tarifas)", "reference_amounts": [24, 17, 24, 31, 25, 23, 29, 33]}, {"name": "Integración con ERP SAP (IDocs, middleware, reintentos)", "reference_amounts": [37, 52, 41, 25, 25, 33, 24, 17]}, {"name": "App móvil repartidores (Android+iOS, firma/foto, offline)", "reference_amounts": [29, 33, 28, 24, 53, 12, 23, 20]}, {"name": "Panel de analítica (KPIs, filtros, alertas)", "reference_amounts": [47, 42, 36, 25, 44, 28, 34, 51]}]})
+  observation: total=136.2h across 4 components
+
+STEP 6
+  reasoning:   **Calculating estimates with contingencies**
+
+I noticed the tool uses a 15% contingency factor, which is interesting. The estimated hours seem to exceed the median values by specific amounts. For example, the backend median is 24.5, and after applying the contingency, it becomes 28.2. Similarly, for SAP, it’s 33.3, and for the app and analytics, the totals are 29.9 and 44.8, respectively. The grand total is 136.2. Now, I just need to run the validate_estimate as the final step.
+  action:      validate_estimate({"components": [{"name": "Backend de negocio con API (pedidos, rutas, seguimiento, tarifas)", "estimated_hours": 28.2, "reference_amounts": [24, 17, 24, 31, 25, 23, 29, 33]}, {"name": "Integración con ERP SAP (IDocs, middleware, reintentos)", "estimated_hours": 33.3, "reference_amounts": [37, 52, 41, 25, 25, 33, 24, 17]}, {"name": "App móvil repartidores (Android+iOS, firma/foto, offline)", "estimated_hours": 29.9, "reference_amounts": [29, 33, 28, 24, 53, 12, 23, 20]}, {"name": "Panel de analítica (KPIs, filtros, alertas)", "estimated_hours": 44.8, "reference_amounts": [47, 42, 36, 25, 44, 28, 34, 51]}], "total_hours": 136.2})
+  observation: estimate passed all guardrails
+
+==============================================================================
+FINAL REPORT  (iterations=5, stopped=completed)
+==============================================================================
+  - Backend de negocio con API (pedidos, rutas, seguimiento, tarifas): 28.2h  [sources: 642, 1658, 1380, 1657, 1642, 635, 1392, 1491]
+      Mediana de 8 referencias de backend logístico similares (API + núcleo de negocio) con +15% de contingencia por greenfield.
+  - Integración con ERP SAP (IDocs, middleware, reintentos): 33.3h  [sources: 1494, 1646, 650, 1671, 1642, 1491, 657, 659]
+      Basada en 8 integraciones SAP con mapeo de IDocs y capa de reintentos, añadiendo +15% por riesgos habituales en datos maestros y resiliencia.
+  - App móvil repartidores (Android+iOS, firma/foto, offline): 29.9h  [sources: 631, 1377, 1488, 1639, 632, 652, 635, 653]
+      Derivada de 8 apps de reparto con confirmación y modo offline; contempla almacenamiento local y sincronización, con +15% por casos de conectividad.
+  - Panel de analítica (KPIs, filtros, alertas): 44.8h  [sources: 1391, 1664, 1663, 1389, 1390, 1659, 1489, 1378]
+      Tomada de 8 paneles logísticos con KPIs y alertas; incluye ETL ligero desde el backend y filtros, con +15% por definición de métricas y umbrales.
+
+  TOTAL: 136.2h    confidence: medium
+  assumptions:
+    - Alcance MVP de cada componente centrado en las funciones descritas.
+    - Stack tentativo: backend en Python; front web en React; app móvil híbrida (React Native/Flutter) aceptable; base de datos relacional (PostgreSQL).
+    - SAP: uso de IDocs estándar (p. ej., DEBMAS, MATMAS, INVOIC); middleware con colas y reintentos; sin customizaciones SAP profundas ni BAPIs complejas fuera de alcance.
+    - Asignación de rutas por reglas simples (zonas/capacidad/horarios); no incluye optimización avanzada tipo solver VRP.
+    - App móvil: autenticación simple; caché local y sincronización con resolución básica de conflictos (last-write-wins); captura de firma y fotos en dispositivo; sin navegación giro a giro ni chat.
+    - Analítica: KPIs básicos (entregas a tiempo, coste por ruta, incidencias), tendencias y filtros por zona/cliente; alertas por umbrales estáticos; sin data warehouse dedicado ni modelado dimensional complejo.
+    - No incluido: hardening/seguridad avanzada, SSO corporativo, auditoría exhaustiva, CI/CD y observabilidad avanzadas, soporte multidioma, formación extensa, ni migración masiva de históricos.
+    - QA: pruebas funcionales y UAT básicos; sin automatización E2E extensa.
+    - Cumplimiento: RGPD estándar para datos e imágenes; se asume que no hay requisitos regulatorios adicionales.
 ```
 
-Y al final, el informe consolidado: componentes con horas y fuentes, total,
-suposiciones y nivel de confianza, más el número de iteraciones y el motivo de
-parada.
+Lectura rápida: el agente descompone el proyecto en sus cuatro componentes y lanza
+las cuatro búsquedas **en paralelo en el primer turno** (un solo bloque de
+razonamiento, tres de las calls marcadas como paralelas), consolida con
+`calculate_estimate`, pasa `validate_estimate` y para sola. Total: 136,2 h.
 
 ## Decisiones de adaptación
 
@@ -106,14 +170,14 @@ parada.
 
 Con `sample_transcript_complex.txt`, `gpt-5` y effort `medium`:
 
-- [ ] Identifica más de un componente y hace más de una llamada a `search_budgets`.
-- [ ] Llama a `calculate_estimate` con los componentes y sus referencias.
-- [ ] Llama a `validate_estimate` como último paso.
-- [ ] Termina por sí solo (`stopped_reason="completed"`), sin agotar
+- [x] Identifica más de un componente y hace más de una llamada a `search_budgets`.
+- [x] Llama a `calculate_estimate` con los componentes y sus referencias.
+- [x] Llama a `validate_estimate` como último paso.
+- [x] Termina por sí solo (`stopped_reason="completed"`), sin agotar
       `max_iterations`.
-- [ ] El informe es coherente: total = suma de componentes, sin `unbudgeted`
+- [x] El informe es coherente: total = suma de componentes, sin `unbudgeted`
       silenciosos, suposiciones explícitas.
-- [ ] La traza muestra razonamiento + acción + observación por paso, y la UI la
+- [x] La traza muestra razonamiento + acción + observación por paso, y la UI la
       pinta y la descarga como `.txt`.
 
 Los criterios de mecánica (schema plano, `call_id`, parada, validación de
@@ -122,5 +186,12 @@ argumentos, no reimplementar retrieval) están cubiertos por
 
 ## Nota de comportamiento
 
-_(Rellenar tras la ejecución real: cómo repartió las búsquedas por componente, cómo
-reaccionó a cada observación y si paró solo a la primera.)_
+El agente entendió la transcripción a la primera: identificó los cuatro componentes
+sin añadir ni fusionar piezas y agrupó las cuatro búsquedas en un único turno de
+razonamiento (STEP 1 con tres calls paralelas), con queries específicas por
+componente y filtro de sector `logistics`. No hizo falta reintentar ninguna
+búsqueda: `validate_estimate` pasó limpio en el primer intento. La única decisión
+discutible es de negocio, no de mecánica: el agente costeó cada componente como un
+MVP y dejó fuera explícitamente hardening, SSO, CI/CD y migración de históricos,
+que es justo lo que el enunciado pide que se declare como suposición en lugar de
+inventarlo. Paró sola en 5 iteraciones, muy por debajo del máximo de 10.
