@@ -320,7 +320,7 @@ descripciones en inglés:
 async def run_estimation_agent(
     transcript: str,
     *,
-    client: Any,                      # AsyncOpenAI, inyectado
+    client: Any,  # AsyncOpenAI, inyectado
     model: str,
     reasoning_effort: str = "medium",
     max_iterations: int = 10,
