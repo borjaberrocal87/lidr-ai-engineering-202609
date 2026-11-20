@@ -14,7 +14,12 @@ Contract (what the agent passes in and expects back):
     ->
     {
         "components": [
-            {"name": "Auth backend", "reference_count": 2, "estimated_hours": ..., "unbudgeted": False},
+            {
+                "name": "Auth backend",
+                "reference_count": 2,
+                "estimated_hours": ...,
+                "unbudgeted": False,
+            },
             ...
         ],
         "total_hours": ...,
