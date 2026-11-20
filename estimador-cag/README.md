@@ -487,11 +487,13 @@ docker compose exec api python -m scripts.rag_ops.index_status
 docker compose exec api python -m scripts.rag_ops.corpus_seed 100
 ```
 
-La búsqueda con halfvec es **opt-in** (`SEARCH_USE_HALFVEC=false` por defecto):
-actívala solo después de crear `chunks_embedding_halfvec_idx`. El flujo completo,
+La búsqueda con halfvec se activa con `SEARCH_USE_HALFVEC=true` (default tras la
+migración `0005_session11_hnsw_multi_index`, que crea los índices halfvec de las
+tres colecciones). Si corres sin esa migración, déjala en `false`: sin el índice
+alineado, el cast por fila puede empeorar el plan. El flujo completo,
 el SQL, el preflight opcional de 30.000 chunks y el entregable de `ef_search`
 están en
-[`docs/sesion-8-live-indexacion-vectorial.md`](docs/sesion-8-live-indexacion-vectorial.md).
+[`docs/sesion-8-live-indexacion-vectorial.md`](docs/sesion-8-live-indexacion-vectorial.md),
 
 ## Sesión 9 — RAG end-to-end sobre transcripciones
 
@@ -606,6 +608,83 @@ Detalles, catálogo, matriz de decisión y límites en
 [`docs/sesion-10-multifuente.md`](docs/sesion-10-multifuente.md). La base de
 búsqueda híbrida y reranking sigue documentada en
 [`docs/sesion-10-busqueda-hibrida-reranking.md`](docs/sesion-10-busqueda-hibrida-reranking.md).
+
+## Sesión 11 — generación y calidad
+
+La sesión 11 (pre-work) dejó la verificación **referencial** de citas. La sesión
+en vivo añade la capa **semántica** y la operación del corpus:
+
+- **Gate semántico** (`app/generation/rag/quality/hallucination.py`): techo
+  determinista por evidencia (horas históricas de los chunks citados →
+  engineer-days) + juez LLM en una sola llamada batched. Cada línea queda
+  `grounded`, `degraded` (cita real pero cifra no soportada) o `insufficient`.
+  Se expone en `POST /estimate/stages/generate` (`hallucination_report`) y se
+  registra como `hallucination.audited` en el pipeline completo.
+- **Augmentación** (`quality/augmentation.py`): compresión extractiva (líneas con
+  cifras, ids o etiquetas de componente) y reordenado por extremos contra
+  *lost-in-the-middle*. Ambos pases son conmutables y conservan los ids, así que
+  la verificación de citas no se ve afectada.
+- **Síntesis de horas** (`quality/synthesis.py`): si la dispersión (coeficiente
+  de variación) de los análogos supera el umbral, `hour_range` (low..high +
+  razón) acompaña al punto estimado; `estimated_hours` no se toca.
+- **Expansión incremental del corpus** (`index_service.py`,
+  `api/corpus_index.py`): `POST /embeddings/index/runs` (202 + job),
+  `GET /embeddings/index/jobs/{id}` y `GET /embeddings/index/stats`. Omite
+  duplicados y aísla fallos por documento.
+- **Índices HNSW halfvec** (migración `0005_session11_hnsw_multi_index`):
+  `(embedding::halfvec(1536))` con `halfvec_cosine_ops` en las tres colecciones,
+  alineados con `SEARCH_USE_HALFVEC=true`.
+
+Toggles (Ajustes o `PUT /api/v1/config/retrieval`): `hallucination_gate_enabled`,
+`augmentation_enabled`, `synthesis_enabled`; modelo del juez con
+`HALLUCINATION_JUDGE_MODEL` y tolerancia con `HALLUCINATION_NUMERIC_TOLERANCE`.
+
+### Verificación operativa
+
+```bash
+# 1) índices presentes, alineados y utilizables (fuerza enable_seqscan=off solo
+#    en la sesión de diagnóstico; no cambia configuración persistente).
+docker compose exec api python -m scripts.rag_ops.explain_index
+
+# 2) foto del corpus: documentos/chunks por colección + estado HNSW
+curl -s localhost:8000/api/v1/embeddings/index/stats | jq
+
+# 3) expandir el corpus (202 + job) y sondear el progreso
+curl -s -X POST localhost:8000/api/v1/embeddings/index/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"chunk_type":"budget_component","documents":[...]}' | jq
+curl -s localhost:8000/api/v1/embeddings/index/jobs/<job_id> | jq
+
+# 4) eval determinista de la generación (citas, gate, augmentación y síntesis)
+uv run python scripts/eval_quality_s11.py --compare
+```
+
+Sobre el `EXPLAIN`: con un corpus pequeño (1-2k filas) el planner elige
+**Seq Scan + Sort** y es lo correcto — recorrer la tabla es más barato que
+arrancar el grafo HNSW. Para demostrar que el índice está bien formado y
+alineado, fuerza el plan en la sesión de psql:
+
+```sql
+SET jit = off; SET enable_seqscan = off;
+EXPLAIN ANALYZE
+SELECT id FROM budget_chunks
+ORDER BY embedding::halfvec(1536) <=>
+  (SELECT embedding::halfvec(1536) FROM budget_chunks LIMIT 1)
+LIMIT 5;
+-- Index Scan using ix_budget_chunks_embedding_hnsw
+```
+
+### UI (cliente-web)
+
+- `/corpus`: estado del corpus, alta de lote JSON, historial en
+  `corpus_index_runs` y página de job con polling.
+- `/ai-settings`: sección “Calidad de generación” con los tres toggles.
+- Wizard RAG: rango de horas en el paso de horas y panel de calidad (citas +
+  gate) en generación.
+
+El fixture 40h/90h (`data/task_corpus_contradictions.json`) se ingesta con
+`python scripts/build_contradictions_s11.py` y permite ver la síntesis en
+`POST /api/v1/estimate/tasks/hours`.
 
 ## Configuración de modelos en runtime
 
@@ -913,6 +992,16 @@ La imagen es multi-stage: `runtime` (imagen final mínima con uvicorn), `test` (
 | `CHUNKING_TIMEOUT_MS`     | Timeout del cliente Node para `/embeddings/compare` | `600000` |
 | `CONFIG_TIMEOUT_MS`       | Timeout del badge/Ajustes en el cliente Node      | `3000`        |
 | `CONFIG_CACHE_TTL_MS`     | TTL de la caché del badge de modelo               | `15000`       |
+| `CORPUS_INDEX_TIMEOUT_MS` | Timeout del cliente Node para la expansión del corpus | `10000`  |
+| `SEARCH_USE_HALFVEC`      | Busca con `halfvec` (alineado con los índices de la 0005) | `true` |
+| `HALLUCINATION_GATE_ENABLED` | Gate semántico de alucinaciones (S11)          | `true`        |
+| `HALLUCINATION_JUDGE_MODEL`  | Modelo del juez estricto                       | `gpt-5-mini`  |
+| `HALLUCINATION_NUMERIC_TOLERANCE` | Tolerancia sobre el techo por evidencia (0.5 = +50%) | `0.5` |
+| `AUGMENTATION_ENABLED`    | Augmentación del contexto (S11)                   | `true`        |
+| `AUGMENTATION_COMPRESS`   | Compresión extractiva de cada fuente              | `true`        |
+| `AUGMENTATION_REORDER`    | Reordenado por extremos (lost-in-the-middle)      | `true`        |
+| `SYNTHESIS_ENABLED`       | Rango de horas cuando los análogos discrepan      | `true`        |
+| `SYNTHESIS_CONTRADICTION_THRESHOLD` | CoV a partir del cual se emite el rango | `0.35`      |
 
 > En Docker Compose, el servicio `api` fuerza `CACHE_BACKEND=redis` y `REDIS_URL=redis://redis:6379` (servicio `redis` de la misma red).
 
