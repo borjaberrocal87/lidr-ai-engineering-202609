@@ -162,6 +162,16 @@ class Settings(BaseSettings):
     # Deadline duro del endpoint. Si el proveedor se cuelga, la API corta y
     # devuelve 504 en vez de dejar la petición abierta más que el wizard.
     rag_structure_timeout_seconds: float = 180.0
+    # Sesión 12 — capa agéntica. El bucle lo conduce nuestro código sobre la
+    # Responses API; estos valores son el default del CLI y del endpoint.
+    agent_model: str = "gpt-5"
+    agent_reasoning_effort: Literal["minimal", "low", "medium", "high"] = "medium"
+    # Salvaguarda del bucle: máximo de idas y vueltas con la API.
+    agent_max_iterations: int = 10
+    # search_budgets busca sobre budget_component + historical_task.
+    agent_search_top_k: int = 8
+    agent_search_distance_threshold: float = 0.6
+
     # Retrieval: k candidatos, umbral de distancia coseno (menor = más similar)
     # y presupuesto de contexto en tokens.
     rag_retrieval_top_k: int = 10

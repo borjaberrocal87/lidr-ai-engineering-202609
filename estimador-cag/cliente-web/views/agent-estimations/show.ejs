@@ -1,0 +1,61 @@
+<%- include('../partials/head', { title: 'Ejecución del agente' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-5xl mx-auto py-12 px-4">
+  <div class="flex items-start justify-between gap-4 mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">Ejecución del agente</h1>
+      <p class="text-white/60 text-sm mt-1">
+        <%= result.iterations %> llamadas a la API ·
+        parada <span class="text-white/80"><%= result.stopped_reason %></span> ·
+        <%= result.trace.steps.length %> pasos con tool
+      </p>
+    </div>
+    <div class="flex items-center gap-4">
+      <a href="/agent-estimations/new" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+        ← Nueva ejecución
+      </a>
+      <button id="download-trace" type="button" class="btn-primary">
+        Descargar traza (.txt)
+      </button>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="p-4 mb-6 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <% if (!result.report) { %>
+    <div class="p-4 mb-6 rounded-md border border-yellow-400/40 bg-yellow-400/10 text-yellow-100">
+      El agente se detuvo sin producir un informe estructurado. Revisa la traza para
+      ver en qué paso se quedó.
+    </div>
+  <% } %>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold tracking-tight text-white mb-4">Traza de ejecución</h2>
+    <%- include('_steps', { steps: result.trace.steps }) %>
+  </section>
+
+  <section>
+    <h2 class="text-xl font-bold tracking-tight text-white mb-4">Informe</h2>
+    <%- include('_report', { report: result.report }) %>
+  </section>
+</div>
+
+<script>
+  const traceText = <%- JSON.stringify(result.trace_text) %>;
+  document.getElementById("download-trace")?.addEventListener("click", () => {
+    const blob = new Blob([traceText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "agent-trace.txt";
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+</script>
+
+<%- include('../partials/footer') %>

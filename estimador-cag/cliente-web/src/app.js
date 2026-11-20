@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 
 import { DETAIL_LEVELS, OUTPUT_FORMATS, PROJECT_TYPES, humanize } from "./constants.js";
+import { agentEstimationsRouter } from "./routes/agentEstimations.js";
 import { aiSettingsRouter } from "./routes/aiSettings.js";
 import { chunkingLabRouter } from "./routes/chunkingLab.js";
 import { corpusIndexRouter } from "./routes/corpusIndex.js";
@@ -22,6 +23,7 @@ export function createApp({
   config,
   ragEstimations,
   ragClient,
+  agentClient,
   corpusIndex,
   corpusRuns,
 }) {
@@ -62,6 +64,9 @@ export function createApp({
   }
   if (corpusIndex && corpusRuns) {
     app.use(corpusIndexRouter({ corpusIndex, corpusRuns }));
+  }
+  if (agentClient) {
+    app.use(agentEstimationsRouter({ agentClient }));
   }
 
   app.use((req, res) => res.status(404).render("not-found"));
