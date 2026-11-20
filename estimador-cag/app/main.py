@@ -7,8 +7,8 @@ from fastapi import FastAPI, Request
 from slowapi.errors import RateLimitExceeded
 from starlette.responses import Response
 
-from app.api import config as config_router
 from app.api import (
+    agent_estimation,
     corpus_index,
     estimate_tasks,
     estimations,
@@ -19,6 +19,7 @@ from app.api import (
     search,
     sessions,
 )
+from app.api import config as config_router
 from app.api.embeddings import router as embeddings_router
 from app.api.rate_limiting import limiter, rate_limit_handler
 from app.config import APP_NAME, settings
@@ -96,6 +97,8 @@ app.include_router(rag_estimation.router, prefix="/api/v1")
 app.include_router(estimate_tasks.router, prefix="/api/v1")
 # Sesión 11 (directo) — expansión incremental del corpus.
 app.include_router(corpus_index.router, prefix="/api/v1")
+# Sesión 12 — capa agéntica de estimación.
+app.include_router(agent_estimation.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Estado del servicio")
