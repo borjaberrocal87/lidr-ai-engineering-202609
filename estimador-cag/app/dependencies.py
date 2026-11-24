@@ -7,15 +7,16 @@ de Redis durante toda la vida del proceso. Los tests pueden sustituir
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Iterator
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import anthropic
 import redis
 import structlog
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from app.config import BASE_DIR, get_settings, reveal_secret
 from app.foundation.cache.backends import InMemoryCache, NullCache, RedisCache, ResponseCache
@@ -23,6 +24,8 @@ from app.foundation.llm.runtime_config import RuntimeModelConfig, RuntimeRetriev
 from app.foundation.llm.wrapper import LLMWrapper, provider_from_model
 from app.foundation.persistence.database import get_async_session_factory
 from app.foundation.persistence.unit_of_work import UnitOfWork
+from app.generation.agentic.estimation_agent.schemas import SearchBudgetsArgs
+from app.generation.agentic.estimation_agent.tools import BudgetSearchBackend
 from app.generation.cag.semantic import EstimationSemanticCache
 from app.generation.conversation.store import SessionStore
 from app.generation.rag.chunking.base import Chunker
@@ -41,7 +44,9 @@ from app.generation.rag.index_service import CorpusIndexService
 from app.generation.rag.ingest_service import RagIngestService
 from app.generation.rag.quality.augmentation import AugmentationPolicy
 from app.generation.rag.quality.hallucination import HallucinationGate
+from app.generation.rag.retrieval.pipeline import retrieve
 from app.generation.rag.retrieval.reranker import CrossEncoderReranker
+from app.generation.rag.retrieval.sources import Collection
 from app.generation.rag.retriever import SemanticRetriever
 from app.generation.rag.store.repository import ChunkStore
 from app.ingestion.catalog import DataCatalog, load_catalog
@@ -397,6 +402,81 @@ def get_semantic_retriever() -> SemanticRetriever | None:
         store=get_chunk_store(),
         reranker=get_reranker(),
     )
+
+
+# --- Sesión 12 — capa agéntica de estimación -----------------------------------
+
+
+@lru_cache
+def get_async_openai_client() -> AsyncOpenAI | None:
+    """Cliente async para la Responses API del agente. ``None`` sin clave.
+
+    Excepción deliberada a ``LLMWrapper``: el ejercicio conduce a mano el bucle de
+    function calling (``responses.create`` + ``previous_response_id``), y eso
+    exige el cliente crudo. Mismo contrato de degradación que ``get_embedder``:
+    el router traduce el ``None`` a un 500 con mensaje genérico.
+    """
+    settings = get_settings()
+    key = reveal_secret(settings.open_ai_key)
+    if not key:
+        logger.warning("agent.client.disabled", reason="no_openai_key_configured")
+        return None
+    return AsyncOpenAI(api_key=key)
+
+
+def get_budget_search_backend() -> BudgetSearchBackend | None:
+    """Backend de ``search_budgets``: envuelve el retrieval de S9-S10.
+
+    Es el único punto del agente que toca el pipeline RAG. Se construye aquí
+    (composition root) porque ``app/generation/agentic`` no puede importar a su
+    hermano ``generation.rag``; el contrato de capas lo verifica
+    ``tests/test_layering.py``.
+
+    ``None`` sin embeddings configurados. Los toggles de recuperación se leen en
+    cada llamada, así que un cambio en Ajustes afecta a la siguiente búsqueda sin
+    reiniciar el proceso.
+    """
+    embedder = get_embedder()
+    if embedder is None:
+        return None
+
+    settings = get_settings()
+    store = get_chunk_store()
+    session_factory = get_async_session_factory()
+    reranker = get_reranker()
+
+    async def backend(args: SearchBudgetsArgs) -> list[dict[str, Any]]:
+        runtime = get_runtime_retrieval_config()
+        query_embedding = await asyncio.to_thread(embedder.embed_one, args.query)
+        outcome = await retrieve(
+            store=store,
+            session_factory=session_factory,
+            query_embedding=query_embedding,
+            query_text=args.query,
+            search_mode=runtime.effective_search_mode(),
+            rerank=runtime.effective_rerank(),
+            top_k=settings.agent_search_top_k,
+            distance_threshold=settings.agent_search_distance_threshold,
+            collection=Collection.BUDGET,
+            sectors=args.filters.sectors if args.filters else None,
+            chunk_types=["budget_component", "historical_task"],
+            reranker=reranker,
+        )
+        return [
+            {
+                "id": chunk.id,
+                "document_id": chunk.document_id,
+                "budget_id": chunk.budget_id,
+                "sector": chunk.sector,
+                "chunk_type": chunk.chunk_type,
+                "content_preview": " ".join(chunk.content.split())[:200],
+                "estimated_hours": chunk.estimated_hours,
+                "distance": round(chunk.distance, 4),
+            }
+            for chunk in outcome.chunks
+        ]
+
+    return backend
 
 
 # --- Sesión 7 (directo) — una factoría por estrategia de chunking --------------

@@ -1,4 +1,5 @@
 import { createApp } from "./app.js";
+import { HttpAgentEstimationClient } from "./agentEstimationClient.js";
 import { InMemoryChunkingRepo, PgChunkingRepo } from "./chunkingRepo.js";
 import { HttpConfigClient } from "./configClient.js";
 import { loadConfig } from "./config.js";
@@ -72,6 +73,11 @@ const corpusIndex = new HttpCorpusIndexClient({
   timeoutMs: config.corpusIndexTimeoutMs,
 });
 
+const agentClient = new HttpAgentEstimationClient({
+  baseUrl: config.estimatorApiBaseUrl,
+  timeoutMs: config.agentTimeoutMs,
+});
+
 const app = createApp({
   repo,
   estimator,
@@ -81,6 +87,7 @@ const app = createApp({
   config: configClient,
   ragEstimations,
   ragClient,
+  agentClient,
   corpusIndex,
   corpusRuns,
 });
