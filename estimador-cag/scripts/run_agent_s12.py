@@ -48,13 +48,33 @@ from app.config import get_settings  # noqa: E402
 from app.dependencies import (  # noqa: E402
     get_async_openai_client,
     get_budget_search_backend,
+    get_chunk_store,
+    get_embedder,
+    get_reranker,
+    get_runtime_retrieval_config,
 )
+from app.domain.agent_estimation import (  # noqa: E402
+    agent_estimate_task_hours,
+    agent_propose_structure,
+)
+from app.foundation.persistence.database import get_async_session_factory  # noqa: E402
 from app.generation.agentic.estimation_agent.runner import run_estimation_agent  # noqa: E402
 from app.generation.agentic.estimation_agent.schemas import (  # noqa: E402
     AgentRunResult,
     SearchBudgetsArgs,
 )
 from app.generation.agentic.estimation_agent.tools import BudgetSearchBackend  # noqa: E402
+from app.generation.rag.schemas import (  # noqa: E402
+    ProjectBrief,
+    TaskHoursEstimate,
+    TaskHoursModuleInput,
+    TaskHoursResult,
+    TaskHoursTaskInput,
+)
+from app.generation.rag.task_hours import (  # noqa: E402
+    distance_weighted_consensus,
+    estimate_all,
+)
 
 STUB_PATH = ROOT / "examples" / "session-12" / "offline_budget_stub.py"
 
@@ -94,6 +114,117 @@ def _render(result: AgentRunResult) -> str:
     return "\n".join(lines)
 
 
+def _render_wizard_structure(proposal) -> str:
+    lines = [proposal.trace.render(), "", "=" * 78, "ESTRUCTURA PROPUESTA", "=" * 78]
+    for module in proposal.estimate.modules:
+        lines.append(f"  [{module.name}]")
+        for task in module.tasks:
+            suffix = f" — {task.description}" if task.description else ""
+            lines.append(f"    - {task.name}{suffix}")
+    if proposal.estimate.assumptions:
+        lines.append("  assumptions:")
+        lines.extend(f"    - {a.description}" for a in proposal.estimate.assumptions)
+    return "\n".join(lines)
+
+
+def _render_wizard_hours(result: TaskHoursResult) -> str:
+    lines = ["=" * 78, "HORAS POR TAREA (híbrido)", "=" * 78]
+    for estimate in result.tasks:
+        if estimate.has_match:
+            hours = f"{estimate.estimated_hours}h  reliability={estimate.reliability}"
+        else:
+            hours = "SIN DATO"
+        lines.append(f"  - {estimate.module} / {estimate.task}: {hours}")
+    if result.agent_trace is not None:
+        lines.extend(["", result.agent_trace.render()])
+    return "\n".join(lines)
+
+
+async def _base_hours_result(
+    modules: list[TaskHoursModuleInput], *, stub: bool
+) -> TaskHoursResult:
+    """Consenso determinista: fixture offline o el pipeline real."""
+    if stub:
+        return TaskHoursResult(
+            tasks=[
+                TaskHoursEstimate(module=module.name, task=task.name, has_match=False)
+                for module in modules
+                for task in module.tasks
+            ]
+        )
+
+    embedder = get_embedder()
+    if embedder is None:
+        raise SystemExit("ERROR: no embeddings configured for the hours phase.")
+    runtime = get_runtime_retrieval_config()
+    rerank = runtime.effective_rerank()
+    settings = get_settings()
+    return await estimate_all(
+        modules,
+        store=get_chunk_store(),
+        session_factory=get_async_session_factory(),
+        embedder=embedder,
+        reranker=get_reranker() if rerank else None,
+        top_k=runtime.effective_task_hours_top_k(),
+        distance_threshold=runtime.effective_task_hours_distance_threshold(),
+        search_mode=runtime.effective_search_mode(),
+        rerank=rerank,
+        recall_k=settings.retrieval_recall_top_k,
+        rerank_top_n=settings.rerank_top_n,
+        rrf_k=settings.rrf_k,
+        synthesis_enabled=runtime.effective_synthesis(),
+        synthesis_threshold=settings.synthesis_contradiction_threshold,
+    )
+
+
+async def _run_wizard(args: argparse.Namespace, client, backend, transcript: str) -> int:
+    """Fase 1 + fase 2: el agente conduce el wizard (estructura y horas híbridas)."""
+    settings = get_settings()
+    brief = ProjectBrief(functionality=transcript)
+
+    proposal = await agent_propose_structure(
+        brief,
+        client=client,
+        model=args.model,
+        reasoning_effort=args.effort,
+    )
+    structure_text = _render_wizard_structure(proposal)
+    print(structure_text)
+
+    modules = [
+        TaskHoursModuleInput(
+            name=module.name,
+            tasks=[
+                TaskHoursTaskInput(name=task.name, description=task.description)
+                for task in module.tasks
+            ],
+        )
+        for module in proposal.estimate.modules
+    ]
+
+    async def base() -> TaskHoursResult:
+        return await _base_hours_result(modules, stub=args.stub)
+
+    hours = await agent_estimate_task_hours(
+        modules,
+        client=client,
+        backend=backend,
+        consensus_fn=distance_weighted_consensus,
+        base_estimator=base,
+        model=args.model,
+        reasoning_effort=args.effort,
+        max_iterations=args.max_iterations,
+        low_reliability=settings.agent_recovery_reliability_threshold,
+    )
+    hours_text = _render_wizard_hours(hours)
+    print("\n" + hours_text)
+
+    if args.out:
+        Path(args.out).write_text(structure_text + "\n\n" + hours_text + "\n", encoding="utf-8")
+        print(f"\n(trace written to {args.out})")
+    return 0
+
+
 async def _run(args: argparse.Namespace) -> int:
     transcript_path = Path(args.transcript)
     if not transcript_path.is_file():
@@ -128,6 +259,9 @@ async def _run(args: argparse.Namespace) -> int:
         f"{'offline stub' if args.stub else 'retrieve() pipeline'}"
     )
     print()
+
+    if args.phase == "wizard":
+        return await _run_wizard(args, client, backend, transcript)
 
     result = await run_estimation_agent(
         transcript,
@@ -173,6 +307,15 @@ def main() -> int:
         help="Use the offline budget fixture (no database or corpus needed).",
     )
     parser.add_argument("--out", help="Write the rendered trace and report to this file.")
+    parser.add_argument(
+        "--phase",
+        choices=["full", "wizard"],
+        default="full",
+        help=(
+            "full = shot autónomo (pre-work); wizard = fase 1 estructura + fase 2 "
+            "horas híbridas (el agente conduce el wizard)."
+        ),
+    )
     args = parser.parse_args()
     return asyncio.run(_run(args))
 
