@@ -425,16 +425,32 @@ def get_async_openai_client() -> AsyncOpenAI | None:
 
 
 def get_budget_search_backend() -> BudgetSearchBackend | None:
-    """Backend de ``search_budgets``: envuelve el retrieval de S9-S10.
+    """Backend de ``search_budgets`` con los valores por defecto de ``Settings``.
+
+    Envoltura de :func:`make_budget_search_backend` sin overrides: la usa el
+    agente autónomo. El wizard agéntico prefiere la factoría para ajustar
+    ``top_k`` / ``distance_threshold`` por ejecución (perfil de agente).
+    """
+    return make_budget_search_backend()
+
+
+def make_budget_search_backend(
+    *,
+    top_k: int | None = None,
+    distance_threshold: float | None = None,
+) -> BudgetSearchBackend | None:
+    """Factoría del backend de ``search_budgets``: envuelve el retrieval de S9-S10.
 
     Es el único punto del agente que toca el pipeline RAG. Se construye aquí
     (composition root) porque ``app/generation/agentic`` no puede importar a su
     hermano ``generation.rag``; el contrato de capas lo verifica
     ``tests/test_layering.py``.
 
-    ``None`` sin embeddings configurados. Los toggles de recuperación se leen en
-    cada llamada, así que un cambio en Ajustes afecta a la siguiente búsqueda sin
-    reiniciar el proceso.
+    ``top_k`` / ``distance_threshold`` permiten afinarlo por ejecución (los knobs
+    del perfil de agente). Cuando son ``None`` caen a ``AGENT_SEARCH_TOP_K`` /
+    ``AGENT_SEARCH_DISTANCE_THRESHOLD``. ``None`` sin embeddings configurados; los
+    toggles de recuperación se leen en cada llamada, así que un cambio en Ajustes
+    afecta a la siguiente búsqueda sin reiniciar el proceso.
     """
     embedder = get_embedder()
     if embedder is None:
@@ -455,8 +471,12 @@ def get_budget_search_backend() -> BudgetSearchBackend | None:
             query_text=args.query,
             search_mode=runtime.effective_search_mode(),
             rerank=runtime.effective_rerank(),
-            top_k=settings.agent_search_top_k,
-            distance_threshold=settings.agent_search_distance_threshold,
+            top_k=top_k if top_k is not None else settings.agent_search_top_k,
+            distance_threshold=(
+                distance_threshold
+                if distance_threshold is not None
+                else settings.agent_search_distance_threshold
+            ),
             collection=Collection.BUDGET,
             sectors=args.filters.sectors if args.filters else None,
             chunk_types=["budget_component", "historical_task"],
