@@ -44,6 +44,15 @@ __all__ = [
     "AgentComponent",
     "AgentEstimateReport",
     "AgentRunResult",
+    "AgentTask",
+    "AgentModule",
+    "AgentStructure",
+    "AgentStructureRun",
+    "AgentTaskRef",
+    "AgentNeighbor",
+    "DeriveTaskHoursArgs",
+    "AgentTaskDerivation",
+    "AgentTaskHoursRun",
 ]
 
 
@@ -135,6 +144,103 @@ class AgentRunResult(BaseModel):
         default=None,
         description="None when the loop stopped before producing a parseable report.",
     )
+    trace: AgentTrace
+    iterations: int = Field(ge=0, description="Responses API round-trips.")
+    stopped_reason: StoppedReason = "completed"
+
+
+# --------------------------------------------------------------------------- #
+# Fase 1 — el agente propone la estructura módulo→tarea                       #
+# --------------------------------------------------------------------------- #
+class AgentTask(BaseModel):
+    """Una tarea de la estructura propuesta (sin horas: las pone la fase 2)."""
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+
+
+class AgentModule(BaseModel):
+    """Un módulo funcional de la estructura propuesta."""
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+    tasks: list[AgentTask] = Field(default_factory=list)
+
+
+class AgentStructure(BaseModel):
+    """Estructura módulo→tarea que el agente propone en la fase 1.
+
+    Es un contrato ligero y SIN dependencias de RAG (sin citas ni horas): el
+    conductor lo mapea al ``GroundedEstimate`` que el wizard ya renderiza.
+    """
+
+    modules: list[AgentModule] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    confidence: Confidence
+    reasoning: str = ""
+    insufficient_context_explanation: str | None = None
+
+
+class AgentStructureRun(BaseModel):
+    """Lo que produce la fase 1: la estructura propuesta más su traza."""
+
+    structure: AgentStructure
+    trace: AgentTrace
+    iterations: int = Field(ge=0, description="Responses API round-trips.")
+    stopped_reason: StoppedReason = "completed"
+
+
+# --------------------------------------------------------------------------- #
+# Fase 2 — recuperación de horas solo para las tareas no groundadas           #
+# --------------------------------------------------------------------------- #
+class AgentTaskRef(BaseModel):
+    """Una tarea que el paso determinista no pudo groundar."""
+
+    module: str = Field(min_length=1)
+    task: str = Field(min_length=1)
+    description: str | None = None
+
+
+class AgentNeighbor(BaseModel):
+    """Un análogo histórico que el agente encontró y pasa al consenso."""
+
+    source_id: int | None = Field(
+        default=None,
+        description="Database id of the historical chunk, when known.",
+    )
+    estimated_hours: int = Field(ge=0)
+    distance: float = Field(ge=0.0)
+
+
+class DeriveTaskHoursArgs(BaseModel):
+    """Argumentos validados de ``derive_task_hours``."""
+
+    module: str = Field(min_length=1)
+    task: str = Field(min_length=1)
+    neighbors: list[AgentNeighbor] = Field(min_length=1)
+
+
+class AgentTaskDerivation(BaseModel):
+    """Horas que la fase 2 derivó para una tarea, con su fiabilidad."""
+
+    module: str
+    task: str
+    estimated_hours: int = Field(ge=0)
+    reliability: float = Field(ge=0.0, le=1.0)
+    dispersion: float = Field(ge=0.0)
+    source_chunk_ids: list[int] = Field(default_factory=list)
+    rationale: str | None = None
+
+
+class AgentTaskHoursRun(BaseModel):
+    """Resultado de la fase 2: horas recuperadas más la traza del bucle.
+
+    No hay parse final: las horas salen de las observaciones de
+    ``derive_task_hours``, que aplica la MISMA matemática de consenso que el
+    camino determinista. Así el agente no puede inventar una cifra.
+    """
+
+    recovered: list[AgentTaskDerivation] = Field(default_factory=list)
     trace: AgentTrace
     iterations: int = Field(ge=0, description="Responses API round-trips.")
     stopped_reason: StoppedReason = "completed"
