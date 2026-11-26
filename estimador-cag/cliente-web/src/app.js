@@ -62,7 +62,7 @@ export function createApp({
     app.use(aiSettingsRouter({ config }));
   }
   if (ragEstimations && ragClient) {
-    app.use(ragEstimationsRouter({ ragEstimations, ragClient }));
+    app.use(ragEstimationsRouter({ ragEstimations, ragClient, agentClient, agentProfiles }));
   }
   if (corpusIndex && corpusRuns) {
     app.use(corpusIndexRouter({ corpusIndex, corpusRuns }));

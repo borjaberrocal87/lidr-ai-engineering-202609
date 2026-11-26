@@ -17,12 +17,17 @@ async function readDetail(response) {
 
 /**
  * Cliente de la capa agéntica (Sesión 12).
- * Habla con /api/v1/agent/estimate/from-transcript y devuelve informe + traza.
+ *
+ * Tres superficies: el shot autónomo (``estimateFromTranscript``), la fase 1 del
+ * wizard (``proposeStructure``) y la fase 2 híbrida (``estimateTaskHours``). Las
+ * dos últimas exigen la API key de estimación, igual que sus hermanas
+ * deterministas.
  */
 export class HttpAgentEstimationClient {
-  constructor({ baseUrl, timeoutMs = 600000 }) {
+  constructor({ baseUrl, timeoutMs = 600000, estimateApiKey = "" }) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
     this.timeoutMs = timeoutMs;
+    this.estimateApiKey = estimateApiKey;
   }
 
   async #post(path, body) {
@@ -32,7 +37,10 @@ export class HttpAgentEstimationClient {
     try {
       response = await fetch(`${this.baseUrl}${path}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.estimateApiKey ? { "X-API-Key": this.estimateApiKey } : {}),
+        },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -55,5 +63,19 @@ export class HttpAgentEstimationClient {
 
   async estimateFromTranscript(transcript) {
     return this.#post("/api/v1/agent/estimate/from-transcript", { transcript });
+  }
+
+  /** Fase 1: el agente propone la estructura del brief (con overrides del perfil). */
+  async proposeStructure(brief, overrides = null) {
+    const body = { query: brief };
+    if (overrides && Object.keys(overrides).length) body.agent = overrides;
+    return this.#post("/api/v1/agent/estimate/structure", body);
+  }
+
+  /** Fase 2: horas híbridas sobre la estructura revisada. */
+  async estimateTaskHours(modules, overrides = null) {
+    const body = { modules };
+    if (overrides && Object.keys(overrides).length) body.agent = overrides;
+    return this.#post("/api/v1/agent/estimate/hours", body);
   }
 }

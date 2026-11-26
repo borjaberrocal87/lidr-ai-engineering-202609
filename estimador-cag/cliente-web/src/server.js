@@ -80,6 +80,7 @@ const corpusIndex = new HttpCorpusIndexClient({
 const agentClient = new HttpAgentEstimationClient({
   baseUrl: config.estimatorApiBaseUrl,
   timeoutMs: config.agentTimeoutMs,
+  estimateApiKey: config.ragEstimateApiKey,
 });
 
 const app = createApp({
