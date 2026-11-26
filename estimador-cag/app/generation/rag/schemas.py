@@ -14,6 +14,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.schemas.agent_trace import AgentTrace
+
 
 class Sector(StrEnum):
     """Sector de negocio del cliente (universo cerrado del sample)."""
@@ -734,9 +736,30 @@ class GroundedGenerationOutcome(BaseModel):
     coherent: bool = Field(
         description="False cuando una estimación insuficiente aún lleva números."
     )
+    agent_trace: AgentTrace | None = Field(
+        default=None,
+        description="Sesión 12: traza del agente cuando la estructura la propuso él. "
+        "None en la generación determinista.",
+    )
 
 
 # ---- Modelos de la generación estructura-primero (S10) ----------------------
+
+
+class AgentOverrides(BaseModel):
+    """Ajustes del agente que puede aportar un perfil (Sesión 12).
+
+    Todos opcionales: un knob ausente cae al valor por defecto del servicio. Es
+    el mismo ``config_payload`` que guarda el perfil de agente del cliente-web.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str | None = None
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
+    max_iterations: int | None = Field(default=None, ge=1, le=20)
+    search_top_k: int | None = Field(default=None, ge=1, le=30)
+    search_distance_threshold: float | None = Field(default=None, ge=0.0, le=2.0)
 
 
 class StructureRequest(BaseModel):
@@ -749,6 +772,11 @@ class StructureRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: ProjectBrief
+    agent: AgentOverrides | None = Field(
+        default=None,
+        description="Sesión 12: knobs del perfil para la variante agéntica. None en "
+        "la generación determinista.",
+    )
 
 
 # ---- Modelos del consenso de horas por tarea (S10) -------------------------
@@ -859,9 +887,19 @@ class TaskHoursRequest(BaseModel):
     """Payload de ``POST /api/v1/estimate/tasks/hours``."""
 
     modules: list[TaskHoursModuleInput] = Field(min_length=1)
+    agent: AgentOverrides | None = Field(
+        default=None,
+        description="Sesión 12: knobs del perfil para la variante agéntica híbrida.",
+    )
 
 
 class TaskHoursResult(BaseModel):
     """Horas por tarea, en el orden en que se enviaron."""
 
     tasks: list[TaskHoursEstimate] = Field(default_factory=list)
+    agent_trace: AgentTrace | None = Field(
+        default=None,
+        description="Sesión 12: traza de la fase de recuperación cuando el agente "
+        "re-buscó las tareas no groundadas. None si todo se resolvió de forma "
+        "determinista.",
+    )

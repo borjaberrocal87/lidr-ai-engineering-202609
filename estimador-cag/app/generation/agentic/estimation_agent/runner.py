@@ -30,6 +30,11 @@ from typing import Any
 
 import structlog
 
+from app.generation.agentic.estimation_agent._loop import (
+    function_calls,
+    observation,
+    summarize_reasoning,
+)
 from app.generation.agentic.estimation_agent.schemas import (
     AgentEstimateReport,
     AgentRunResult,
@@ -82,37 +87,6 @@ FINAL_INSTRUCTION = (
 )
 
 
-def _summarize_reasoning(output: list[Any]) -> str | None:
-    """Concatena el reasoning summary del turno, si la API emitió alguno.
-
-    La Responses API solo devuelve summaries si la llamada pasa
-    ``reasoning={"summary": "auto"}``; incluso así pueden llegar vacíos con
-    esfuerzos baratos.
-    """
-    parts: list[str] = []
-    for item in output:
-        if getattr(item, "type", None) != "reasoning":
-            continue
-        for summary in getattr(item, "summary", None) or []:
-            text = getattr(summary, "text", None)
-            if text:
-                parts.append(str(text))
-    return " ".join(parts) if parts else None
-
-
-def _function_calls(output: list[Any]) -> list[Any]:
-    return [item for item in output if getattr(item, "type", None) == "function_call"]
-
-
-def _observation(result: dict[str, Any]) -> str:
-    summary = result.get("summary")
-    if summary:
-        return str(summary)
-    if result.get("error"):
-        return str(result["error"])
-    return json.dumps(result, ensure_ascii=False)[:200]
-
-
 async def run_estimation_agent(
     transcript: str,
     *,
@@ -150,7 +124,7 @@ async def run_estimation_agent(
     iterations = 1
 
     while True:
-        calls = _function_calls(response.output)
+        calls = function_calls(response.output)
         if not calls:
             break
         if iterations >= iteration_budget:
@@ -161,7 +135,7 @@ async def run_estimation_agent(
         # El modelo razona una vez por turno aunque emita varias calls en
         # paralelo. El summary se cuelga del primer paso y los hermanos se marcan
         # como calls del mismo turno, en vez de repetir el bloque entero.
-        reasoning = _summarize_reasoning(response.output)
+        reasoning = summarize_reasoning(response.output)
         first_step = step_number + 1
         tool_outputs: list[dict[str, Any]] = []
 
@@ -191,7 +165,7 @@ async def run_estimation_agent(
                     reasoning_summary=step_reasoning,
                     tool=tool_name,
                     tool_args=raw_args,
-                    observation=_observation(result),
+                    observation=observation(result),
                 )
             )
             tool_outputs.append(

@@ -84,6 +84,8 @@
       </div>
     <% }); %>
 
+    <%- include('_agent_trace', { agentTrace: taskHours?.agent_trace || null }) %>
+
     <div class="flex items-center gap-4 mt-6">
       <a href="/rag-estimations/<%= run.id %>?step=verification" class="btn-primary">
         Validar horas y tarifas →

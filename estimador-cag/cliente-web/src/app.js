@@ -5,6 +5,7 @@ import express from "express";
 
 import { DETAIL_LEVELS, OUTPUT_FORMATS, PROJECT_TYPES, humanize } from "./constants.js";
 import { agentEstimationsRouter } from "./routes/agentEstimations.js";
+import { agentProfilesRouter } from "./routes/agentProfiles.js";
 import { aiSettingsRouter } from "./routes/aiSettings.js";
 import { chunkingLabRouter } from "./routes/chunkingLab.js";
 import { corpusIndexRouter } from "./routes/corpusIndex.js";
@@ -24,6 +25,7 @@ export function createApp({
   ragEstimations,
   ragClient,
   agentClient,
+  agentProfiles,
   corpusIndex,
   corpusRuns,
 }) {
@@ -33,7 +35,8 @@ export function createApp({
   app.set("views", join(here, "..", "views"));
   // `extended: true` permite editar módulos/tareas anidados del wizard RAG
   // (modules[0][tasks][1][name]). Los formularios antiguos no se ven afectados.
-  app.use(express.urlencoded({ extended: true }));
+  // `limit` deja sitio al avatar de un perfil (data URL de hasta 512 KB).
+  app.use(express.urlencoded({ extended: true, limit: "1mb" }));
   app.use(express.static(join(here, "..", "public")));
 
   app.locals.humanize = humanize;
@@ -60,13 +63,16 @@ export function createApp({
     app.use(aiSettingsRouter({ config }));
   }
   if (ragEstimations && ragClient) {
-    app.use(ragEstimationsRouter({ ragEstimations, ragClient }));
+    app.use(ragEstimationsRouter({ ragEstimations, ragClient, agentClient, agentProfiles }));
   }
   if (corpusIndex && corpusRuns) {
     app.use(corpusIndexRouter({ corpusIndex, corpusRuns }));
   }
   if (agentClient) {
     app.use(agentEstimationsRouter({ agentClient }));
+  }
+  if (agentProfiles) {
+    app.use(agentProfilesRouter({ agentProfiles }));
   }
 
   app.use((req, res) => res.status(404).render("not-found"));

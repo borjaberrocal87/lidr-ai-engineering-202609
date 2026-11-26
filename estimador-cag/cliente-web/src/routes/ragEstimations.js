@@ -1,5 +1,7 @@
 import { Router } from "express";
 
+import { configPayload } from "./agentProfiles.js";
+import { AgentEstimationError } from "../agentEstimationClient.js";
 import { RagClientError } from "../ragEstimationClient.js";
 
 const STEPS = ["brief", "generation", "review", "hours", "verification"];
@@ -186,6 +188,7 @@ function viewContext(run, step, { error = "", notice = "" } = {}) {
     notice,
     filters: readFilters({}),
     estimate,
+    generation,
     structure: structure?.modules || [],
     taskHours: run.taskHours || null,
     fabricatedSourceIds: generation?.fabricated_source_ids || [],
@@ -196,8 +199,34 @@ function viewContext(run, step, { error = "", notice = "" } = {}) {
   };
 }
 
-export function ragEstimationsRouter({ ragEstimations, ragClient }) {
+export function ragEstimationsRouter({ ragEstimations, ragClient, agentClient, agentProfiles }) {
   const router = Router();
+
+  const loadProfiles = async () => (agentProfiles ? agentProfiles.list() : []);
+
+  const resolveProfile = async (id) =>
+    agentProfiles && id ? agentProfiles.getById(String(id)) : null;
+
+  const defaultProfile = async () =>
+    (await loadProfiles()).find((profile) => profile.isDefault) || null;
+
+  const overridesFor = (profile) => (profile ? configPayload(profile) : null);
+
+  /**
+   * Resuelve el perfil de una acción agéntica.
+   *
+   * - Campo ``profile_id`` ausente (formularios antiguos o llamadas directas):
+   *   usa el perfil predeterminado. Es lo que el usuario espera si existe uno.
+   * - ``profile_id`` vacío: elección explícita de "(por defecto del servicio)".
+   * - ``profile_id`` con id desconocido (formulario obsoleto): vuelve al
+   *   predeterminado en vez de fallar.
+   */
+  const resolveRequestedProfile = async (body) => {
+    const hasField = Object.prototype.hasOwnProperty.call(body, "profile_id");
+    const rawId = String(body.profile_id || "").trim();
+    if (hasField && !rawId) return null;
+    return (await resolveProfile(rawId)) || (await defaultProfile());
+  };
 
   const failed = async (run, error, step) => {
     const message = error instanceof RagClientError ? error.message : "Error inesperado.";
@@ -220,8 +249,16 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
     }
   });
 
-  router.get("/rag-estimations/new", (req, res) => {
-    res.render("rag-estimations/new", { values: { transcript: "" }, error: "" });
+  router.get("/rag-estimations/new", async (req, res, next) => {
+    try {
+      res.render("rag-estimations/new", {
+        values: { transcript: "" },
+        error: "",
+        profiles: await loadProfiles(),
+      });
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.post("/rag-estimations", async (req, res, next) => {
@@ -271,13 +308,12 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
         return;
       }
       const step = resolveStep(req.query.step, run);
-      res.render(
-        "rag-estimations/show",
-        viewContext(run, step, {
-          error: req.query.error ? String(req.query.error) : "",
-          notice: req.query.notice ? String(req.query.notice) : "",
-        }),
-      );
+      const ctx = viewContext(run, step, {
+        error: req.query.error ? String(req.query.error) : "",
+        notice: req.query.notice ? String(req.query.notice) : "",
+      });
+      ctx.profiles = await loadProfiles();
+      res.render("rag-estimations/show", ctx);
     } catch (error) {
       next(error);
     }
@@ -412,6 +448,119 @@ export function ragEstimationsRouter({ ragEstimations, ragClient }) {
       );
     } catch (error) {
       if (error instanceof RagClientError) {
+        const run = await ragEstimations.getById(req.params.id);
+        if (run) await failed(run, error, "review");
+        redirectWithError(res, req.params.id, "review", error.message);
+        return;
+      }
+      next(error);
+    }
+  });
+
+  // --- Sesión 12: el agente conduce el wizard ------------------------------
+
+  // Fase 1 agéntica: el agente propone la estructura (opcionalmente con perfil).
+  router.post("/rag-estimations/:id/generate-agent", async (req, res, next) => {
+    try {
+      if (!agentClient) {
+        next();
+        return;
+      }
+      const run = await ragEstimations.getById(req.params.id);
+      if (!run) {
+        res.status(404).render("not-found");
+        return;
+      }
+      if (!run.brief) {
+        redirectWithError(res, run.id, "generation", "Necesitas un brief antes de generar.");
+        return;
+      }
+      const profile = await resolveRequestedProfile(req.body);
+      const overrides = overridesFor(profile);
+      const generation = await agentClient.proposeStructure(run.brief, overrides);
+      generation.agent = {
+        profileId: profile ? profile.id : null,
+        profileName: profile ? profile.name : null,
+        overrides: overrides || {},
+      };
+      await ragEstimations.update(run.id, {
+        generation,
+        structure: seedStructure(generation),
+        taskHours: null,
+        verification: null,
+        status: "generated",
+        currentStep: "review",
+        error: null,
+      });
+      const notice = profile
+        ? `Estructura propuesta por el agente con el perfil ${profile.name}.`
+        : "Estructura propuesta por el agente.";
+      res.redirect(303, `/rag-estimations/${run.id}?step=review&notice=${encodeURIComponent(notice)}`);
+    } catch (error) {
+      if (error instanceof RagClientError || error instanceof AgentEstimationError) {
+        const run = await ragEstimations.getById(req.params.id);
+        if (run) await failed(run, error, "generation");
+        redirectWithError(res, req.params.id, "generation", error.message);
+        return;
+      }
+      next(error);
+    }
+  });
+
+  // Fase 2 agéntica: consenso determinista + recuperación de lo no groundado.
+  router.post("/rag-estimations/:id/estimate-hours-agent", async (req, res, next) => {
+    try {
+      if (!agentClient) {
+        next();
+        return;
+      }
+      const run = await ragEstimations.getById(req.params.id);
+      if (!run) {
+        res.status(404).render("not-found");
+        return;
+      }
+      const modules = normalizeStructure(req.body.modules);
+      if (!modules.length) {
+        redirectWithError(
+          res,
+          run.id,
+          "review",
+          "La estructura necesita al menos un módulo con tareas.",
+        );
+        return;
+      }
+      // Si la estructura se generó sin perfil, la fase de horas usa el
+      // predeterminado: el agente nunca se queda sin sus knobs por descuido.
+      const storedOverrides = run.generation?.agent?.overrides ?? null;
+      const overrides = storedOverrides
+        ? storedOverrides
+        : overridesFor(await defaultProfile());
+      const taskHours = await agentClient.estimateTaskHours(
+        structureForApi(modules),
+        overrides,
+      );
+      await ragEstimations.update(run.id, {
+        structure: { modules },
+        taskHours,
+        verification: seedBreakdownWithHours(modules, taskHours),
+        status: "hours_estimated",
+        currentStep: "hours",
+        error: null,
+      });
+      const recovered =
+        taskHours?.agent_trace && taskHours.agent_trace.steps
+          ? taskHours.agent_trace.steps.length
+          : 0;
+      res.redirect(
+        303,
+        `/rag-estimations/${run.id}?step=hours&notice=${encodeURIComponent(
+          recovered
+            ? `Horas estimadas: el agente recuperó ${recovered} paso(s) de análogos.`
+            : "Horas estimadas por consenso determinista.",
+        )}`,
+      );
+    } catch (error) {
+      if (error instanceof RagClientError || error instanceof AgentEstimationError) {
         const run = await ragEstimations.getById(req.params.id);
         if (run) await failed(run, error, "review");
         redirectWithError(res, req.params.id, "review", error.message);

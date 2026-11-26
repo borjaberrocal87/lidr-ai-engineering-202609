@@ -1,32 +1,59 @@
 """Contratos tipados del agente de estimación (Sesión 12).
 
-Tres familias de modelos:
+Dos familias de modelos viven aquí:
 
 * **Argumentos de tools** — el runner valida cada ``function_call.arguments``
   contra uno de estos modelos ANTES de ejecutar la tool. Un argumento inventado
   se convierte en una observación de error que el modelo puede corregir en la
   siguiente vuelta, nunca en una excepción que mate el bucle.
-* **Traza** — el registro razonamiento → acción → observación que exige el
-  ejercicio. ``AgentTrace.render`` produce el formato ``STEP N`` de consola.
 * **Resultado** — un informe ligero y propio del agente, distinto del
   ``GroundedEstimate`` de S9-S11 (que exige citas verificadas por línea).
+
+La **traza** (razonamiento → acción → observación) ya no se define aquí: es un
+contrato compartido y vive en ``app/domain/schemas/agent_trace.py`` para que los
+schemas RAG puedan transportarla sin que ``rag`` importe ``agentic``. Se
+re-exporta desde este módulo (con ``AgentStepRecord`` como alias histórico) para
+no romper los imports existentes.
 """
 
 from __future__ import annotations
 
-import json
-import re
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Confidence = Literal["low", "medium", "high"]
-StoppedReason = Literal["completed", "max_iterations", "no_final_report"]
+from app.domain.schemas.agent_trace import AgentStep, AgentTrace, StoppedReason
 
-# Un modelo puede colar un carácter de control dentro de un escape unicode
-# malformado. Se limpia solo al renderizar la traza para que el .txt quede
-# legible sin tocar los argumentos que usa el dispatch.
-_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+# Nombre histórico del paso; hoy es un alias del contrato compartido.
+AgentStepRecord = AgentStep
+
+Confidence = Literal["low", "medium", "high"]
+
+__all__ = [
+    "AgentComponent",
+    "AgentEstimateReport",
+    "AgentModule",
+    "AgentNeighbor",
+    "AgentRunResult",
+    "AgentStep",
+    "AgentStepRecord",
+    "AgentStructure",
+    "AgentStructureRun",
+    "AgentTask",
+    "AgentTaskDerivation",
+    "AgentTaskHoursRun",
+    "AgentTaskRef",
+    "AgentTrace",
+    "CalculateEstimateArgs",
+    "ComponentCostInput",
+    "Confidence",
+    "DeriveTaskHoursArgs",
+    "SearchBudgetsArgs",
+    "SearchFilters",
+    "StoppedReason",
+    "ValidateEstimateArgs",
+    "ValidationLine",
+]
 
 
 # --------------------------------------------------------------------------- #
@@ -87,63 +114,6 @@ class ValidateEstimateArgs(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Traza                                                                        #
-# --------------------------------------------------------------------------- #
-class AgentStepRecord(BaseModel):
-    """Un paso razonamiento → acción → observación del bucle."""
-
-    step: int = Field(ge=1)
-    reasoning_summary: str | None = Field(
-        default=None,
-        description="Reasoning summary emitted by the Responses API for this turn.",
-    )
-    tool: str = Field(description="Invoked tool name.")
-    tool_args: dict[str, Any] = Field(description="Arguments the model passed.")
-    observation: str = Field(description="Human-readable summary of the tool result.")
-
-
-class AgentTrace(BaseModel):
-    """Registro ordenado de la ejecución, para auditar y para el entregable."""
-
-    steps: list[AgentStepRecord] = Field(default_factory=list)
-    model: str | None = None
-    iterations: int | None = None
-    stopped_reason: StoppedReason | None = None
-
-    def render(self) -> str:
-        """Render the trace in the ``STEP N`` console format required by the exercise."""
-        header = ["=" * 78, "AGENT TRACE", "=" * 78]
-        meta = []
-        if self.model:
-            meta.append(f"model={self.model}")
-        if self.iterations is not None:
-            meta.append(f"iterations={self.iterations}")
-        if self.stopped_reason:
-            meta.append(f"stopped={self.stopped_reason}")
-        if meta:
-            header.append("  " + "   ".join(meta))
-            header.append("")
-
-        if not self.steps:
-            return "\n".join([*header, "(no tool steps — the agent answered without tools)"])
-
-        blocks: list[str] = []
-        for step in self.steps:
-            reasoning = step.reasoning_summary or "(no reasoning summary emitted)"
-            args = _CONTROL_CHARS.sub(
-                "",
-                json.dumps(step.tool_args, ensure_ascii=False, default=str),
-            )
-            blocks.append(
-                f"STEP {step.step}\n"
-                f"  reasoning:   {reasoning}\n"
-                f"  action:      {step.tool}({args})\n"
-                f"  observation: {step.observation}"
-            )
-        return "\n".join([*header, "\n\n".join(blocks)])
-
-
-# --------------------------------------------------------------------------- #
 # Resultado                                                                    #
 # --------------------------------------------------------------------------- #
 class AgentComponent(BaseModel):
@@ -174,6 +144,103 @@ class AgentRunResult(BaseModel):
         default=None,
         description="None when the loop stopped before producing a parseable report.",
     )
+    trace: AgentTrace
+    iterations: int = Field(ge=0, description="Responses API round-trips.")
+    stopped_reason: StoppedReason = "completed"
+
+
+# --------------------------------------------------------------------------- #
+# Fase 1 — el agente propone la estructura módulo→tarea                       #
+# --------------------------------------------------------------------------- #
+class AgentTask(BaseModel):
+    """Una tarea de la estructura propuesta (sin horas: las pone la fase 2)."""
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+
+
+class AgentModule(BaseModel):
+    """Un módulo funcional de la estructura propuesta."""
+
+    name: str = Field(min_length=1)
+    description: str | None = None
+    tasks: list[AgentTask] = Field(default_factory=list)
+
+
+class AgentStructure(BaseModel):
+    """Estructura módulo→tarea que el agente propone en la fase 1.
+
+    Es un contrato ligero y SIN dependencias de RAG (sin citas ni horas): el
+    conductor lo mapea al ``GroundedEstimate`` que el wizard ya renderiza.
+    """
+
+    modules: list[AgentModule] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    confidence: Confidence
+    reasoning: str = ""
+    insufficient_context_explanation: str | None = None
+
+
+class AgentStructureRun(BaseModel):
+    """Lo que produce la fase 1: la estructura propuesta más su traza."""
+
+    structure: AgentStructure
+    trace: AgentTrace
+    iterations: int = Field(ge=0, description="Responses API round-trips.")
+    stopped_reason: StoppedReason = "completed"
+
+
+# --------------------------------------------------------------------------- #
+# Fase 2 — recuperación de horas solo para las tareas no groundadas           #
+# --------------------------------------------------------------------------- #
+class AgentTaskRef(BaseModel):
+    """Una tarea que el paso determinista no pudo groundar."""
+
+    module: str = Field(min_length=1)
+    task: str = Field(min_length=1)
+    description: str | None = None
+
+
+class AgentNeighbor(BaseModel):
+    """Un análogo histórico que el agente encontró y pasa al consenso."""
+
+    source_id: int | None = Field(
+        default=None,
+        description="Database id of the historical chunk, when known.",
+    )
+    estimated_hours: int = Field(ge=0)
+    distance: float = Field(ge=0.0)
+
+
+class DeriveTaskHoursArgs(BaseModel):
+    """Argumentos validados de ``derive_task_hours``."""
+
+    module: str = Field(min_length=1)
+    task: str = Field(min_length=1)
+    neighbors: list[AgentNeighbor] = Field(min_length=1)
+
+
+class AgentTaskDerivation(BaseModel):
+    """Horas que la fase 2 derivó para una tarea, con su fiabilidad."""
+
+    module: str
+    task: str
+    estimated_hours: int = Field(ge=0)
+    reliability: float = Field(ge=0.0, le=1.0)
+    dispersion: float = Field(ge=0.0)
+    source_chunk_ids: list[int] = Field(default_factory=list)
+    rationale: str | None = None
+
+
+class AgentTaskHoursRun(BaseModel):
+    """Resultado de la fase 2: horas recuperadas más la traza del bucle.
+
+    No hay parse final: las horas salen de las observaciones de
+    ``derive_task_hours``, que aplica la MISMA matemática de consenso que el
+    camino determinista. Así el agente no puede inventar una cifra.
+    """
+
+    recovered: list[AgentTaskDerivation] = Field(default_factory=list)
     trace: AgentTrace
     iterations: int = Field(ge=0, description="Responses API round-trips.")
     stopped_reason: StoppedReason = "completed"

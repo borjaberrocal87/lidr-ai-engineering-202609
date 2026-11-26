@@ -92,7 +92,7 @@ def compose_task_search_text(module: str, name: str, description: str | None) ->
     return "\n".join(parts)
 
 
-def _consensus(neighbors: list[tuple[int, float]]) -> tuple[int, float, float]:
+def distance_weighted_consensus(neighbors: list[tuple[int, float]]) -> tuple[int, float, float]:
     """Consenso ponderado por distancia sobre vecinos ``(horas, distancia)``.
 
     Devuelve ``(horas, fiabilidad, dispersión)``:
@@ -128,6 +128,11 @@ def _consensus(neighbors: list[tuple[int, float]]) -> tuple[int, float, float]:
     reliability = weighted_similarity * (1.0 - min(dispersion, 1.0))
     reliability = max(0.0, min(1.0, reliability))
     return round(weighted_hours), round(reliability, 3), round(dispersion, 3)
+
+
+# Alias histórico: los tests y el pre-work de la Sesión 12 la conocían como
+# ``_consensus``. El nombre público es el que inyecta el conductor en el agente.
+_consensus = distance_weighted_consensus
 
 
 async def estimate_one(
@@ -205,7 +210,7 @@ async def estimate_one(
         )
         for chunk in usable
     ]
-    hours, reliability, dispersion = _consensus(
+    hours, reliability, dispersion = distance_weighted_consensus(
         [(neighbor.estimated_hours, neighbor.distance) for neighbor in neighbors]
     )
     hour_range = (

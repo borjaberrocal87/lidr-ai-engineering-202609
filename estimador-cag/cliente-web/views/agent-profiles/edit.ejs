@@ -1,0 +1,16 @@
+<%- include('../partials/head', { title: 'Editar perfil de agente' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-3xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">Editar perfil</h1>
+      <p class="text-white/60 text-sm mt-1"><%= profile.name %></p>
+    </div>
+    <a href="/agent-profiles/<%= profile.id %>" class="text-brand font-bold hover:text-brand-soft tracking-tight">← Perfil</a>
+  </div>
+
+  <%- include('_form', { action: `/agent-profiles/${profile.id}`, submitLabel: 'Guardar cambios' }) %>
+</div>
+
+<%- include('../partials/footer') %>

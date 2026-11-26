@@ -24,12 +24,14 @@ tool. Están escritas para un modelo que no ve este código.
 from __future__ import annotations
 
 import statistics
+from collections.abc import Callable
 from typing import Any, Protocol
 
 import structlog
 
 from app.generation.agentic.estimation_agent.schemas import (
     CalculateEstimateArgs,
+    DeriveTaskHoursArgs,
     SearchBudgetsArgs,
     ValidateEstimateArgs,
 )
@@ -204,6 +206,73 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 
 
 # --------------------------------------------------------------------------- #
+# Fase 2 — consenso de horas con la matemática del camino determinista        #
+# --------------------------------------------------------------------------- #
+DERIVE_TASK_HOURS_TOOL: dict[str, Any] = {
+    "type": "function",
+    "name": "derive_task_hours",
+    "description": (
+        "Compute the hours for ONE task from the historical analogs you found with "
+        "search_budgets, using the SAME distance-weighted consensus the "
+        "deterministic pipeline uses. Pass every analog you consider relevant as a "
+        "neighbor with its recorded engineer-hours and its cosine distance "
+        "(smaller = closer). The tool returns the consensus hours, a 0..1 "
+        "reliability and a dispersion; do NOT invent hours yourself. If no "
+        "neighbor is close enough, search again with a better reformulation "
+        "instead of calling this tool with weak matches."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "module": {
+                "type": "string",
+                "description": "Module the task belongs to, taken from the flagged list.",
+            },
+            "task": {
+                "type": "string",
+                "description": "Task name, exactly as given in the flagged list.",
+            },
+            "neighbors": {
+                "type": "array",
+                "description": (
+                    "Historical analogs for this task, each with its recorded hours "
+                    "and the cosine distance returned by search_budgets."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "source_id": {
+                            "type": ["integer", "null"],
+                            "description": "Chunk id of the analog, when known.",
+                        },
+                        "estimated_hours": {
+                            "type": "integer",
+                            "description": "Recorded engineer-hours of the analog.",
+                        },
+                        "distance": {
+                            "type": "number",
+                            "description": "Cosine distance to the task (smaller = closer).",
+                        },
+                    },
+                    "required": ["source_id", "estimated_hours", "distance"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["module", "task", "neighbors"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
+RECOVERY_TOOL_SCHEMAS: list[dict[str, Any]] = [
+    SEARCH_BUDGETS_TOOL,
+    DERIVE_TASK_HOURS_TOOL,
+    VALIDATE_ESTIMATE_TOOL,
+]
+
+
+# --------------------------------------------------------------------------- #
 # Backend de búsqueda (inyectado)                                              #
 # --------------------------------------------------------------------------- #
 class BudgetSearchBackend(Protocol):
@@ -215,6 +284,12 @@ class BudgetSearchBackend(Protocol):
     """
 
     async def __call__(self, args: SearchBudgetsArgs) -> list[dict[str, Any]]: ...
+
+
+# Una función de consenso ``[(horas, distancia), ...] -> (horas, fiabilidad,
+# dispersión)``. El conductor inyecta la MISMA que usa el camino determinista
+# (``task_hours.distance_weighted_consensus``); así esta capa no importa rag.
+ConsensusFn = Callable[[list[tuple[int, float]]], tuple[int, float, float]]
 
 
 # --------------------------------------------------------------------------- #
@@ -326,11 +401,45 @@ def validate_estimate(raw_args: dict[str, Any]) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Dispatch                                                                     #
 # --------------------------------------------------------------------------- #
+def derive_task_hours(
+    raw_args: dict[str, Any],
+    *,
+    consensus_fn: ConsensusFn,
+) -> dict[str, Any]:
+    """Deriva las horas de una tarea con el consenso inyectado. Sin LLM."""
+    args = DeriveTaskHoursArgs.model_validate(raw_args)
+    neighbors = [(neighbor.estimated_hours, neighbor.distance) for neighbor in args.neighbors]
+    hours, reliability, dispersion = consensus_fn(neighbors)
+    source_chunk_ids = sorted(
+        {neighbor.source_id for neighbor in args.neighbors if neighbor.source_id is not None}
+    )
+    log.info(
+        "agent.tool.derive_task_hours",
+        module=args.module,
+        task=args.task,
+        hours=hours,
+        reliability=reliability,
+    )
+    return {
+        "module": args.module,
+        "task": args.task,
+        "estimated_hours": hours,
+        "reliability": reliability,
+        "dispersion": dispersion,
+        "source_chunk_ids": source_chunk_ids,
+        "summary": (
+            f"{args.task!r}: {hours}h (reliability {reliability}, dispersion {dispersion}) "
+            f"from {len(neighbors)} analogs"
+        ),
+    }
+
+
 async def dispatch_tool(
     name: str,
     raw_args: dict[str, Any],
     *,
     backend: BudgetSearchBackend,
+    consensus_fn: ConsensusFn | None = None,
 ) -> dict[str, Any]:
     """Enruta una tool por nombre.
 
@@ -344,4 +453,8 @@ async def dispatch_tool(
         return calculate_estimate(raw_args)
     if name == "validate_estimate":
         return validate_estimate(raw_args)
+    if name == "derive_task_hours":
+        if consensus_fn is None:
+            raise ValueError("derive_task_hours needs an injected consensus function")
+        return derive_task_hours(raw_args, consensus_fn=consensus_fn)
     raise ValueError(f"Unknown tool: {name!r}")
