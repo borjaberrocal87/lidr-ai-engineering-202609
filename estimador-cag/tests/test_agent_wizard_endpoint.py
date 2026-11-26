@@ -106,9 +106,7 @@ async def _empty_backend(_args: Any) -> list[dict[str, Any]]:
 
 def _base_hours() -> TaskHoursResult:
     return TaskHoursResult(
-        tasks=[
-            TaskHoursEstimate(module="Backend", task="Modelo de pedidos", has_match=False)
-        ]
+        tasks=[TaskHoursEstimate(module="Backend", task="Modelo de pedidos", has_match=False)]
     )
 
 
@@ -202,9 +200,7 @@ def test_hours_endpoint_rejects_unknown_override_knobs(monkeypatch) -> None:
     payload = _hours_payload()
     payload["agent"] = {"not_a_knob": 1}
 
-    response = TestClient(app).post(
-        "/api/v1/agent/estimate/hours", json=payload, headers=HEADERS
-    )
+    response = TestClient(app).post("/api/v1/agent/estimate/hours", json=payload, headers=HEADERS)
 
     assert response.status_code == 422
 
@@ -246,9 +242,7 @@ def _derive_call_for(module: str, task: str, source_id: int) -> Any:
             {
                 "module": module,
                 "task": task,
-                "neighbors": [
-                    {"source_id": source_id, "estimated_hours": 30, "distance": 0.1}
-                ],
+                "neighbors": [{"source_id": source_id, "estimated_hours": 30, "distance": 0.1}],
             }
         ),
     )

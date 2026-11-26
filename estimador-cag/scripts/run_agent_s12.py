@@ -140,9 +140,7 @@ def _render_wizard_hours(result: TaskHoursResult) -> str:
     return "\n".join(lines)
 
 
-async def _base_hours_result(
-    modules: list[TaskHoursModuleInput], *, stub: bool
-) -> TaskHoursResult:
+async def _base_hours_result(modules: list[TaskHoursModuleInput], *, stub: bool) -> TaskHoursResult:
     """Consenso determinista: fixture offline o el pipeline real."""
     if stub:
         return TaskHoursResult(
