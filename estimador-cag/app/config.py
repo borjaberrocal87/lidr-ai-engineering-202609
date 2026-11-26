@@ -171,6 +171,9 @@ class Settings(BaseSettings):
     # search_budgets busca sobre budget_component + historical_task.
     agent_search_top_k: int = 8
     agent_search_distance_threshold: float = 0.6
+    # Fase 2 híbrida: una tarea groundada por debajo de esta fiabilidad vuelve al
+    # agente para una re-búsqueda (0.35 = "casó, pero flojo").
+    agent_recovery_reliability_threshold: float = 0.35
 
     # Retrieval: k candidatos, umbral de distancia coseno (menor = más similar)
     # y presupuesto de contexto en tokens.
