@@ -207,7 +207,26 @@ export function ragEstimationsRouter({ ragEstimations, ragClient, agentClient, a
   const resolveProfile = async (id) =>
     agentProfiles && id ? agentProfiles.getById(String(id)) : null;
 
+  const defaultProfile = async () =>
+    (await loadProfiles()).find((profile) => profile.isDefault) || null;
+
   const overridesFor = (profile) => (profile ? configPayload(profile) : null);
+
+  /**
+   * Resuelve el perfil de una acción agéntica.
+   *
+   * - Campo ``profile_id`` ausente (formularios antiguos o llamadas directas):
+   *   usa el perfil predeterminado. Es lo que el usuario espera si existe uno.
+   * - ``profile_id`` vacío: elección explícita de "(por defecto del servicio)".
+   * - ``profile_id`` con id desconocido (formulario obsoleto): vuelve al
+   *   predeterminado en vez de fallar.
+   */
+  const resolveRequestedProfile = async (body) => {
+    const hasField = Object.prototype.hasOwnProperty.call(body, "profile_id");
+    const rawId = String(body.profile_id || "").trim();
+    if (hasField && !rawId) return null;
+    return (await resolveProfile(rawId)) || (await defaultProfile());
+  };
 
   const failed = async (run, error, step) => {
     const message = error instanceof RagClientError ? error.message : "Error inesperado.";
@@ -456,7 +475,7 @@ export function ragEstimationsRouter({ ragEstimations, ragClient, agentClient, a
         redirectWithError(res, run.id, "generation", "Necesitas un brief antes de generar.");
         return;
       }
-      const profile = await resolveProfile(req.body.profile_id);
+      const profile = await resolveRequestedProfile(req.body);
       const overrides = overridesFor(profile);
       const generation = await agentClient.proposeStructure(run.brief, overrides);
       generation.agent = {
@@ -510,7 +529,12 @@ export function ragEstimationsRouter({ ragEstimations, ragClient, agentClient, a
         );
         return;
       }
-      const overrides = run.generation?.agent?.overrides || null;
+      // Si la estructura se generó sin perfil, la fase de horas usa el
+      // predeterminado: el agente nunca se queda sin sus knobs por descuido.
+      const storedOverrides = run.generation?.agent?.overrides ?? null;
+      const overrides = storedOverrides
+        ? storedOverrides
+        : overridesFor(await defaultProfile());
       const taskHours = await agentClient.estimateTaskHours(
         structureForApi(modules),
         overrides,

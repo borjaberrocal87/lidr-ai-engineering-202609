@@ -153,6 +153,12 @@
       class="flex flex-wrap items-end gap-3"
       data-form-loading
     >
+      <%
+        const defaultProfile = (profiles || []).find(function (profile) { return profile.isDefault; });
+        const selectedProfileId = generation && generation.agent
+          ? generation.agent.profileId
+          : (defaultProfile ? defaultProfile.id : null);
+      %>
       <div class="flex-1 min-w-[220px]">
         <label for="profile_id" class="label">Perfil de agente</label>
         <select id="profile_id" name="profile_id" class="field">
@@ -160,7 +166,7 @@
           <% (profiles || []).forEach(function (profile) { %>
             <option
               value="<%= profile.id %>"
-              <%= generation && generation.agent && generation.agent.profileId === profile.id ? 'selected' : '' %>
+              <%= selectedProfileId === profile.id ? 'selected' : '' %>
             ><%= profile.name %><%= profile.isDefault ? ' (predeterminado)' : '' %></option>
           <% }); %>
         </select>

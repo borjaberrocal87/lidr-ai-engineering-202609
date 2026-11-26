@@ -94,11 +94,11 @@ function fakeAgentClient(overrides = {}) {
     calls,
     async proposeStructure(brief, knobs) {
       calls.structure.push({ brief, knobs });
-      return AGENT_GENERATION;
+      return structuredClone(AGENT_GENERATION);
     },
     async estimateTaskHours(modules, knobs) {
       calls.hours.push({ modules, knobs });
-      return AGENT_HOURS;
+      return structuredClone(AGENT_HOURS);
     },
     ...overrides,
   };
@@ -244,4 +244,96 @@ test("an agent client error keeps the run and redirects with the message", async
   assert.match(decodeURIComponent(response.headers.location), /no esta configurado/);
   const run = await ragEstimations.getById(id);
   assert.equal(run.status, "failed");
+});
+
+async function seedDefaultProfile(agentProfiles, config = {}) {
+  return agentProfiles.create({
+    name: "Rápido",
+    agentType: "handwritten",
+    persona: "",
+    config,
+    isDefault: true,
+  });
+}
+
+test("POST /generate-agent falls back to the default profile when none is sent", async () => {
+  const agentClient = fakeAgentClient();
+  const { app, ragEstimations, agentProfiles } = makeApp({ agentClient });
+  const id = await seedRun(ragEstimations);
+  const profileId = await seedDefaultProfile(agentProfiles, {
+    model: "gpt-5-mini",
+    max_iterations: 6,
+  });
+
+  const response = await request(app)
+    .post(`/rag-estimations/${id}/generate-agent`)
+    .type("form")
+    .send("");
+
+  assert.equal(response.status, 303);
+  const run = await ragEstimations.getById(id);
+  assert.equal(run.generation.agent.profileId, profileId);
+  assert.equal(run.generation.agent.profileName, "Rápido");
+  assert.deepEqual(agentClient.calls.structure[0].knobs, {
+    model: "gpt-5-mini",
+    max_iterations: 6,
+  });
+});
+
+test("an explicit empty profile_id opts out of the default profile", async () => {
+  const agentClient = fakeAgentClient();
+  const { app, ragEstimations, agentProfiles } = makeApp({ agentClient });
+  const id = await seedRun(ragEstimations);
+  await seedDefaultProfile(agentProfiles, { model: "gpt-5-mini" });
+
+  const response = await request(app)
+    .post(`/rag-estimations/${id}/generate-agent`)
+    .type("form")
+    .send("profile_id=");
+
+  assert.equal(response.status, 303);
+  const run = await ragEstimations.getById(id);
+  assert.equal(run.generation.agent.profileId, null);
+  assert.equal(agentClient.calls.structure[0].knobs, null);
+});
+
+test("hours without a stored agent use the default profile overrides", async () => {
+  const agentClient = fakeAgentClient();
+  const { app, ragEstimations, agentProfiles } = makeApp({ agentClient });
+  const id = await seedRun(ragEstimations);
+  await seedDefaultProfile(agentProfiles, { model: "gpt-5-mini", search_top_k: 7 });
+  await ragEstimations.update(id, {
+    generation: AGENT_GENERATION,
+    structure: { modules: AGENT_GENERATION.estimate.modules },
+    status: "generated",
+    currentStep: "review",
+  });
+
+  const body = [
+    "modules[0][name]=Backend",
+    "modules[0][tasks][0][name]=Modelo de pedidos",
+  ].join("&");
+
+  const response = await request(app)
+    .post(`/rag-estimations/${id}/estimate-hours-agent`)
+    .type("form")
+    .send(body);
+
+  assert.equal(response.status, 303);
+  assert.deepEqual(agentClient.calls.hours[0].knobs, {
+    model: "gpt-5-mini",
+    search_top_k: 7,
+  });
+});
+
+test("the generation step preselects the default profile", async () => {
+  const { app, ragEstimations, agentProfiles } = makeApp();
+  const id = await seedRun(ragEstimations);
+  const profileId = await seedDefaultProfile(agentProfiles, {});
+
+  const response = await request(app).get(`/rag-estimations/${id}?step=generation`);
+
+  assert.equal(response.status, 200);
+  const selected = new RegExp(`value="${profileId}"[\\s\\S]{0,120}selected`);
+  assert.match(response.text, selected);
 });
