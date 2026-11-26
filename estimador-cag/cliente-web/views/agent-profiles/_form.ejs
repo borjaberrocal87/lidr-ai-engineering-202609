@@ -1,0 +1,134 @@
+<%
+  const currentAvatar = values.avatarDataUrl || null;
+%>
+
+<% if (errors && errors.length) { %>
+  <div class="p-4 mb-6 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+    <p class="font-bold mb-1">Revisa el perfil:</p>
+    <ul class="list-disc list-inside text-sm space-y-1">
+      <% errors.forEach(function (message) { %>
+        <li><%= message %></li>
+      <% }); %>
+    </ul>
+  </div>
+<% } %>
+
+<form method="post" action="<%= action %>" class="space-y-5">
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+    <div>
+      <label for="name" class="label">Nombre</label>
+      <input id="name" name="name" class="field" value="<%= values.name || '' %>" required />
+      <p class="text-white/50 text-xs mt-1">Único por tipo de agente.</p>
+    </div>
+    <div>
+      <label for="agent_type" class="label">Tipo de agente</label>
+      <select id="agent_type" name="agent_type" class="field">
+        <% agentTypes.forEach(function (type) { %>
+          <option value="<%= type %>" <%= values.agentType === type ? 'selected' : '' %>><%= type %></option>
+        <% }); %>
+      </select>
+    </div>
+  </div>
+
+  <div>
+    <label for="persona" class="label">Persona (se añade al system prompt)</label>
+    <textarea id="persona" name="persona" rows="4" class="field" placeholder="Ej.: Eres un estimador senior especializado en integraciones ERP…"><%= values.persona || '' %></textarea>
+  </div>
+
+  <fieldset class="p-4 rounded-md bg-ink/30 border border-white/10 space-y-4">
+    <legend class="px-2 text-xs font-bold tracking-tight uppercase text-white/50">Ajustes del agente</legend>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label for="model" class="label">Modelo</label>
+        <input id="model" name="model" class="field" value="<%= values.model || '' %>" placeholder="gpt-5" />
+      </div>
+      <div>
+        <label for="reasoning_effort" class="label">Esfuerzo de razonamiento</label>
+        <select id="reasoning_effort" name="reasoning_effort" class="field">
+          <option value="">(por defecto del servicio)</option>
+          <% efforts.forEach(function (effort) { %>
+            <option value="<%= effort %>" <%= values.reasoning_effort === effort ? 'selected' : '' %>><%= effort %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div>
+        <label for="max_iterations" class="label">Máximo de iteraciones</label>
+        <input id="max_iterations" name="max_iterations" type="number" min="1" max="20" class="field" value="<%= values.max_iterations ?? '' %>" placeholder="10" />
+      </div>
+      <div>
+        <label for="search_top_k" class="label">Top K de búsqueda</label>
+        <input id="search_top_k" name="search_top_k" type="number" min="1" max="30" class="field" value="<%= values.search_top_k ?? '' %>" placeholder="8" />
+      </div>
+      <div>
+        <label for="search_distance_threshold" class="label">Umbral de distancia</label>
+        <input id="search_distance_threshold" name="search_distance_threshold" type="number" min="0" max="2" step="0.01" class="field" value="<%= values.search_distance_threshold ?? '' %>" placeholder="0.6" />
+      </div>
+      <div class="flex items-end">
+        <label class="inline-flex items-center gap-2 text-sm text-white/80">
+          <input type="checkbox" name="is_default" value="1" <%= values.isDefault ? 'checked' : '' %> />
+          Perfil predeterminado
+        </label>
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="p-4 rounded-md bg-ink/30 border border-white/10 space-y-3">
+    <legend class="px-2 text-xs font-bold tracking-tight uppercase text-white/50">Avatar</legend>
+    <div class="flex items-center gap-4">
+      <img
+        id="avatar-preview"
+        src="<%= currentAvatar || '/lidr/imagotipo_horizontal_negativo_blanco.svg' %>"
+        alt="Previsualización del avatar"
+        class="h-16 w-16 rounded-full object-cover border border-white/15 bg-ink/40"
+      />
+      <div class="space-y-2">
+        <label class="inline-flex items-center gap-2 text-xs font-bold tracking-tight text-brand hover:text-brand-soft cursor-pointer">
+          Subir imagen
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden" data-avatar-input />
+        </label>
+        <p class="text-white/50 text-xs">PNG, JPEG, GIF o WebP · máximo <%= maxAvatarKb %> KB.</p>
+        <button type="button" class="text-xs font-bold text-red-200 hover:text-white" data-avatar-clear>
+          Quitar avatar
+        </button>
+      </div>
+    </div>
+    <input type="hidden" name="avatar_data_url" id="avatar-data-url" value="<%= currentAvatar || '' %>" />
+  </fieldset>
+
+  <div class="pt-2 flex items-center gap-4">
+    <button type="submit" class="btn-primary"><%= submitLabel %></button>
+    <a href="/agent-profiles" class="text-white/50 font-bold hover:text-white tracking-tight">Cancelar</a>
+  </div>
+</form>
+
+<script>
+  (function () {
+    const input = document.querySelector("[data-avatar-input]");
+    const hidden = document.getElementById("avatar-data-url");
+    const preview = document.getElementById("avatar-preview");
+    const clear = document.querySelector("[data-avatar-clear]");
+    const maxBytes = <%= maxAvatarKb %> * 1024;
+
+    input?.addEventListener("change", () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      if (file.size > maxBytes) {
+        alert("La imagen supera el tamaño máximo permitido.");
+        input.value = "";
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        hidden.value = String(reader.result || "");
+        if (preview) preview.src = hidden.value;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    clear?.addEventListener("click", () => {
+      hidden.value = "";
+      if (input) input.value = "";
+      if (preview) preview.src = "/lidr/imagotipo_horizontal_negativo_blanco.svg";
+    });
+  })();
+</script>

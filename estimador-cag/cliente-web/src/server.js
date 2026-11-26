@@ -1,5 +1,6 @@
 import { createApp } from "./app.js";
 import { HttpAgentEstimationClient } from "./agentEstimationClient.js";
+import { InMemoryAgentProfilesRepo, PgAgentProfilesRepo } from "./agentProfilesRepo.js";
 import { InMemoryChunkingRepo, PgChunkingRepo } from "./chunkingRepo.js";
 import { HttpConfigClient } from "./configClient.js";
 import { loadConfig } from "./config.js";
@@ -20,6 +21,7 @@ let repo;
 let chunkingRepo;
 let ragEstimations;
 let corpusRuns;
+let agentProfiles;
 if (pool) {
   try {
     await runMigrations(pool);
@@ -31,12 +33,14 @@ if (pool) {
   chunkingRepo = new PgChunkingRepo(pool);
   ragEstimations = new PgRagEstimationRepo(pool);
   corpusRuns = new PgCorpusRunRepo(pool);
+  agentProfiles = new PgAgentProfilesRepo(pool);
 } else {
   console.warn("DATABASE_URL vacía: usando repositorios en memoria (sin persistencia).");
   repo = new InMemoryEstimationRepo();
   chunkingRepo = new InMemoryChunkingRepo();
   ragEstimations = new InMemoryRagEstimationRepo();
   corpusRuns = new InMemoryCorpusRunRepo();
+  agentProfiles = new InMemoryAgentProfilesRepo();
 }
 
 const estimator = new HttpEstimatorClient({
@@ -88,6 +92,7 @@ const app = createApp({
   ragEstimations,
   ragClient,
   agentClient,
+  agentProfiles,
   corpusIndex,
   corpusRuns,
 });
