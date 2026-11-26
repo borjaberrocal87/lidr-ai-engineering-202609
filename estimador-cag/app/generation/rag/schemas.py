@@ -14,6 +14,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.schemas.agent_trace import AgentTrace
+
 
 class Sector(StrEnum):
     """Sector de negocio del cliente (universo cerrado del sample)."""
@@ -734,6 +736,11 @@ class GroundedGenerationOutcome(BaseModel):
     coherent: bool = Field(
         description="False cuando una estimación insuficiente aún lleva números."
     )
+    agent_trace: AgentTrace | None = Field(
+        default=None,
+        description="Sesión 12: traza del agente cuando la estructura la propuso él. "
+        "None en la generación determinista.",
+    )
 
 
 # ---- Modelos de la generación estructura-primero (S10) ----------------------
@@ -865,3 +872,9 @@ class TaskHoursResult(BaseModel):
     """Horas por tarea, en el orden en que se enviaron."""
 
     tasks: list[TaskHoursEstimate] = Field(default_factory=list)
+    agent_trace: AgentTrace | None = Field(
+        default=None,
+        description="Sesión 12: traza de la fase de recuperación cuando el agente "
+        "re-buscó las tareas no groundadas. None si todo se resolvió de forma "
+        "determinista.",
+    )
