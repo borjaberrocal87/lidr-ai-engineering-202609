@@ -207,3 +207,138 @@ def test_hours_endpoint_rejects_unknown_override_knobs(monkeypatch) -> None:
     )
 
     assert response.status_code == 422
+
+
+# --- Integración: muchas tareas marcadas y corte por max_iterations -----------
+
+
+def _many_modules() -> list[dict[str, Any]]:
+    modules = []
+    for module in ("Module A", "Module B"):
+        modules.append(
+            {
+                "name": module,
+                "tasks": [
+                    {"name": f"{module[-1]}{index}", "description": "flagged"}
+                    for index in range(1, 11)
+                ],
+            }
+        )
+    return modules
+
+
+def _many_base_hours() -> TaskHoursResult:
+    tasks = []
+    for module in ("Module A", "Module B"):
+        for index in range(1, 11):
+            tasks.append(
+                TaskHoursEstimate(module=module, task=f"{module[-1]}{index}", has_match=False)
+            )
+    return TaskHoursResult(tasks=tasks)
+
+
+def _derive_call_for(module: str, task: str, source_id: int) -> Any:
+    return SimpleNamespace(
+        type="function_call",
+        call_id=f"call-{module}-{task}",
+        name="derive_task_hours",
+        arguments=json.dumps(
+            {
+                "module": module,
+                "task": task,
+                "neighbors": [
+                    {"source_id": source_id, "estimated_hours": 30, "distance": 0.1}
+                ],
+            }
+        ),
+    )
+
+
+class ManyTasksClient:
+    """Deriva DOS tareas (una por módulo) por vuelta, hasta agotar la lista."""
+
+    def __init__(self, max_rounds: int = 10) -> None:
+        self.max_rounds = max_rounds
+        self.turn = 0
+        self.responses = SimpleNamespace(create=self._create)
+
+    async def _create(self, **_kwargs: Any) -> Any:
+        self.turn += 1
+        turn = self.turn
+        if turn > self.max_rounds:
+            return SimpleNamespace(id=f"resp-{turn}", output=[])
+        output = [
+            _derive_call_for("Module A", f"A{turn}", turn),
+            _derive_call_for("Module B", f"B{turn}", turn + 100),
+        ]
+        return SimpleNamespace(id=f"resp-{turn}", output=output)
+
+
+def _patch_many_tasks(monkeypatch) -> None:
+    _patch_hours_dependencies(monkeypatch)
+
+    async def fake_estimate_all(*_args, **_kwargs) -> TaskHoursResult:
+        return _many_base_hours()
+
+    monkeypatch.setattr("app.api.agent_estimation.estimate_all", fake_estimate_all)
+
+
+def _hours_payload_with(tasks: int) -> dict[str, Any]:
+    payload = _hours_payload()
+    payload["agent"] = {"max_iterations": tasks}
+    return payload
+
+
+def test_hours_endpoint_recovers_several_tasks_per_module_before_cutting(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "estimate_api_key", SecretStr("estimate-secret"))
+    _patch_many_tasks(monkeypatch)
+    payload = _hours_payload_with(tasks=5)
+
+    app.dependency_overrides[get_async_openai_client] = lambda: ManyTasksClient()
+    try:
+        response = TestClient(app).post(
+            "/api/v1/agent/estimate/hours",
+            json=payload,
+            headers=HEADERS,
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    recovered = [task for task in body["tasks"] if task["has_match"]]
+    assert len(recovered) == 8, "4 vueltas x 2 derivaciones"
+    modules = {task["module"] for task in recovered}
+    assert modules == {"Module A", "Module B"}, "se tocó más de un módulo antes de cortar"
+    per_module = dict.fromkeys(modules, 0)
+    for task in recovered:
+        per_module[task["module"]] += 1
+    assert all(count > 1 for count in per_module.values())
+    assert body["agent_trace"]["stopped_reason"] == "max_iterations"
+    assert len(body["agent_trace"]["steps"]) == 8
+
+
+def test_hours_endpoint_recovers_every_flagged_task_with_enough_budget(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "estimate_api_key", SecretStr("estimate-secret"))
+    _patch_many_tasks(monkeypatch)
+    payload = _hours_payload_with(tasks=20)
+
+    app.dependency_overrides[get_async_openai_client] = lambda: ManyTasksClient()
+    try:
+        response = TestClient(app).post(
+            "/api/v1/agent/estimate/hours",
+            json=payload,
+            headers=HEADERS,
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    recovered = [task for task in body["tasks"] if task["has_match"]]
+    assert len(recovered) == 20
+    assert body["agent_trace"]["stopped_reason"] == "completed"
