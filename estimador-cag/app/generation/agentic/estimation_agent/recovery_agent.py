@@ -36,7 +36,6 @@ from app.generation.agentic.estimation_agent.schemas import (
     AgentTaskDerivation,
     AgentTaskHoursRun,
     AgentTaskRef,
-    DeriveTaskHoursArgs,
 )
 from app.generation.agentic.estimation_agent.tools import (
     RECOVERY_TOOL_SCHEMAS,
