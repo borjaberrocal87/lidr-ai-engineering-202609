@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { configPayload } from "./agentProfiles.js";
+import { AgentEstimationError } from "../agentEstimationClient.js";
 import { RagClientError } from "../ragEstimationClient.js";
 
 const STEPS = ["brief", "generation", "review", "hours", "verification"];
@@ -477,7 +478,7 @@ export function ragEstimationsRouter({ ragEstimations, ragClient, agentClient, a
         : "Estructura propuesta por el agente.";
       res.redirect(303, `/rag-estimations/${run.id}?step=review&notice=${encodeURIComponent(notice)}`);
     } catch (error) {
-      if (error instanceof RagClientError) {
+      if (error instanceof RagClientError || error instanceof AgentEstimationError) {
         const run = await ragEstimations.getById(req.params.id);
         if (run) await failed(run, error, "generation");
         redirectWithError(res, req.params.id, "generation", error.message);
@@ -535,7 +536,7 @@ export function ragEstimationsRouter({ ragEstimations, ragClient, agentClient, a
         )}`,
       );
     } catch (error) {
-      if (error instanceof RagClientError) {
+      if (error instanceof RagClientError || error instanceof AgentEstimationError) {
         const run = await ragEstimations.getById(req.params.id);
         if (run) await failed(run, error, "review");
         redirectWithError(res, req.params.id, "review", error.message);

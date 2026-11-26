@@ -35,7 +35,8 @@ export function createApp({
   app.set("views", join(here, "..", "views"));
   // `extended: true` permite editar módulos/tareas anidados del wizard RAG
   // (modules[0][tasks][1][name]). Los formularios antiguos no se ven afectados.
-  app.use(express.urlencoded({ extended: true }));
+  // `limit` deja sitio al avatar de un perfil (data URL de hasta 512 KB).
+  app.use(express.urlencoded({ extended: true, limit: "1mb" }));
   app.use(express.static(join(here, "..", "public")));
 
   app.locals.humanize = humanize;
