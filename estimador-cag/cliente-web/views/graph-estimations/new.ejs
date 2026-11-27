@@ -1,0 +1,45 @@
+<%- include('../partials/head', { title: 'Grafo de estimación' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-3xl mx-auto py-12 px-4">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">Grafo de estimación</h1>
+      <p class="text-white/60 text-sm mt-1">
+        El flujo se ejecuta como un grafo LangGraph: extrae requisitos, clasifica
+        componentes, busca presupuestos, consolida y valida. Verás la timeline de nodos.
+      </p>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="p-4 mb-6 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <form method="post" action="/graph-estimations" class="space-y-5">
+    <div>
+      <label for="transcript" class="label">Transcripción</label>
+      <textarea
+        id="transcript"
+        name="transcript"
+        rows="16"
+        class="field"
+        placeholder="Pega la transcripción de la reunión: objetivos, piezas del proyecto, integraciones, tecnologías y restricciones…"
+      ><%= values.transcript || '' %></textarea>
+      <p class="text-xs text-white/50 mt-1">
+        Mínimo 100 caracteres. Un proyecto con varios componentes fuerza varias búsquedas.
+      </p>
+    </div>
+
+    <div class="pt-2">
+      <button type="submit" class="btn-primary">Ejecutar grafo</button>
+      <p class="text-xs text-white/50 mt-2">
+        Dos llamadas al modelo más la recuperación; puede tardar uno o dos minutos.
+      </p>
+    </div>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

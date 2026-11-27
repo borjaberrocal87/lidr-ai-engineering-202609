@@ -10,6 +10,7 @@ import { aiSettingsRouter } from "./routes/aiSettings.js";
 import { chunkingLabRouter } from "./routes/chunkingLab.js";
 import { corpusIndexRouter } from "./routes/corpusIndex.js";
 import { estimationsRouter } from "./routes/estimations.js";
+import { graphEstimationsRouter } from "./routes/graphEstimations.js";
 import { ingestionRouter } from "./routes/ingestion.js";
 import { ragEstimationsRouter } from "./routes/ragEstimations.js";
 
@@ -25,6 +26,7 @@ export function createApp({
   ragEstimations,
   ragClient,
   agentClient,
+  graphClient,
   agentProfiles,
   corpusIndex,
   corpusRuns,
@@ -70,6 +72,9 @@ export function createApp({
   }
   if (agentClient) {
     app.use(agentEstimationsRouter({ agentClient }));
+  }
+  if (graphClient) {
+    app.use(graphEstimationsRouter({ graphClient }));
   }
   if (agentProfiles) {
     app.use(agentProfilesRouter({ agentProfiles }));

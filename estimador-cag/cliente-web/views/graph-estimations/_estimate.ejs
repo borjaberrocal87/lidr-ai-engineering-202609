@@ -1,0 +1,74 @@
+<div class="rounded-md border border-white/10 bg-white/5 p-4">
+  <div class="grid gap-6 md:grid-cols-2 mb-4">
+    <div>
+      <p class="text-white/50 text-xs font-bold tracking-tight mb-2">Requisitos</p>
+      <% if (!result.requirements || result.requirements.length === 0) { %>
+        <p class="text-white/60 text-sm">Sin requisitos.</p>
+      <% } else { %>
+        <ul class="list-disc list-inside text-white/70 text-sm space-y-1">
+          <% result.requirements.forEach((requirement) => { %>
+            <li><%= requirement %></li>
+          <% }); %>
+        </ul>
+      <% } %>
+    </div>
+    <div>
+      <p class="text-white/50 text-xs font-bold tracking-tight mb-2">Componentes</p>
+      <% if (!result.components || result.components.length === 0) { %>
+        <p class="text-white/60 text-sm">Sin componentes.</p>
+      <% } else { %>
+        <ul class="text-white/70 text-sm space-y-1">
+          <% result.components.forEach((component) => { %>
+            <li>
+              <span class="text-white/80"><%= component.name %></span>
+              <span class="text-white/40">[<%= component.category %>]</span>
+            </li>
+          <% }); %>
+        </ul>
+      <% } %>
+      <p class="text-white/40 text-xs mt-2">
+        <%= (result.budget_matches || []).length %> referencias históricas recuperadas
+      </p>
+    </div>
+  </div>
+
+  <% if (!result.estimate) { %>
+    <p class="text-white/60 text-sm">No hay estimación estructurada para esta ejecución.</p>
+  <% } else { %>
+    <ul class="divide-y divide-white/10">
+      <% (result.estimate.components || []).forEach((component) => { %>
+        <li class="py-3">
+          <div class="flex items-baseline justify-between gap-3">
+            <span class="font-bold tracking-tight text-white"><%= component.name %></span>
+            <span class="<%= component.unbudgeted ? 'text-yellow-200' : 'text-brand' %> font-bold">
+              <%= component.unbudgeted ? 'unbudgeted' : `${component.estimated_hours} h` %>
+            </span>
+          </div>
+          <p class="text-white/70 text-sm mt-1"><%= component.rationale %></p>
+          <p class="text-xs text-white/40 mt-1">
+            sources:
+            <%= (component.reference_budget_ids && component.reference_budget_ids.length)
+              ? component.reference_budget_ids.join(", ")
+              : "none" %>
+          </p>
+        </li>
+      <% }); %>
+    </ul>
+
+    <div class="flex items-center justify-between border-t border-white/10 mt-2 pt-3">
+      <span class="font-bold tracking-tight text-white">Total</span>
+      <span class="text-xl font-bold text-brand"><%= result.estimate.total_hours %> h</span>
+    </div>
+  <% } %>
+
+  <% if (result.errors && result.errors.length) { %>
+    <div class="mt-4">
+      <p class="text-white/50 text-xs font-bold tracking-tight mb-1">Avisos de validación</p>
+      <ul class="list-disc list-inside text-yellow-100/80 text-sm space-y-1">
+        <% result.errors.forEach((issue) => { %>
+          <li><%= issue %></li>
+        <% }); %>
+      </ul>
+    </div>
+  <% } %>
+</div>
