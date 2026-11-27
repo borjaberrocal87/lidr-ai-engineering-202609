@@ -175,6 +175,18 @@ class Settings(BaseSettings):
     # agente para una re-búsqueda (0.35 = "casó, pero flojo").
     agent_recovery_reliability_threshold: float = 0.35
 
+    # Sesión 13 — grafo LangGraph de estimación. Solo dos nodos llaman al LLM
+    # (extracción y clasificación) y usan un modelo barato; la consolidación es
+    # determinista (modelo de costes de S12).
+    graph_extraction_model: str = "gpt-5-mini"
+    graph_extraction_max_tokens: int = 8_192
+    # El nodo search_budgets reutiliza el backend de S12; estos son sus defaults.
+    graph_search_top_k: int = 8
+    graph_search_distance_threshold: float = 0.6
+    # Observabilidad (Logfire). Sin token los spans corren en local y no exportan.
+    logfire_service_name: str = "estimador-cag"
+    logfire_token: SecretStr | None = None
+
     # Retrieval: k candidatos, umbral de distancia coseno (menor = más similar)
     # y presupuesto de contexto en tokens.
     rag_retrieval_top_k: int = 10
