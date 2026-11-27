@@ -55,7 +55,7 @@ dependencies = [
     "torch>=2.15.0",
     "langgraph>=1.2.24",
     "langgraph-checkpoint-postgres>=3.2.1",
-    "logfire>=6.0.1",
+    "logfire[fastapi,httpx]>=6.0.1",
 ]
 
 [dependency-groups]
