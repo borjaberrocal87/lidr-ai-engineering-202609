@@ -76,9 +76,7 @@ def test_graph_endpoint_generates_a_thread_id_when_omitted() -> None:
 
     assert response.status_code == 200
     assert response.json()["estimation_id"]
-    assert graph.config == {
-        "configurable": {"thread_id": response.json()["estimation_id"]}
-    }
+    assert graph.config == {"configurable": {"thread_id": response.json()["estimation_id"]}}
 
 
 def test_graph_endpoint_returns_503_without_a_graph() -> None:

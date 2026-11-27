@@ -342,6 +342,7 @@ devuelven una actualización parcial. Y todos pasan por el helper de trazado:
 ```python
 def traced_node(name: str, fn: NodeFn) -> NodeFn:
     """Wrap a node: one logfire span per node + a NodeRun appended to the state."""
+
     @functools.wraps(fn)
     async def wrapper(state: EstimationState) -> dict:
         with logfire.span(f"node: {name}"):
