@@ -12,6 +12,7 @@ from app.api import (
     corpus_index,
     estimate_tasks,
     estimations,
+    graph_estimation,
     ingestion,
     rag_estimation,
     retrieval,
@@ -141,6 +142,8 @@ app.include_router(estimate_tasks.router, prefix="/api/v1")
 app.include_router(corpus_index.router, prefix="/api/v1")
 # Sesión 12 — capa agéntica de estimación.
 app.include_router(agent_estimation.router, prefix="/api/v1")
+# Sesión 13 — el flujo de estimación como grafo LangGraph.
+app.include_router(graph_estimation.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Estado del servicio")
