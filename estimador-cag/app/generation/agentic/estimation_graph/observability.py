@@ -1,6 +1,8 @@
 """Pydantic Logfire wiring for the estimation graph (Session 13, Level 2).
 
-``configure_logfire`` is called once at startup:
+``configure_logfire`` is called once, at import time of ``app.main`` right after
+the FastAPI app is created (``instrument_fastapi`` patches the middleware stack, so
+it must run before the first ASGI event builds it — the lifespan is too late):
 
 * the per-node ``span("node: …")`` calls in ``nodes.py`` become one span per node
   inside the request trace;
@@ -9,8 +11,10 @@
   httpx under the hood).
 
 It is a **no-op without a token**: ``send_to_logfire="if-token-present"`` means a
-run with no ``LOGFIRE_TOKEN`` still executes every span locally but exports
-nothing, so the service never depends on Logfire being configured.
+run with neither ``LOGFIRE_TOKEN`` nor a local ``.logfire/logfire_credentials.json``
+(written by ``logfire-cli init``, gitignored) still executes every span locally but
+exports nothing, so the service never depends on Logfire being configured. Under
+pytest nothing is ever exported, even if local credentials exist.
 
 If you prefer LangSmith, this is the seam to swap: keep the ``span`` calls (they
 are cheap) and configure the LangGraph tracer here instead.
@@ -18,13 +22,14 @@ are cheap) and configure the LangGraph tracer here instead.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from typing import Any
 
 import structlog
 
-from app.config import get_settings, reveal_secret
+from app.config import BASE_DIR, get_settings, reveal_secret
 
 log = structlog.get_logger(__name__)
 
@@ -47,8 +52,13 @@ def configure_logfire(app: Any | None = None) -> bool:
         settings = get_settings()
         kwargs: dict[str, Any] = {
             "service_name": settings.logfire_service_name,
-            # Export only when a token is configured; otherwise spans run locally.
-            "send_to_logfire": "if-token-present",
+            "environment": settings.app_env,
+            # Export only when a token is configured (env var or the local
+            # credentials file); otherwise spans run locally. Never from tests.
+            "send_to_logfire": False if "PYTEST_VERSION" in os.environ else "if-token-present",
+            # Anchor the credentials dir to the repo so scripts launched from
+            # another cwd still find it.
+            "data_dir": BASE_DIR / ".logfire",
             "console": False,
         }
         token = reveal_secret(settings.logfire_token)

@@ -40,13 +40,6 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     _app.state.graph = None
 
     try:
-        from app.generation.agentic.estimation_graph.observability import configure_logfire
-
-        configure_logfire(_app)
-    except Exception as exc:
-        log.warning("logfire.setup_failed", error=str(exc)[:200])
-
-    try:
         from app.dependencies import get_catalog
 
         catalog = get_catalog()
@@ -105,6 +98,16 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Observabilidad (Logfire). Debe ir aquí y no en el lifespan: `instrument_fastapi`
+# parchea la pila de middlewares, que Starlette construye con el primer evento
+# ASGI (el propio lifespan). Instrumentar después deja las peticiones sin span raíz.
+try:
+    from app.generation.agentic.estimation_graph.observability import configure_logfire
+
+    configure_logfire(app)
+except Exception as exc:
+    structlog.get_logger().warning("logfire.setup_failed", error=str(exc)[:200])
 
 
 @app.middleware("http")
