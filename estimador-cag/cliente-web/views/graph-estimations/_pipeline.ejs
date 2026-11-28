@@ -1,0 +1,17 @@
+<% if (!nodeRuns || nodeRuns.length === 0) { %>
+  <p class="text-white/60 text-sm">No hay nodos registrados para esta ejecución.</p>
+<% } else { %>
+  <ol class="space-y-3">
+    <% nodeRuns.forEach((run, index) => { %>
+      <li class="rounded-md border border-white/10 bg-white/5 p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-bold tracking-tight text-brand">NODE <%= index + 1 %></span>
+            <span class="font-mono text-sm text-white"><%= run.name %></span>
+          </div>
+          <span class="text-xs font-mono text-white/60"><%= run.duration_ms %> ms</span>
+        </div>
+      </li>
+    <% }); %>
+  </ol>
+<% } %>

@@ -13,6 +13,8 @@ export function loadConfig(env = process.env) {
     ragGenerateTimeoutMs: Number(env.RAG_GENERATE_TIMEOUT_MS || 300000),
     // El agente encadena varias llamadas al modelo en una sola petición.
     agentTimeoutMs: Number(env.AGENT_TIMEOUT_MS || 600000),
+    // El grafo hace dos llamadas al modelo más la recuperación: más corto.
+    graphTimeoutMs: Number(env.GRAPH_TIMEOUT_MS || 300000),
     corpusIndexTimeoutMs: Number(env.CORPUS_INDEX_TIMEOUT_MS || 10000),
     nodeEnv: env.NODE_ENV || "development",
   };

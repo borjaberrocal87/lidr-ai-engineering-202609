@@ -9,6 +9,7 @@ import { InMemoryCorpusRunRepo, PgCorpusRunRepo } from "./corpusRepo.js";
 import { createPool, InMemoryEstimationRepo, PgEstimationRepo } from "./db.js";
 import { HttpEmbeddingsClient } from "./embeddingsClient.js";
 import { HttpEstimatorClient } from "./estimatorClient.js";
+import { HttpGraphEstimationClient } from "./graphEstimationClient.js";
 import { HttpIngestionClient } from "./ingestionClient.js";
 import { runMigrations } from "./migrate.js";
 import { HttpRagEstimationClient } from "./ragEstimationClient.js";
@@ -83,6 +84,12 @@ const agentClient = new HttpAgentEstimationClient({
   estimateApiKey: config.ragEstimateApiKey,
 });
 
+const graphClient = new HttpGraphEstimationClient({
+  baseUrl: config.estimatorApiBaseUrl,
+  timeoutMs: config.graphTimeoutMs,
+  estimateApiKey: config.ragEstimateApiKey,
+});
+
 const app = createApp({
   repo,
   estimator,
@@ -93,6 +100,7 @@ const app = createApp({
   ragEstimations,
   ragClient,
   agentClient,
+  graphClient,
   agentProfiles,
   corpusIndex,
   corpusRuns,

@@ -1,6 +1,6 @@
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
@@ -12,6 +12,7 @@ from app.api import (
     corpus_index,
     estimate_tasks,
     estimations,
+    graph_estimation,
     ingestion,
     rag_estimation,
     retrieval,
@@ -36,6 +37,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     detectarlo al arrancar que en la primera llamada a `/ingestion/runs`.
     """
     log = structlog.get_logger()
+    _app.state.graph = None
+
     try:
         from app.dependencies import get_catalog
 
@@ -48,7 +51,40 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         )
     except Exception as exc:
         log.error("catalog_load_failed", error=str(exc)[:400])
-    yield
+
+    # Sesión 13 — compila una vez el grafo de estimación, con el checkpointer
+    # sobre el Postgres del proyecto. Si algo falla (p. ej. Postgres caído) el
+    # servicio sigue sirviendo el resto y el endpoint del grafo responde 503.
+    async with AsyncExitStack() as stack:
+        try:
+            from app.dependencies import get_llm_wrapper, make_budget_search_backend
+            from app.generation.agentic.estimation_graph.build import build_graph
+            from app.generation.agentic.estimation_graph.checkpointer import open_checkpointer
+
+            checkpointer = await stack.enter_async_context(open_checkpointer())
+            backend = make_budget_search_backend(
+                top_k=settings.graph_search_top_k,
+                distance_threshold=settings.graph_search_distance_threshold,
+            )
+            if backend is None:
+                log.warning("graph.disabled", reason="no_embeddings_configured")
+            else:
+                _app.state.graph = build_graph(
+                    llm_wrapper=get_llm_wrapper(),
+                    backend=backend,
+                    checkpointer=checkpointer,
+                )
+                log.info("graph_ready")
+        except Exception as exc:
+            log.error(
+                "graph.startup_failed",
+                error_type=type(exc).__name__,
+                error=str(exc)[:300],
+            )
+            _app.state.graph = None
+
+        yield
+
     log.info("application_shutdown")
 
 
@@ -62,6 +98,16 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Observabilidad (Logfire). Debe ir aquí y no en el lifespan: `instrument_fastapi`
+# parchea la pila de middlewares, que Starlette construye con el primer evento
+# ASGI (el propio lifespan). Instrumentar después deja las peticiones sin span raíz.
+try:
+    from app.generation.agentic.estimation_graph.observability import configure_logfire
+
+    configure_logfire(app)
+except Exception as exc:
+    structlog.get_logger().warning("logfire.setup_failed", error=str(exc)[:200])
 
 
 @app.middleware("http")
@@ -99,6 +145,8 @@ app.include_router(estimate_tasks.router, prefix="/api/v1")
 app.include_router(corpus_index.router, prefix="/api/v1")
 # Sesión 12 — capa agéntica de estimación.
 app.include_router(agent_estimation.router, prefix="/api/v1")
+# Sesión 13 — el flujo de estimación como grafo LangGraph.
+app.include_router(graph_estimation.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"], summary="Estado del servicio")

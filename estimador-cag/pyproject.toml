@@ -53,6 +53,9 @@ dependencies = [
     # [tool.uv.sources]. Lo usa sentence-transformers; el wheel de PyPI para
     # Linux arrastra CUDA (~5 GB) y no se usa en Docker/macOS.
     "torch>=2.15.0",
+    "langgraph>=1.2.24",
+    "langgraph-checkpoint-postgres>=3.2.1",
+    "logfire[fastapi,httpx]>=6.0.1",
 ]
 
 [dependency-groups]
@@ -113,6 +116,11 @@ warn_redundant_casts = true
 [[tool.mypy.overrides]]
 # redisvl no publica stubs (sin `py.typed`); tratamos sus símbolos como Any.
 module = ["redisvl", "redisvl.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# LangGraph y su checkpointer de Postgres no traen stubs completos.
+module = ["langgraph", "langgraph.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

@@ -1,0 +1,128 @@
+Reunión de descubrimiento — Proyecto "Marcador" — Plataforma de resultados de fútbol en vivo
+Cliente: Marta Ferrer (Product Lead) e Iker Solana (CTO), Marcador Media
+Consultor: equipo de estimación
+Fecha: reunión inicial
+
+[00:00:06] Consultor: Gracias por el tiempo. Contadnos la visión completa y luego bajamos al detalle.
+
+[00:00:18] Marta: Queremos lanzar Marcador, una plataforma de resultados de fútbol en vivo, al
+estilo Sofascore o Livescore, pero con foco en el mercado español y latinoamericano. Dos productos
+de cara al público: una web y una app móvil. Y por debajo, todo lo que hace falta para que los
+resultados estén al segundo.
+
+[00:00:55] Consultor: Empecemos por lo que hay debajo, que es lo que más condiciona el resto.
+
+[00:01:04] Iker: El corazón es la ingesta de datos. Vamos a contratar un proveedor de datos deportivos
+en tiempo real, probablemente Sportradar u Opta, y queremos un plan B con una API más barata tipo
+API-Football para cuando el proveedor principal falle o no cubra alguna competición. Necesitamos una
+capa de integración que normalice todo: partidos, equipos, jugadores, alineaciones, goles, tarjetas,
+cambios, estadísticas de partido y clasificaciones. El proveedor entrega por webhooks y también por
+polling; hay que reconciliar ambas vías para no duplicar eventos. Esto es un mundo aparte y ya nos
+hemos quemado con integraciones de datos en otro proyecto.
+
+[00:02:40] Consultor: Anotado: integración con proveedor de datos, con normalización y fallback.
+¿Qué competiciones entran en el alcance?
+
+[00:02:50] Marta: Para el MVP, las cinco grandes ligas europeas, Champions, Europa League, LaLiga
+Hypermotion, Liga MX y MLS. La estructura tiene que permitir añadir competiciones sin tocar código,
+o casi. Y ojo con el histórico: queremos resultados y clasificaciones de las últimas diez temporadas
+para que la gente busque un partido antiguo y lo encuentre.
+
+[00:03:25] Iker: La segunda pieza es el backend de negocio y la API pública. Ahí vive el modelo de
+competiciones, temporadas, equipos, jugadores, partidos y eventos. Tiene que servir el "match center"
+de cada partido: marcador, minuto, alineaciones, estadísticas, momento a momento. También
+clasificaciones, calendario, fichas de equipo y de jugador, y un buscador global. Hablamos de una
+API REST pública para web y app, más endpoints internos para el backoffice. Con caché agresiva en
+Redis para las lecturas calientes, porque no podemos pedir lo mismo al proveedor mil veces.
+
+[00:04:30] Consultor: Perfecto. ¿Y el tiempo real?
+
+[00:04:36] Iker: Pieza propia, sin duda. Una capa de tiempo real con WebSocket para la web y la app:
+cuando hay un gol o una tarjeta, el usuario lo ve en menos de dos segundos. Y esto tiene que aguantar
+picos gordos: un Clásico o una final puede llevarnos a 500.000 usuarios concurrentes. Necesitamos
+fan-out eficiente, suscripción por partido y por competición, y reconexión limpia si se cae la
+conexión. El objetivo es 99,9 % de disponibilidad en horario de partidos.
+
+[00:05:35] Marta: La cuarta pieza es la web pública. React, o Next.js si lo recomendáis, con render
+en servidor para que las páginas de partido y de equipo sean indexables por Google. Responsive, muy
+rápida, y con soporte de español e inglés desde el día uno. Cada partido tiene su página con
+marcador en vivo, alineaciones, estadísticas y un feed de eventos. Y hay que cuidar el SEO: miles de
+páginas de partido y de equipo, sitemaps, datos estructurados para rich snippets. Los Core Web
+Vitals no pueden ser un desastre.
+
+[00:06:40] Consultor: ¿Y la app?
+
+[00:06:46] Marta: App para iOS y Android. Preferimos una sola base de código, React Native o Flutter,
+lo que salga mejor con el equipo. La app tiene que tener el mismo match center, favoritos de equipos
+y competiciones, y notificaciones push de goles. Queremos que funcione en segundo plano: si sigues a
+un equipo, te avisamos aunque no tengas la app abierta. También queremos que aguante sin cobertura,
+al menos mostrando los últimos datos cacheados, y deep links para abrir un partido desde una
+notificación o desde la web.
+
+[00:07:50] Lucía: Perdón, entro un momento con lo de marketing. Las notificaciones son clave para
+retención. Necesitamos un servicio propio de push, no solo "que el sistema operativo lo haga":
+segmentación por equipo favorito, por competición, horarios de silencio, y que no nos inundéis con
+alertas. Queremos medir aperturas y poder hacer campañas puntuales, por ejemplo un aviso de "empieza
+el Clásico". Todo con FCM y APNs por debajo.
+
+[00:09:00] Consultor: Vale, servicio de notificaciones como componente propio. ¿Y qué hay del
+backoffice?
+
+[00:09:08] Iker: Necesitamos un backoffice interno para operaciones. A veces el proveedor se retrasa
+o publica un dato mal y hay que corregir a mano: resultado final, goleadores, cambios de hora del
+partido. También para gestionar competiciones, equipos, escudos y redacción editorial de portadas.
+Con roles y auditoría de quién toca qué. No puede ser una herramienta bonita; tiene que ser fiable y
+con histórico de cambios.
+
+[00:10:05] Marta: Y luego está el tema de usuarios. Al principio podíamos ir sin cuentas, pero para
+sincronizar favoritos entre web y app y para la suscripción premium necesitamos registro e inicio de
+sesión: email, Google y Apple. Perfil, gestión de favoritos y borrado de cuenta conforme a GDPR.
+Nada de redes sociales más allá de eso.
+
+[00:10:55] Consultor: Habéis mencionado suscripción premium. Contadme.
+
+[00:11:02] Lucía: Sí. Dos modelos: publicidad para todos y una suscripción de pago que quite la
+publicidad y desbloquee estadísticas avanzadas y alertas ilimitadas. En la web con Stripe, y en la
+app con compra in-app para cumplir con Apple y Google. Necesitamos gestión de planes, cupones,
+periodos de prueba y webhooks de renovación y cancelación. Y que el estado premium se refleje en web
+y app sin recargar.
+
+[00:12:05] Consultor: Anotado. ¿Infraestructura y operación?
+
+[00:12:12] Iker: Lo dejamos abierto, pero tiene que ser cloud con autoscaling, CDN para estáticos y
+para las páginas cacheadas, y toda la infraestructura como código. Los picos de partidos son
+brutales: la cola de eventos y el WebSocket tienen que escalar por separado del resto. Queremos
+observabilidad de verdad: métricas de ingestión, latencia de evento a pantalla, errores y alertas.
+También rate limiting en la API pública y protección contra scraping agresivo.
+
+[00:13:10] Marta: Y analítica de producto. Nada de un data warehouse gigante, pero sí eventos de
+uso: partidos vistos, favoritos, notificaciones abiertas, conversión a premium. Un cuadro de mando
+interno para producto y marketing.
+
+[00:13:50] Consultor: Hasta aquí me salen bastantes componentes: ingesta y normalización de datos,
+backend y API, capa de tiempo real, web pública, app móvil, notificaciones push, backoffice, cuentas
+y favoritos, monetización con ads y suscripción, infraestructura y observabilidad, y analítica de
+producto. ¿Es correcto o hay algo que quitéis del alcance?
+
+[00:14:35] Marta: Correcto. Lo que sí quiero dejar claro es la prioridad: sin ingesta, backend y
+tiempo real no hay producto. Web y app son la cara visible, pero el MVP necesita las tres primeras.
+El resto lo queremos todo en la estimación, aunque el orden de entrega lo decidamos después.
+
+[00:15:10] Consultor: ¿Plazos y equipo?
+
+[00:15:14] Iker: El equipo interno se maneja con Node.js y React; para móvil estamos abiertos a
+React Native o Flutter, lo que estiméis más sensato. Base de datos relacional, PostgreSQL, y Redis
+para caché y pub/sub. Un MVP en cuatro meses sería ideal y el producto completo en nueve. Pero
+prefiero una estimación honesta por componente y un total, no una fecha optimista.
+
+[00:16:00] Consultor: Lo tendréis. Antes de cerrar: ¿hay requisitos legales o de terceros que
+condicionen?
+
+[00:16:08] Marta: Sí, dos. No vamos a emitir vídeo ni streaming, solo datos y estadísticas, así que
+nada de derechos audiovisuales. Y el contrato con el proveedor de datos limita cuánto podemos
+mostrar en la API pública y con qué atribución; habrá que respetar sus términos. También RGPD para
+las cuentas y las notificaciones, con consentimiento explícito para el push.
+
+[00:16:50] Consultor: Perfecto. Os preparo una estimación de esfuerzo desglosada por componente y un
+total, apoyada en presupuestos históricos de proyectos parecidos. Marta: eso es justo lo que
+necesito para el comité. Gracias.

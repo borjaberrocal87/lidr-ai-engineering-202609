@@ -1,0 +1,63 @@
+<%- include('../partials/head', { title: 'Ejecución del grafo' }) %>
+<%- include('../partials/header') %>
+
+<div class="max-w-5xl mx-auto py-12 px-4">
+  <div class="flex items-start justify-between gap-4 mb-6">
+    <div>
+      <h1 class="text-3xl font-bold tracking-tighter text-white">Ejecución del grafo</h1>
+      <p class="text-white/60 text-sm mt-1">
+        estimation <span class="font-mono text-white/80"><%= result.estimation_id %></span> ·
+        <%= (result.node_runs || []).length %> nodos ·
+        status
+        <span class="<%= result.status === 'validated' ? 'text-green-300' : 'text-yellow-200' %> font-bold">
+          <%= result.status || 'sin status' %>
+        </span>
+      </p>
+    </div>
+    <div class="flex items-center gap-4">
+      <a href="/graph-estimations/new" class="text-brand font-bold hover:text-brand-soft tracking-tight">
+        ← Nueva ejecución
+      </a>
+      <button id="download-run" type="button" class="btn-primary">
+        Descargar ejecución (.txt)
+      </button>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="p-4 mb-6 rounded-md border border-red-400/40 bg-red-400/10 text-red-200">
+      <%= error %>
+    </div>
+  <% } %>
+
+  <% if (result.status === 'needs_review') { %>
+    <div class="p-4 mb-6 rounded-md border border-yellow-400/40 bg-yellow-400/10 text-yellow-100">
+      La validación marcó la estimación para revisión. Revisa los avisos al final.
+    </div>
+  <% } %>
+
+  <section class="mb-10">
+    <h2 class="text-xl font-bold tracking-tight text-white mb-4">Timeline del grafo</h2>
+    <%- include('_pipeline', { nodeRuns: result.node_runs }) %>
+  </section>
+
+  <section>
+    <h2 class="text-xl font-bold tracking-tight text-white mb-4">Requisitos, componentes y estimación</h2>
+    <%- include('_estimate', { result }) %>
+  </section>
+</div>
+
+<script>
+  const runText = <%- JSON.stringify(result.run_text) %>;
+  document.getElementById("download-run")?.addEventListener("click", () => {
+    const blob = new Blob([runText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "graph-run.txt";
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+</script>
+
+<%- include('../partials/footer') %>
