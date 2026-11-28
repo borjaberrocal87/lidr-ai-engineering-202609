@@ -1,0 +1,196 @@
+==============================================================================
+SESSION 13 — ESTIMATION GRAPH RUN
+==============================================================================
+estimation_id : s13-marcador
+status        : needs_review
+
+NODE TIMELINE
+  - extract_requirements: 19232.252 ms
+  - classify_components: 23093.036 ms
+  - search_budgets: 4631.186 ms
+  - generate_estimate: 0.594 ms
+  - validate_and_consolidate: 0.523 ms
+
+REQUIREMENTS
+  - Integrate with a primary real-time sports data provider (e.g., Sportradar or Opta) via webhooks and/or polling.
+  - Implement a fallback data provider (e.g., API-Football) to use when the primary provider fails or lacks coverage.
+  - Build a data integration layer that normalizes provider data into unified domain entities: matches, teams, players, lineups, goals, cards, substitutions, match statistics, and standings.
+  - Reconcile webhook and polling ingestion paths to prevent duplicate events.
+  - Allow adding new competitions via configuration (no or minimal code changes).
+  - Provide historical results and standings covering the last ten seasons for searchable access.
+  - Implement a backend domain model and storage for competitions, seasons, teams, players, matches, and events.
+  - Expose a public REST API for web and mobile clients and separate internal API endpoints for the backoffice.
+  - Implement Match Center API endpoints serving live score, current minute, lineups, per-minute/event feed, and match statistics.
+  - Expose API endpoints for standings, calendars/schedules, team profiles, player profiles, and a global search.
+  - Use Redis (or equivalent) for aggressive caching of hot reads to reduce provider/API load.
+  - Build a real-time delivery layer using WebSockets for web and mobile delivering events to clients within two seconds.
+  - Design the real-time system to support up to 500,000 concurrent users with efficient fan-out.
+  - Support per-subscription channels in the real-time layer (subscribe by match and by competition).
+  - Implement robust reconnection logic for WebSocket clients to resume subscriptions cleanly after disconnects.
+  - Target 99.9% availability for the real-time system during match hours.
+  - Develop the public website using React/Next.js with server-side rendering so match and team pages are indexable by search engines.
+  - Make the website responsive, performant, and multilingual (Spanish and English) from launch.
+  - Implement per-match pages on the website with live score, lineups, statistics, and an event feed.
+  - Generate sitemaps and structured data (schema.org or equivalent) for match and team pages to support rich snippets.
+  - Design for good Core Web Vitals (fast loading, interactivity, visual stability) for the public site.
+  - Deliver mobile apps for iOS and Android from a single codebase (React Native or Flutter).
+  - Include the same Match Center experience in the mobile apps as on the web.
+  - Implement favorites management in web and mobile and synchronize favorites across devices when users are logged in.
+  - Implement push notifications for goals and other events, delivered via APNs and FCM.
+  - Support background push notifications so users receive alerts even if the app is not open when they follow a team.
+  - Provide offline support in the mobile apps to show the last cached data when there is no network.
+  - Support deep links that open a specific match in the app from notifications or from the web.
+  - Build an in-house notification service that uses FCM and APNs and supports segmentation by favorite team/competition.
+  - Notification service must support quiet hours/preferences, campaign messages, measurement of opens, and ad-hoc campaign sends (e.g., “match starting” broadcasts).
+  - Provide webhook/events and metrics for notification deliveries and opens for marketing and analytics.
+  - Provide an internal backoffice UI for operations to correct provider data (match results, goal scorers, match time changes) manually.
+  - Backoffice must allow management of competitions, teams, team badges/escudos, and editorial home pages.
+  - Implement role-based access control in the backoffice and an audit log/historical record of all changes.
+  - Support user accounts with registration and login via email, Google Sign-In, and Sign in with Apple.
+  - Provide user profiles with favorites management and account deletion that complies with GDPR.
+  - Implement explicit consent capture and storage for push notifications and other GDPR-relevant actions.
+  - Support a monetization model with ad-supported free tier and a paid subscription that removes ads, enables advanced statistics, and enables unlimited alerts.
+  - Integrate Stripe for web payments and implement platform-compliant in-app purchases for iOS and Android.
+  - Implement subscription management: plans, coupons, trial periods, and webhooks for renewals and cancellations.
+  - Ensure premium/subscription state is reflected in web and mobile clients in real time without requiring a full page/app reload.
+  - Host infrastructure in cloud with autoscaling, CDN for static assets and cached pages, and infrastructure-as-code.
+  - Design event ingestion queues and WebSocket/fan-out infrastructure to scale independently from the rest of the system.
+  - Implement observability: metrics for ingestion rate, event-to-screen latency, API latencies and errors, and alerting.
+  - Implement public API rate limiting and protections against aggressive scraping.
+  - Emit product analytics events (matches viewed, favorites set, notifications opened, conversion to premium) and provide an internal dashboard for product and marketing.
+  - Respect data provider contractual limits on what can be exposed in the public API and include required attribution metadata.
+  - Use PostgreSQL as the relational database and Redis for cache and pub/sub in the reference architecture.
+  - Prefer Node.js and React for web/backend stack given internal team skills; mobile tech (React Native or Flutter) to be decided during implementation.
+
+COMPONENTS
+  - Sports Data Ingestion & Normalization [integration]
+  - Historical Data & Archive [integration]
+  - Core Backend & Domain Services [backend]
+  - Match Center & Public/Internal APIs [backend]
+  - Realtime Platform (WebSockets & Fan‑out) [backend]
+  - Notifications Service (FCM / APNs) [backend]
+  - Authentication & User Management [backend]
+  - Payments & Subscriptions [backend]
+  - Backoffice & Ops UI [frontend]
+  - Public Website (React / Next.js) [frontend]
+  - Mobile Apps (iOS / Android) [mobile]
+  - Analytics & Observability [analytics]
+  - Infrastructure & Platform (Cloud, CDN, IaC) [infrastructure]
+
+BUDGET MATCHES (accumulator field)
+  - Sports Data Ingestion & Normalization: 19.0h (ref TASK-2024-0049, distance 0.5687)
+  - Sports Data Ingestion & Normalization: 24.0h (ref TASK-2022-0015, distance 0.569)
+  - Sports Data Ingestion & Normalization: 38.0h (ref TASK-2024-0052, distance 0.5711)
+  - Sports Data Ingestion & Normalization: 26.0h (ref TASK-2025-0056, distance 0.5725)
+  - Sports Data Ingestion & Normalization: 46.0h (ref TASK-2024-0049, distance 0.5735)
+  - Sports Data Ingestion & Normalization: 23.0h (ref TASK-2024-0052, distance 0.5749)
+  - Sports Data Ingestion & Normalization: 25.0h (ref TASK-2025-0056, distance 0.5751)
+  - Sports Data Ingestion & Normalization: 26.0h (ref TASK-2022-0015, distance 0.5753)
+  - Historical Data & Archive: 46.0h (ref TASK-2024-0049, distance 0.5607)
+  - Historical Data & Archive: 45.0h (ref TASK-2022-0036, distance 0.562)
+  - Historical Data & Archive: 41.0h (ref TASK-2025-0002, distance 0.562)
+  - Historical Data & Archive: 45.0h (ref TASK-2025-0003, distance 0.5626)
+  - Historical Data & Archive: 53.0h (ref TASK-2022-0027, distance 0.5634)
+  - Historical Data & Archive: 26.0h (ref TASK-2025-0056, distance 0.564)
+  - Historical Data & Archive: 32.0h (ref TASK-2022-0033, distance 0.5665)
+  - Historical Data & Archive: 47.0h (ref TASK-2024-0009, distance 0.5667)
+  - Core Backend & Domain Services: 200.0h (ref BUD-2024-016, distance 0.5023)
+  - Core Backend & Domain Services: 42.0h (ref TASK-2022-0027, distance 0.5553)
+  - Core Backend & Domain Services: 28.0h (ref TASK-2022-0010, distance 0.5595)
+  - Core Backend & Domain Services: 36.0h (ref TASK-2024-0016, distance 0.5599)
+  - Core Backend & Domain Services: 34.0h (ref TASK-2024-0054, distance 0.5613)
+  - Core Backend & Domain Services: 39.0h (ref TASK-2022-0035, distance 0.5635)
+  - Core Backend & Domain Services: 33.0h (ref TASK-2022-0033, distance 0.5645)
+  - Core Backend & Domain Services: 35.0h (ref TASK-2023-0014, distance 0.5647)
+  - Realtime Platform (WebSockets & Fan‑out): 62.0h (ref TASK-2025-0019, distance 0.4886)
+  - Realtime Platform (WebSockets & Fan‑out): 37.0h (ref TASK-2024-0052, distance 0.4888)
+  - Realtime Platform (WebSockets & Fan‑out): 54.0h (ref TASK-2024-0052, distance 0.4916)
+  - Realtime Platform (WebSockets & Fan‑out): 44.0h (ref TASK-2022-0010, distance 0.4922)
+  - Realtime Platform (WebSockets & Fan‑out): 36.0h (ref TASK-2025-0006, distance 0.4937)
+  - Realtime Platform (WebSockets & Fan‑out): 52.0h (ref TASK-2022-0026, distance 0.4947)
+  - Realtime Platform (WebSockets & Fan‑out): 50.0h (ref TASK-2024-0049, distance 0.495)
+  - Realtime Platform (WebSockets & Fan‑out): 40.0h (ref TASK-2022-0027, distance 0.4968)
+  - Notifications Service (FCM / APNs): 24.0h (ref TASK-2022-0033, distance 0.4928)
+  - Notifications Service (FCM / APNs): 34.0h (ref TASK-2022-0035, distance 0.4929)
+  - Notifications Service (FCM / APNs): 60.0h (ref BUD-2024-001, distance 0.5008)
+  - Notifications Service (FCM / APNs): 31.0h (ref TASK-2023-0058, distance 0.5022)
+  - Notifications Service (FCM / APNs): 26.0h (ref TASK-2023-0014, distance 0.5077)
+  - Notifications Service (FCM / APNs): 33.0h (ref TASK-2024-0054, distance 0.5136)
+  - Notifications Service (FCM / APNs): 24.0h (ref TASK-2022-0035, distance 0.5139)
+  - Notifications Service (FCM / APNs): 16.0h (ref TASK-2022-0033, distance 0.514)
+  - Authentication & User Management: 17.0h (ref TASK-2025-0019, distance 0.4922)
+  - Authentication & User Management: 19.0h (ref TASK-2025-0056, distance 0.4931)
+  - Authentication & User Management: 26.0h (ref TASK-2024-0052, distance 0.4941)
+  - Authentication & User Management: 23.0h (ref TASK-2022-0034, distance 0.4943)
+  - Authentication & User Management: 27.0h (ref TASK-2024-0037, distance 0.4992)
+  - Authentication & User Management: 23.0h (ref TASK-2023-0029, distance 0.5002)
+  - Authentication & User Management: 22.0h (ref TASK-2024-0060, distance 0.5007)
+  - Authentication & User Management: 12.0h (ref TASK-2022-0040, distance 0.5015)
+  - Payments & Subscriptions: 41.0h (ref TASK-2022-0007, distance 0.4198)
+  - Payments & Subscriptions: 35.0h (ref TASK-2022-0032, distance 0.4221)
+  - Payments & Subscriptions: 32.0h (ref TASK-2024-0054, distance 0.4228)
+  - Payments & Subscriptions: 26.0h (ref TASK-2024-0059, distance 0.4235)
+  - Payments & Subscriptions: 34.0h (ref TASK-2024-0003, distance 0.4244)
+  - Payments & Subscriptions: 45.0h (ref TASK-2024-0038, distance 0.4307)
+  - Payments & Subscriptions: 56.0h (ref TASK-2024-0054, distance 0.5159)
+  - Payments & Subscriptions: 38.0h (ref TASK-2022-0032, distance 0.5162)
+  - Backoffice & Ops UI: 42.0h (ref TASK-2022-0027, distance 0.4244)
+  - Backoffice & Ops UI: 28.0h (ref TASK-2022-0010, distance 0.426)
+  - Backoffice & Ops UI: 36.0h (ref TASK-2024-0016, distance 0.4332)
+  - Backoffice & Ops UI: 31.0h (ref TASK-2025-0042, distance 0.438)
+  - Backoffice & Ops UI: 24.0h (ref TASK-2024-0060, distance 0.4497)
+  - Backoffice & Ops UI: 46.0h (ref TASK-2022-0032, distance 0.4553)
+  - Backoffice & Ops UI: 47.0h (ref TASK-2024-0003, distance 0.4571)
+  - Backoffice & Ops UI: 36.0h (ref TASK-2024-0038, distance 0.459)
+  - Public Website (React / Next.js): 56.0h (ref TASK-2024-0052, distance 0.4244)
+  - Public Website (React / Next.js): 41.0h (ref TASK-2024-0052, distance 0.4302)
+  - Public Website (React / Next.js): 29.0h (ref TASK-2025-0031, distance 0.4355)
+  - Public Website (React / Next.js): 27.0h (ref TASK-2024-0049, distance 0.436)
+  - Public Website (React / Next.js): 42.0h (ref TASK-2025-0031, distance 0.4362)
+  - Public Website (React / Next.js): 43.0h (ref TASK-2024-0021, distance 0.4366)
+  - Public Website (React / Next.js): 29.0h (ref TASK-2025-0045, distance 0.4375)
+  - Public Website (React / Next.js): 40.0h (ref TASK-2025-0005, distance 0.4381)
+  - Mobile Apps (iOS / Android): 60.0h (ref BUD-2024-001, distance 0.5607)
+  - Mobile Apps (iOS / Android): 29.0h (ref TASK-2024-0018, distance 0.5665)
+  - Mobile Apps (iOS / Android): 20.0h (ref TASK-2024-0018, distance 0.5693)
+  - Mobile Apps (iOS / Android): 26.0h (ref TASK-2023-0014, distance 0.5717)
+  - Mobile Apps (iOS / Android): 24.0h (ref TASK-2022-0027, distance 0.5721)
+  - Mobile Apps (iOS / Android): 25.0h (ref TASK-2025-0042, distance 0.5721)
+  - Mobile Apps (iOS / Android): 23.0h (ref TASK-2022-0027, distance 0.5726)
+  - Mobile Apps (iOS / Android): 17.0h (ref TASK-2022-0030, distance 0.5743)
+  - Analytics & Observability: 30.0h (ref TASK-2023-0022, distance 0.4589)
+  - Analytics & Observability: 24.0h (ref TASK-2022-0010, distance 0.4595)
+  - Analytics & Observability: 34.0h (ref TASK-2025-0042, distance 0.4638)
+  - Analytics & Observability: 36.0h (ref TASK-2022-0033, distance 0.465)
+  - Analytics & Observability: 33.0h (ref TASK-2024-0016, distance 0.4676)
+  - Analytics & Observability: 22.0h (ref TASK-2022-0030, distance 0.4706)
+  - Analytics & Observability: 33.0h (ref TASK-2022-0027, distance 0.4782)
+  - Analytics & Observability: 40.0h (ref TASK-2025-0042, distance 0.4813)
+  - Infrastructure & Platform (Cloud, CDN, IaC): 48.0h (ref TASK-2025-0005, distance 0.3727)
+  - Infrastructure & Platform (Cloud, CDN, IaC): 27.0h (ref TASK-2022-0015, distance 0.373)
+  - Infrastructure & Platform (Cloud, CDN, IaC): 44.0h (ref TASK-2024-0052, distance 0.3744)
+  - Infrastructure & Platform (Cloud, CDN, IaC): 34.0h (ref TASK-2023-0057, distance 0.3802)
+  - Infrastructure & Platform (Cloud, CDN, IaC): 44.0h (ref TASK-2023-0014, distance 0.3802)
+  - Infrastructure & Platform (Cloud, CDN, IaC): 36.0h (ref TASK-2025-0003, distance 0.3804)
+  - Infrastructure & Platform (Cloud, CDN, IaC): 40.0h (ref TASK-2022-0033, distance 0.3818)
+  - Infrastructure & Platform (Cloud, CDN, IaC): 36.0h (ref TASK-2023-0007, distance 0.3839)
+  (96 matches total)
+
+ESTIMATE
+  - Sports Data Ingestion & Normalization: 29.3h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Historical Data & Archive: 51.7h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Core Backend & Domain Services: 40.8h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Match Center & Public/Internal APIs: unbudgeted — No historical reference found; not estimated (unbudgeted).
+  - Realtime Platform (WebSockets & Fan‑out): 54.0h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Notifications Service (FCM / APNs): 32.8h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Authentication & User Management: 25.9h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Payments & Subscriptions: 42.0h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Backoffice & Ops UI: 41.4h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Public Website (React / Next.js): 46.6h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Mobile Apps (iOS / Android): 28.2h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Analytics & Observability: 37.9h — Median of 8 historical reference(s) plus a 15% contingency.
+  - Infrastructure & Platform (Cloud, CDN, IaC): 43.7h — Median of 8 historical reference(s) plus a 15% contingency.
+  TOTAL: 474.3h
+
+ERRORS / ISSUES
+  - 'Match Center & Public/Internal APIs' has no historical reference (unbudgeted).

@@ -25,7 +25,7 @@ docker compose exec api python scripts/run_graph_s13.py \
 
 ## Session 13 sample transcript
 
-`sample_transcript_complex.txt` — a discovery meeting for **Marcador**, a live
+`sample_transcript_marcador.txt` — a discovery meeting for **Marcador**, a live
 football-scores platform (Sofascore/Livescore style) with a public **web** and a
 **mobile app**. It exercises a wide, realistic decomposition: data-provider
 ingestion and normalisation (with fallback), backend/API, real-time layer,
@@ -34,9 +34,16 @@ monetization (ads + subscription), infrastructure/observability and product
 analytics — plus peak-concurrency (500k concurrent users) and latency (<2 s)
 constraints, and delivery phases.
 
+Its real run is kept in `trace_marcador.txt` (13 components, 96 reference
+matches, 474.3 h, `status="needs_review"` because one component — Match Center &
+Public/Internal APIs — had no historical reference). It is a good example of the
+Level 3 conditional branch: the validation flags the unbudgeted component instead
+of silently inventing a number.
+
 ```bash
 docker compose exec api python scripts/run_graph_s13.py \
-    --transcript examples/session-13/sample_transcript_complex.txt \
-    --out /tmp/trace_marcador.txt
+    --transcript examples/session-13/sample_transcript_marcador.txt \
+    --estimation-id s13-marcador \
+    --out examples/session-13/trace_marcador.txt
 ```
 

@@ -247,3 +247,30 @@ matches en `budget_matches`. La consolidación determinista usa la mediana de ca
 componente más el 15 % de contingencia y suma 267,1 h; la validación no encontró
 ningún componente `unbudgeted` ni desviaciones de rango, así que el `status` salió
 `validated` a la primera.
+
+## Extra — Marcador (web + app de resultados de fútbol)
+
+Además de la transcripción de entrega, el repo incluye una segunda transcripción
+compleja de otro dominio: `examples/session-13/sample_transcript_marcador.txt`
+(plataforma de resultados de fútbol en vivo, con web y app móvil). Su ejecución
+real está en `examples/session-13/trace_marcador.txt` (`thread_id=s13-marcador`):
+
+- 13 componentes (ingesta de datos deportivos, histórico, backend, match center y
+  APIs, tiempo real, notificaciones, cuentas, pagos, backoffice, web, apps
+  móviles, analítica/observabilidad e infraestructura).
+- 96 referencias históricas acumuladas por `search_budgets` (secuencial).
+- `total_hours = 474,3` y `status = "needs_review"`: el componente *Match Center &
+  Public/Internal APIs* quedó `unbudgeted` (el corpus no tenía una referencia
+  suficientemente cercana), así que la validación no inventó un número y enrutó
+  por la rama `needs_review` del Nivel 3. Es el caso que el directo resolverá con
+  fallback/retry y, llegado el caso, intervención humana.
+- Persistida en el checkpointer con 7 checkpoints (uno por nodo más el inicial).
+
+Reproducción:
+
+```bash
+uv run python scripts/run_graph_s13.py \
+    --transcript examples/session-13/sample_transcript_marcador.txt \
+    --estimation-id s13-marcador \
+    --out examples/session-13/trace_marcador.txt
+```
