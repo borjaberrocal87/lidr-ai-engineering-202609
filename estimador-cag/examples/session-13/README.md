@@ -22,3 +22,21 @@ docker compose exec api python scripts/run_graph_s13.py \
 
 `trace_complex.txt` is the real deliverable run, reproduced in
 [`docs/sesion-13-grafo-langgraph.md`](../../docs/sesion-13-grafo-langgraph.md).
+
+## Session 13 sample transcript
+
+`sample_transcript_complex.txt` — a discovery meeting for **Marcador**, a live
+football-scores platform (Sofascore/Livescore style) with a public **web** and a
+**mobile app**. It exercises a wide, realistic decomposition: data-provider
+ingestion and normalisation (with fallback), backend/API, real-time layer,
+public web, mobile app, push notifications, backoffice, accounts and favourites,
+monetization (ads + subscription), infrastructure/observability and product
+analytics — plus peak-concurrency (500k concurrent users) and latency (<2 s)
+constraints, and delivery phases.
+
+```bash
+docker compose exec api python scripts/run_graph_s13.py \
+    --transcript examples/session-13/sample_transcript_complex.txt \
+    --out /tmp/trace_marcador.txt
+```
+
